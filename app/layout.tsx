@@ -1,20 +1,22 @@
+// app/layout.tsx
 import "./globals.css";
-import type { Metadata } from "next";
-import React from "react";
+import TopBar from "./TopBar";
 
-export const metadata: Metadata = {
+export const metadata = {
   title: "DuWIMS",
-  description: "Smart Durian Farm Monitoring System",
+  description: "Smart Durian Dashboard",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="th">
-      <body style={{ margin: 0, background: "#f3f6fb" }}>{children}</body>
+      <body>
+        {/* ท็อปบาร์ใช้ร่วมกันทุกหน้า */}
+        <TopBar />
+
+        {/* กล่องเนื้อหากลางจอ ใช้ร่วมกันทุกหน้า */}
+        <div className="du-main">{children}</div>
+      </body>
     </html>
   );
 }

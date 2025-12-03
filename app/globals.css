@@ -1,137 +1,35 @@
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-
-:root {
-  --green-main: #0c9b42;
-  --green-soft: #c8f4dd;
-  --blue-soft: #e5f3ff;
-  --yellow-soft: #ffeec3;
-  --red-soft: #ffd4d4;
-  --card-radius: 18px;
-  --card-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
-  --text-main: #222;
-  --text-soft: #555;
-  --bg-page: #f5f7fb;
-  --border-soft: #e0e6f0;
-}
-
-html,
 body {
   margin: 0;
-  padding: 0;
-  height: 100%;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  background: var(--bg-page);
-  color: var(--text-main);
+  background: #e5edf8; /* สีเทาอ่อนด้านหลัง */
+  font-family: "Prompt", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
 }
 
-body {
-  display: flex;
-  justify-content: center;
+/* กล่องเนื้อหาหลัก ทุกหน้าจะใช้คลาสนี้ */
+.du-main {
+  max-width: 1120px;
+  margin: 22px auto 40px;
+  padding: 0 16px 30px;
 }
 
-.app-root {
-  width: 100%;
-  max-width: 1440px;
-  min-height: 100vh;
-  background: #fff;
-  box-shadow: 0 0 40px rgba(0, 0, 0, 0.1);
-}
-
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--green-main);
-  color: #fff;
-  padding: 10px 28px;
-}
-
-.app-header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.app-logo {
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  background: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  color: var(--green-main);
-}
-
-.app-title {
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.app-nav {
-  display: flex;
-  gap: 8px;
-}
-
-.app-nav-btn {
-  border: none;
-  background: transparent;
-  color: #e2ffe9;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.05s ease;
-}
-
-.app-nav-btn span.emoji {
-  font-size: 16px;
-}
-
-.app-nav-btn.active {
-  background: rgba(255, 255, 255, 0.2);
-  transform: translateY(-1px);
-}
-
-.app-main {
-  padding: 18px 22px 24px;
-  background: var(--bg-page);
-}
-
-/* generic cards */
-
+/* เผื่อใช้ซ้ำ: card / table / ปุ่มของหน้า dashboard & history */
 .du-card {
+  border-radius: 24px;
   background: #ffffff;
-  border-radius: var(--card-radius);
-  box-shadow: var(--card-shadow);
-  padding: 16px 18px;
+  padding: 18px 22px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
 }
 
 .du-card-title {
-  font-size: 15px;
-  font-weight: 600;
-  margin-bottom: 10px;
-}
-
-.du-grid-2 {
-  display: grid;
-  grid-template-columns: 2fr 1.7fr;
-  gap: 14px;
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
 }
 
 .du-grid-3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 16px;
 }
 
 .du-grid-4 {
@@ -143,40 +41,21 @@ body {
 .du-tag {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  justify-content: center;
   border-radius: 999px;
+  padding: 4px 10px;
   font-size: 12px;
-  background: rgba(0, 0, 0, 0.04);
 }
 
 .du-badge-success {
-  background: #e2ffef;
+  background: #dcfce7;
   color: #15803d;
 }
 
 .du-badge-danger {
-  background: #ffe2e2;
+  background: #fee2e2;
   color: #b91c1c;
 }
-
-/* tiny map / graph placeholders */
-
-.map-placeholder,
-.graph-placeholder {
-  width: 100%;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #d2e9ff, #e9f8ff);
-  border: 1px solid #c3defa;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #234f8b;
-  font-size: 13px;
-  padding: 14px;
-}
-
-/* tables */
 
 .du-table {
   width: 100%;
@@ -186,90 +65,30 @@ body {
 
 .du-table th,
 .du-table td {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border-soft);
-}
-
-.du-table th {
+  padding: 6px 10px;
+  border-bottom: 1px solid #e5e7eb;
   text-align: left;
-  font-weight: 600;
-  color: var(--text-soft);
 }
-
-/* form */
 
 .du-form-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  margin-bottom: 10px;
-}
-
-.du-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
+  margin-top: 10px;
 }
 
 .du-field label {
-  font-weight: 500;
-  color: var(--text-soft);
+  display: block;
+  font-size: 12px;
+  margin-bottom: 4px;
+  color: #e5e7eb;
 }
 
 .du-field input,
-.du-field select,
-.du-field textarea {
+.du-field select {
+  width: 100%;
   border-radius: 999px;
-  border: 1px solid var(--border-soft);
-  padding: 7px 12px;
-  font-size: 13px;
-}
-
-.du-btn-primary {
   border: none;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #4f46e5, #22c55e);
-  color: #fff;
-  padding: 8px 22px;
-  font-size: 14px;
-  cursor: pointer;
-  margin-top: 12px;
-}
-
-.du-btn-danger {
-  border: none;
-  border-radius: 999px;
-  background: #ef4444;
-  color: #fff;
-  padding: 6px 14px;
+  padding: 8px 12px;
   font-size: 13px;
-  cursor: pointer;
-}
-
-/* responsive */
-
-@media (max-width: 960px) {
-  .app-main {
-    padding: 12px;
-  }
-  .du-grid-2 {
-    grid-template-columns: 1fr;
-  }
-  .du-grid-3,
-  .du-grid-4 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 640px) {
-  .app-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-  }
-  .du-grid-3,
-  .du-grid-4 {
-    grid-template-columns: 1fr;
-  }
 }
