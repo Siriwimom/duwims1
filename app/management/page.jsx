@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { useRouter } from "next/navigation";
 import TopBar from "../TopBar";
 
@@ -42,8 +42,8 @@ const styles = {
   headerBar: {
     borderRadius: 20,
     padding: "8px 14px",
-    background:
-      "linear-gradient(90deg,#0f766e 0%,#22c55e 35%,#2dd4bf 65%,#fb7185 100%)",
+    background: "linear-gradient(135deg,#40B596,#676FC7)",
+            color: "#fff",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
@@ -71,51 +71,39 @@ const styles = {
   btnOrange: { background: "#ffb347", color: "#111827" },
   btnYellow: { background: "#ffe45e", color: "#111827" },
 
-  // กล่อง 4 คอลัมน์ด้านบน
+  // GRID ด้านบน (4 ช่อง dropdown)
   topGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
     gap: 12,
     marginTop: 6,
   },
-  columnCard: {
+  dropdownCard: {
     borderRadius: 18,
     background:
       "linear-gradient(135deg,#e0f2fe 0%,#e0f7ff 45%,#d1fae5 100%)",
-    padding: "10px 10px 8px",
+    padding: "10px 10px 10px",
     fontSize: 12,
+    boxShadow: "0 4px 10px rgba(15,23,42,0.15)",
   },
-  columnHeader: {
-    fontSize: 12,
+  fieldLabel: {
+    fontSize: 11,
     fontWeight: 600,
     color: "#1f2933",
     marginBottom: 4,
+    display: "block",
   },
-  columnTable: {
+  fieldSelect: {
     width: "100%",
-    borderCollapse: "separate",
-    borderSpacing: "0 5px",
+    borderRadius: 14,
+    border: "none",
+    padding: "6px 10px",
     fontSize: 12,
-  },
-  columnTh: {
-    textAlign: "left",
-    padding: "2px 6px 4px",
-    color: "#6b7280",
-    fontWeight: 500,
-    fontSize: 11,
-  },
-  columnTd: {
-    padding: "5px 8px",
-  },
-  rowPill: {
-    borderRadius: 999,
+    outline: "none",
+    color: "#0f172a",
+    background: "rgba(255,255,255,0.96)",
+    boxShadow: "0 1px 3px rgba(148,163,184,0.6) inset",
     cursor: "pointer",
-  },
-  rowPillSelected: {
-    borderRadius: 999,
-    cursor: "pointer",
-    background: "linear-gradient(90deg,#c7ebff,#e0e7ff)",
-    boxShadow: "0 2px 6px rgba(148,163,184,0.7)",
   },
 
   // MAP
@@ -215,10 +203,9 @@ const sensors = [
 ];
 
 export default function ManagementPage() {
-  const [selectedField, setSelectedField] = useState(1);
   const router = useRouter();
 
-  // polygon แทนขอบเขตแปลง (ลองเปลี่ยนเป็นพิกัดสวนจริงของ Pat ได้)
+  // polygon แทนขอบเขตแปลง
   const fieldPolygon = [
     [13.35, 101.0],
     [13.35, 101.2],
@@ -238,7 +225,6 @@ export default function ManagementPage() {
 
   return (
     <div style={pageStyle}>
-      
       <main className="du-management" style={bodyStyle}>
         {/* PANEL บนสุด */}
         <section style={styles.mainPanel}>
@@ -267,122 +253,46 @@ export default function ManagementPage() {
             </div>
           </div>
 
-          {/* 4 กล่องด้านบน */}
+          {/* 4 DROPDOWN ด้านบน */}
           <div style={styles.topGrid}>
-            {/* แปลง */}
-            <div style={styles.columnCard}>
-              <div style={styles.columnHeader}>แปลง</div>
-              <table style={styles.columnTable}>
-                <thead>
-                  <tr>
-                    <th style={styles.columnTh}>ลำดับ</th>
-                    <th style={styles.columnTh}>ชื่อแปลง</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[1, 2, 3].map((id) => (
-                    <tr
-                      key={id}
-                      style={
-                        id === selectedField
-                          ? styles.rowPillSelected
-                          : styles.rowPill
-                      }
-                      onClick={() => setSelectedField(id)}
-                    >
-                      <td style={styles.columnTd}>{id}</td>
-                      <td style={styles.columnTd}>
-                        {id === 1 ? "แปลง A" : id === 2 ? "แปลง B" : "แปลง C"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {/* เลือกแปลง */}
+            <div style={styles.dropdownCard}>
+              <label style={styles.fieldLabel}>แปลง</label>
+              <select defaultValue="A" style={styles.fieldSelect}>
+                <option value="A">แปลง A – ทุเรียนล่าง</option>
+                <option value="B">แปลง B – ทุเรียนบน</option>
+                <option value="C">แปลง C</option>
+              </select>
             </div>
 
-            {/* Node */}
-            <div style={styles.columnCard}>
-              <div style={styles.columnHeader}>เลือก Node</div>
-              <table style={styles.columnTable}>
-                <thead>
-                  <tr>
-                    <th style={styles.columnTh}>Node</th>
-                    <th style={styles.columnTh}>ชื่อ Node</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr style={styles.rowPillSelected}>
-                    <td style={styles.columnTd}>1</td>
-                    <td style={styles.columnTd}>จัน</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>2</td>
-                    <td style={styles.columnTd}>ภา</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>3</td>
-                    <td style={styles.columnTd}>ส้ม</td>
-                  </tr>
-                </tbody>
-              </table>
+            {/* เลือก Node */}
+            <div style={styles.dropdownCard}>
+              <label style={styles.fieldLabel}>เลือก Node</label>
+              <select defaultValue="1" style={styles.fieldSelect}>
+                <option value="1">Node 1 – จัน</option>
+                <option value="2">Node 2 – ภา</option>
+                <option value="3">Node 3 – ส้ม</option>
+              </select>
             </div>
 
             {/* ชนิดเซนเซอร์ */}
-            <div style={styles.columnCard}>
-              <div style={styles.columnHeader}>ชนิดเซนเซอร์</div>
-              <table style={styles.columnTable}>
-                <thead>
-                  <tr>
-                    <th style={styles.columnTh}>ลำดับ</th>
-                    <th style={styles.columnTh}>ชนิดค่า</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr style={styles.rowPillSelected}>
-                    <td style={styles.columnTd}>1</td>
-                    <td style={styles.columnTd}>ความชื้นในดิน</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>2</td>
-                    <td style={styles.columnTd}>ความชื้นสัมพัทธ์</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>3</td>
-                    <td style={styles.columnTd}>การให้น้ำ</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>4</td>
-                    <td style={styles.columnTd}>NPK</td>
-                  </tr>
-                </tbody>
-              </table>
+            <div style={styles.dropdownCard}>
+              <label style={styles.fieldLabel}>ชนิดเซนเซอร์</label>
+              <select defaultValue="soil" style={styles.fieldSelect}>
+                <option value="soil">ความชื้นในดิน</option>
+                <option value="rh">ความชื้นสัมพัทธ์</option>
+                <option value="water">การให้น้ำ</option>
+                <option value="npk">NPK</option>
+              </select>
             </div>
 
-            {/* ตำแหน่ง */}
-            <div style={styles.columnCard}>
-              <div style={styles.columnHeader}>ดึงข้อมูล</div>
-              <table style={styles.columnTable}>
-                <thead>
-                  <tr>
-                    <th style={styles.columnTh}>Pin เซนเซอร์</th>
-                    <th style={styles.columnTh}>Polygon แปลง</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr style={styles.rowPillSelected}>
-                    <td style={styles.columnTd}>Pin Sensor</td>
-                    <td style={styles.columnTd}>แปลง A</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>Pin Sensor</td>
-                    <td style={styles.columnTd}>แปลง B</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>Pin Sensor</td>
-                    <td style={styles.columnTd}>แปลง C</td>
-                  </tr>
-                </tbody>
-              </table>
+            {/* วิธีดึงข้อมูล */}
+            <div style={styles.dropdownCard}>
+              <label style={styles.fieldLabel}>ดึงข้อมูล</label>
+              <select defaultValue="pin" style={styles.fieldSelect}>
+                <option value="pin">จากตำแหน่ง PIN เซนเซอร์</option>
+                <option value="polygon">จาก Polygon แปลง</option>
+              </select>
             </div>
           </div>
 
@@ -390,7 +300,7 @@ export default function ManagementPage() {
           <div style={styles.mapTitle}>แผนที่และทรัพยากร</div>
           <div style={styles.mapWrapper}>
             <MapContainer
-              center={[13.3, 101.1]} // center แถวจังหวัดสวน
+              center={[13.3, 101.1]}
               zoom={11}
               scrollWheelZoom={true}
               style={{ height: 280, width: "100%" }}

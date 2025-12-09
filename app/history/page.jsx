@@ -1,6 +1,6 @@
 "use client";
 
-import TopBar from "../TopBar";
+// import TopBar from "../TopBar"; // ถ้าใช้ TopBar ผ่าน layout แล้ว ไม่ต้อง import ก็ได้
 
 const pageStyle = {
   fontFamily:
@@ -24,18 +24,39 @@ const cardBase = {
 };
 
 export default function HistoryPage() {
+  // ข้อมูลตัวอย่างค่าความชื้นดินรายชั่วโมง
+  const soilSeries = [
+    { time: "08:00", value: 68 },
+    { time: "10:00", value: 72 },
+    { time: "12:00", value: 78 },
+    { time: "14:00", value: 81 },
+    { time: "16:00", value: 76 },
+    { time: "18:00", value: 70 },
+    { time: "20:00", value: 65 },
+  ];
+
+  const values = soilSeries.map((p) => p.value);
+  const minVal = Math.min(...values);
+  const maxVal = Math.max(...values);
+
+  const avgVal =
+    Math.round(
+      (values.reduce((sum, v) => sum + v, 0) / values.length) * 10
+    ) / 10;
+
+  const lastPoint = soilSeries[soilSeries.length - 1];
+  const currentVal = lastPoint.value;
+
   return (
     <div style={pageStyle}>
-      
-
       <main style={bodyStyle} className="du-history">
-        {/* FILTER PANEL */}
+        {/* ===== FILTER PANEL ===== */}
         <div
           className="du-card"
           style={{
             ...cardBase,
             marginBottom: 16,
-            background: "linear-gradient(135deg,#0f766e,#22c55e)",
+            background: "linear-gradient(135deg,#40B596,#676FC7)",
             color: "#fff",
           }}
         >
@@ -93,14 +114,14 @@ export default function HistoryPage() {
             }}
           >
             <div className="du-field" style={{ fontSize: 13 }}>
-              <label style={{ display: "block", marginBottom: 4 }}>
+              <label style={{ display: "block", marginBottom: 4 ,color: "#fff"}}>
                 วันที่เริ่มต้น
               </label>
               <input
                 type="date"
                 defaultValue="2025-09-01"
                 style={{
-                  width: "100%",
+                  width: "515px",
                   borderRadius: 14,
                   border: "none",
                   padding: "6px 10px",
@@ -109,14 +130,14 @@ export default function HistoryPage() {
               />
             </div>
             <div className="du-field" style={{ fontSize: 13 }}>
-              <label style={{ display: "block", marginBottom: 4 }}>
+              <label style={{ display: "block", marginBottom: 4 ,color: "#fff"}}>
                 วันที่สิ้นสุด
               </label>
               <input
                 type="date"
                 defaultValue="2025-09-30"
                 style={{
-                  width: "100%",
+                  width: "515px",
                   borderRadius: 14,
                   border: "none",
                   padding: "6px 10px",
@@ -135,7 +156,7 @@ export default function HistoryPage() {
             }}
           >
             <div className="du-field" style={{ fontSize: 13 }}>
-              <label style={{ display: "block", marginBottom: 4 }}>
+              <label style={{ display: "block", marginBottom: 4 ,color: "#fff"}}>
                 ประเภทเซนเซอร์
               </label>
               <select
@@ -155,7 +176,7 @@ export default function HistoryPage() {
               </select>
             </div>
             <div className="du-field" style={{ fontSize: 13 }}>
-              <label style={{ display: "block", marginBottom: 4 }}>โหนด</label>
+              <label style={{ display: "block", marginBottom: 4 ,color:"#fff"}}>โหนด</label>
               <select
                 defaultValue="all"
                 style={{
@@ -175,7 +196,129 @@ export default function HistoryPage() {
           </div>
         </div>
 
-        {/* ACTIVE CONTAINERS STATUS */}
+        {/* ===== SUMMARY BADGE ROW: 4 กล่องสรุปค่า ===== */}
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4,minmax(0,1fr))",
+            gap: 12,
+            marginBottom: 16,
+          }}
+        >
+          {/* ค่าปัจจุบัน */}
+          <div
+            style={{
+              ...cardBase,
+              padding: "12px 14px",
+              borderRadius: 18,
+              background:
+                "linear-gradient(135deg,#dbeafe 0%,#eff6ff 45%,#ffffff 100%)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                color: "#64748b",
+                marginBottom: 4,
+                fontWeight: 500,
+              }}
+            >
+              ค่าปัจจุบัน
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: "#1d4ed8" }}>
+              {currentVal}%
+            </div>
+            <div style={{ fontSize: 11, color: "#9ca3af" }}>
+              อัปเดตล่าสุด {lastPoint.time}
+            </div>
+          </div>
+
+          {/* ค่าเฉลี่ย */}
+          <div
+            style={{
+              ...cardBase,
+              padding: "12px 14px",
+              borderRadius: 18,
+              background:
+                "linear-gradient(135deg,#dcfce7 0%,#ecfdf5 45%,#ffffff 100%)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                color: "#166534",
+                marginBottom: 4,
+                fontWeight: 500,
+              }}
+            >
+              ค่าเฉลี่ยช่วงที่เลือก
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: "#16a34a" }}>
+              {avgVal}%
+            </div>
+            <div style={{ fontSize: 11, color: "#6b7280" }}>
+              ความชื้นเฉลี่ยของเซนเซอร์นี้
+            </div>
+          </div>
+
+          {/* ต่ำสุด */}
+          <div
+            style={{
+              ...cardBase,
+              padding: "12px 14px",
+              borderRadius: 18,
+              background:
+                "linear-gradient(135deg,#fef9c3 0%,#fffbeb 45%,#ffffff 100%)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                color: "#92400e",
+                marginBottom: 4,
+                fontWeight: 500,
+              }}
+            >
+              ค่าต่ำสุด
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: "#f97316" }}>
+              {minVal}%
+            </div>
+            <div style={{ fontSize: 11, color: "#a3a3a3" }}>
+              ช่วงที่ดินค่อนข้างแห้ง
+            </div>
+          </div>
+
+          {/* สูงสุด */}
+          <div
+            style={{
+              ...cardBase,
+              padding: "12px 14px",
+              borderRadius: 18,
+              background:
+                "linear-gradient(135deg,#fee2e2 0%,#fef2f2 45%,#ffffff 100%)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                color: "#b91c1c",
+                marginBottom: 4,
+                fontWeight: 500,
+              }}
+            >
+              ค่าสูงสุด
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: "#dc2626" }}>
+              {maxVal}%
+            </div>
+            <div style={{ fontSize: 11, color: "#b91c1c" }}>
+              ถ้าเกิน 80% อาจต้องชะลอการให้น้ำ
+            </div>
+          </div>
+        </section>
+
+        {/* ===== ACTIVE CONTAINERS STATUS ===== */}
         <div className="du-card" style={{ ...cardBase, marginBottom: 16 }}>
           <div
             className="du-card-title"
@@ -289,44 +432,191 @@ export default function HistoryPage() {
           </table>
         </div>
 
-        {/* GRAPH SECTION */}
-        <div className="du-card" style={{ ...cardBase, marginBottom: 16 }}>
+        {/* ===== GRAPH SECTION – กราฟความชื้นแบบในรูป ===== */}
+        <div
+          className="du-card"
+          style={{
+            ...cardBase,
+            marginBottom: 16,
+            background:
+              "linear-gradient(180deg,#e0f2fe 0%,#eff6ff 35%,#ffffff 100%)",
+          }}
+        >
           <div
             className="du-card-title"
             style={{ fontSize: 18, fontWeight: 700 }}
           >
-            กราฟแสดงค่าข้อมูลย้อนหลัง
+            กราฟแสดงค่าตามเวลา
           </div>
           <p
             style={{
               fontSize: 12,
-              marginTop: 4,
+              marginTop: 2,
               marginBottom: 10,
               color: "#4b5563",
             }}
           >
-            ค่าความชื้นดินเฉลี่ยรายชั่วโมง – โหนด 1, เซนเซอร์ความชื้นดิน A
+            เซนเซอร์ความชื้นดิน #1 • ความชื้นดิน • แปลง A
           </p>
+
           <div
-            className="graph-placeholder"
             style={{
-              borderRadius: 22,
-              background:
-                "linear-gradient(135deg,#e0f2fe 0%,#fef9c3 50%,#dcfce7 100%)",
-              height: 260,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 14,
-              color: "#0f172a",
-              fontWeight: 500,
+              borderRadius: 18,
+              background: "#ffffff",
+              border: "1px solid #e5e7eb",
+              padding: "10px 12px 6px",
             }}
           >
-            Graph Placeholder – ความชื้นดิน (%)
+            <svg
+              viewBox="0 0 100 60"
+              preserveAspectRatio="none"
+              style={{ width: "100%", height: 220 }}
+            >
+              {[10, 20, 30, 40, 50].map((y) => (
+                <line
+                  key={y}
+                  x1="6"
+                  x2="98"
+                  y1={y}
+                  y2={y}
+                  stroke="#e5edf7"
+                  strokeWidth="0.4"
+                />
+              ))}
+
+              <line
+                x1="6"
+                x2="6"
+                y1="6"
+                y2="54"
+                stroke="#cbd5e1"
+                strokeWidth="0.6"
+              />
+
+              {[
+                { y: 50, t: "20" },
+                { y: 40, t: "30" },
+                { y: 30, t: "40" },
+                { y: 20, t: "50" },
+                { y: 10, t: "60" },
+              ].map((p) => (
+                <text
+                  key={p.y}
+                  x="2"
+                  y={p.y + 1.5}
+                  fontSize="2"
+                  fill="#94a3b8"
+                >
+                  {p.t}
+                </text>
+              ))}
+
+              <text x="2" y="7" fontSize="3" fill="#94a3b8">
+                %
+              </text>
+
+              <defs>
+                <linearGradient id="moistBlue" x1="0" x2="0" y1="0" y2="1">
+                  <stop
+                    offset="0%"
+                    stopColor="#60a5fa"
+                    stopOpacity="0.45"
+                  />
+                  <stop
+                    offset="100%"
+                    stopColor="#60a5fa"
+                    stopOpacity="0"
+                  />
+                </linearGradient>
+              </defs>
+
+              <polygon
+                fill="url(#moistBlue)"
+                points="
+                  6,32  12,20  18,23  24,21  30,24  36,22  42,19  48,24
+                  54,22 60,25  66,23  72,26  78,21  84,24  90,22 96,27
+                  96,54 6,54
+                "
+              />
+
+              <polyline
+                fill="none"
+                stroke="#2563eb"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                points="
+                  6,32  12,20  18,23  24,21  30,24  36,22  42,19  48,24
+                  54,22 60,25  66,23  72,26  78,21  84,24  90,22 96,27
+                "
+              />
+
+              {[
+                [6, 32],
+                [12, 20],
+                [18, 23],
+                [24, 21],
+                [30, 24],
+                [36, 22],
+                [42, 19],
+                [48, 24],
+                [54, 22],
+                [60, 25],
+                [66, 23],
+                [72, 26],
+                [78, 21],
+                [84, 24],
+                [90, 22],
+                [96, 27],
+              ].map(([x, y], i) => (
+                <circle
+                  key={i}
+                  cx={x}
+                  cy={y}
+                  r="0.9"
+                  fill="#2563eb"
+                  stroke="#ffffff"
+                  strokeWidth="0.3"
+                />
+              ))}
+            </svg>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginTop: 4,
+                padding: "0 4px",
+              }}
+            >
+              {[
+                "21 ส.ค.",
+                "22 ส.ค.",
+                "23 ส.ค.",
+                "24 ส.ค.",
+                "25 ส.ค.",
+                "26 ส.ค.",
+                "27 ส.ค.",
+                "28 ส.ค.",
+              ].map((d) => (
+                <span
+                  key={d}
+                  style={{
+                    fontSize: 10,
+                    color: "#94a3b8",
+                    transform: "rotate(-30deg)",
+                    transformOrigin: "left top",
+                    display: "inline-block",
+                  }}
+                >
+                  {d}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* SUMMARY TABLE */}
+        {/* ===== SUMMARY TABLE ===== */}
         <div className="du-card" style={cardBase}>
           <div
             className="du-card-title"

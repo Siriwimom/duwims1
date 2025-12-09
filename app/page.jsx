@@ -1,48 +1,305 @@
 "use client";
 
-import TopBar from "./TopBar";
+import dynamic from "next/dynamic";
 
+// --- dynamic import React-Leaflet เฉพาะฝั่ง client ---
+const MapContainer = dynamic(
+  () => import("react-leaflet").then((m) => m.MapContainer),
+  { ssr: false }
+);
+const TileLayer = dynamic(
+  () => import("react-leaflet").then((m) => m.TileLayer),
+  { ssr: false }
+);
+const Polygon = dynamic(
+  () => import("react-leaflet").then((m) => m.Polygon),
+  { ssr: false }
+);
+const Marker = dynamic(
+  () => import("react-leaflet").then((m) => m.Marker),
+  { ssr: false }
+);
+const Popup = dynamic(
+  () => import("react-leaflet").then((m) => m.Popup),
+  { ssr: false }
+);
+
+// ===== GLOBAL STYLES =====
 const pageStyle = {
   fontFamily:
     '"Prompt", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  background: "#e5edf8", // พื้นหลังเทาอมน้ำเงินเหมือนรูป
+  background: "#e5edf8",
   minHeight: "100vh",
   color: "#111827",
 };
 
 const bodyStyle = {
-  maxWidth: 1120,
+  maxWidth: 1280, // <<< ขยายความกว้างหน้า Dashboard
   margin: "22px auto 40px",
-  padding: "0 16px 30px",
+  paddingTop: 0,
+  paddingRight: 16,
+  paddingBottom: 30,
+  paddingLeft: 16,
 };
 
 const cardBase = {
   background: "#f9fafb",
   borderRadius: 24,
-  padding: "18px 20px",
+  paddingTop: 18,
+  paddingRight: 20,
+  paddingBottom: 18,
+  paddingLeft: 20,
   boxShadow: "0 4px 10px rgba(15,23,42,0.12)",
 };
 
-const grid3  = {
+const grid3Top = {
   display: "grid",
-  gridTemplateColumns: "2fr 1.1fr 1.1fr", // ซ้ายกว้าง ขวา 2 ช่องเท่ากัน
+  gridTemplateColumns: "2fr 1.1fr 1.1fr",
   gap: 16,
 };
 
-const grid4  = {
+const grid3Middle = grid3Top;
+
+// แถว PIN ให้การ์ดสูงเท่ากัน
+const grid3Pins = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 16,
+  alignItems: "stretch",
+  gridAutoRows: "1fr",
+};
+
+const grid4 = {
   display: "grid",
   gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
   gap: 8,
 };
 
+// ===== PIN CARD STYLES =====
+const pinCardBase = {
+  borderRadius: 30,
+  background: "#dfffee",
+  paddingTop: 14,
+  paddingRight: 14,
+  paddingBottom: 16,
+  paddingLeft: 14,
+  boxShadow: "0 10px 24px rgba(15,23,42,0.12)",
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+};
+
+const pinHeaderRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  marginBottom: 10,
+};
+
+const pinTitleBlock = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 2,
+};
+
+const pinTitle = {
+  fontSize: 18,
+  fontWeight: 700,
+};
+
+const pinSubtitle = {
+  fontSize: 11,
+  color: "#6b7280",
+};
+
+const pinStatus = {
+  fontSize: 18,
+  fontWeight: 700,
+  color: "#16a34a",
+};
+
+const pinPillRow = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: 8,
+  marginBottom: 12,
+};
+
+const pinInfoPill = {
+  borderRadius: 999,
+  background: "#ffffff",
+  paddingTop: 6,
+  paddingRight: 10,
+  paddingBottom: 6,
+  paddingLeft: 10,
+  fontSize: 11,
+  boxShadow: "0 1px 3px rgba(148,163,184,0.35)",
+};
+
+const pinInfoLabel = {
+  fontSize: 10,
+  color: "#6b7280",
+  marginBottom: 2,
+};
+
+const pinInfoValue = {
+  fontSize: 12,
+  fontWeight: 600,
+};
+
+const pinGroupContainer = {
+  borderRadius: 22,
+  background: "rgba(255,255,255,0.85)",
+  paddingTop: 8,
+  paddingRight: 10,
+  paddingBottom: 10,
+  paddingLeft: 10,
+  marginBottom: 6,
+};
+
+const pinGroupLabel = {
+  fontSize: 12,
+  fontWeight: 600,
+  marginBottom: 4,
+};
+
+const pinGroupGrid = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 6,
+};
+
+const pinGroupItem = {
+  borderRadius: 999,
+  background: "#f9fafb",
+  paddingTop: 5,
+  paddingRight: 8,
+  paddingBottom: 5,
+  paddingLeft: 8,
+  fontSize: 11,
+  boxShadow: "0 1px 2px rgba(148,163,184,0.35)",
+};
+
+const pinSensorName = {
+  fontWeight: 500,
+  marginBottom: 1,
+};
+
+const pinSensorValue = {
+  fontSize: 10,
+  color: "#6b7280",
+};
+
+// ===== DATA สำหรับ PIN =====
+function getPinSensorGroups(pin) {
+  // ความชื้นดิน – กำหนดให้ Pin 3 ตัวแรกเป็นปัญหา (alert)
+  let moistureItems;
+  if (pin === 3) {
+    moistureItems = [
+      {
+        name: "เซนเซอร์ความชื้นดิน #1",
+        value: "ความชื้นดิน - 38 % (เกินเกณฑ์)",
+        isAlert: true, // <<< highlight
+      },
+      {
+        name: "เซนเซอร์ความชื้นดิน #2",
+        value: "ความชื้นดิน - 42 %",
+        isAlert: false,
+      },
+    ];
+  } else {
+    const moist1 = pin === 1 ? "32 %" : "35 %";
+    const moist2 = pin === 1 ? "38 %" : "40 %";
+    moistureItems = [
+      {
+        name: "เซนเซอร์ความชื้นดิน #1",
+        value: `ความชื้นดิน - ${moist1}`,
+        isAlert: false,
+      },
+      {
+        name: "เซนเซอร์ความชื้นดิน #2",
+        value: `ความชื้นดิน - ${moist2}`,
+        isAlert: false,
+      },
+    ];
+  }
+
+  return [
+    {
+      group: "เซนเซอร์ความชื้นดิน",
+      items: moistureItems,
+    },
+    {
+      group: "เซนเซอร์ อุณหภูมิ",
+      items: [
+        { name: "เซนเซอร์ อุณหภูมิ #1", value: "อุณหภูมิอากาศ - 31 °C" },
+        { name: "เซนเซอร์ อุณหภูมิ #2", value: "อุณหภูมิอากาศ - 32 °C" },
+        { name: "เซนเซอร์ อุณหภูมิ #3", value: "อุณหภูมิอากาศ - 33 °C" },
+      ],
+    },
+    {
+      group: "เซนเซอร์การให้น้ำ",
+      items: [{ name: "เซนเซอร์การให้น้ำ #1", value: "การให้น้ำ 20 kPa" }],
+    },
+    {
+      group: "เซนเซอร์ความชื้นสัมพัทธ์",
+      items: [
+        {
+          name: "เซนเซอร์ความชื้นสัมพัทธ์ #1",
+          value: "ความชื้นสัมพัทธ์ - 78 %",
+        },
+      ],
+    },
+    {
+      group: "เซนเซอร์ NPK",
+      items: [
+        { name: "เซนเซอร์ NPK #1", value: "ค่าความนำไฟฟ้า - 35 mS/cm" },
+        { name: "เซนเซอร์ NPK #2", value: "ค่าความนำไฟฟ้า - 35 mS/cm" },
+      ],
+    },
+    {
+      group: "เซนเซอร์ความเร็วลม",
+      items: [
+        { name: "เซนเซอร์ความเร็วลม #1", value: "ความเร็วลม - 38 m/s" },
+        { name: "เซนเซอร์ความเร็วลม #2", value: "ความเร็วลม - 38 m/s" },
+      ],
+    },
+    {
+      group: "เซนเซอร์ความเข้มแสง",
+      items: [
+        {
+          name: "เซนเซอร์ความเข้มแสง #1",
+          value: "ความเข้มแสง - 38 μmol · m⁻² · s⁻¹",
+        },
+        {
+          name: "เซนเซอร์ความเข้มแสง #2",
+          value: "ความเข้มแสง - 38 μmol · m⁻² · s⁻¹",
+        },
+      ],
+    },
+  ];
+}
+
+// polygon + pin บนแผนที่
+const fieldPolygon = [
+  [13.35, 101.0],
+  [13.35, 101.2],
+  [13.25, 101.2],
+  [13.25, 101.0],
+];
+
+const mapPins = [
+  { id: 1, position: [13.32, 101.06], label: "Pin 1" },
+  { id: 2, position: [13.31, 101.14], label: "Pin 2" },
+  { id: 3, position: [13.29, 101.11], label: "Pin 3" },
+];
+
 export default function DashboardPage() {
   return (
     <div style={pageStyle}>
-      
-
       <main style={bodyStyle} className="du-dashboard">
-        {/* แถวบน: พยากรณ์ + ค่า ณ ปัจจุบัน + คำแนะนำ */}
-        <div style={{ ...grid3, marginBottom: 16 }}>
+        {/* ===== แถวบน: พยากรณ์ + ค่า ณ ปัจจุบัน + คำแนะนำ ===== */}
+        <div style={{ ...grid3Top, marginBottom: 16 }}>
           {/* พยากรณ์ 7 วัน */}
           <div style={cardBase} className="du-card">
             <div
@@ -66,22 +323,15 @@ export default function DashboardPage() {
                   style={{
                     background: "#eef3ff",
                     borderRadius: 18,
-                    padding: "8px 4px",
+                    paddingTop: 8,
+                    paddingRight: 4,
+                    paddingBottom: 8,
+                    paddingLeft: 4,
                     textAlign: "center",
                   }}
                 >
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{d.day}</div>
-
-                  {/* ไอคอนเมฆ/ฝนแบบง่าย ๆ */}
-                  <div
-                    style={{
-                      fontSize: 20,
-                      margin: "4px 0",
-                    }}
-                  >
-                    🌤️
-                  </div>
-
+                  <div style={{ fontSize: 20, margin: "4px 0" }}>🌤️</div>
                   <div
                     style={{
                       fontSize: 18,
@@ -99,45 +349,55 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* ค่าอุณหภูมิ/โอกาสฝน + Smart Advisory short */}
-          <div style={cardBase} className="du-card">
-            <div
-              className="du-card-title"
-              style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}
-            >
-              อุณหภูมิปัจจุบัน
-            </div>
-
+          {/* อุณหภูมิปัจจุบัน + โอกาสฝนตก (แยกการ์ด) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {/* การ์ดอุณหภูมิปัจจุบัน - BG สีน้ำเงิน */}
             <div
               style={{
-                fontSize: 28,
-                fontWeight: 800,
-                marginBottom: 4,
-                color: "#0f766e",
+                ...cardBase,
+                background: "#1d4ed8", // 🔵 น้ำเงิน
+                color: "#ffffff",
               }}
-            >
-              25 – 32 °C
-            </div>
-            <div
-              style={{
-                fontSize: 13,
-                color: "#4b5563",
-                marginBottom: 12,
-              }}
-            >
-              เหมาะสมกับการเจริญเติบโตของทุเรียน
-            </div>
-
-            <div
-              style={{
-                background: "#fef9c3",
-                borderRadius: 18,
-                padding: "10px 12px",
-                marginBottom: 10,
-              }}
+              className="du-card"
             >
               <div
-                style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}
+                className="du-card-title"
+                style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}
+              >
+                อุณหภูมิปัจจุบัน
+              </div>
+
+              <div
+                style={{
+                  fontSize: 28,
+                  fontWeight: 800,
+                  marginBottom: 4,
+                  color: "#bfdbfe",
+                }}
+              >
+                25 – 32 °C
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "#e0e7ff",
+                }}
+              >
+                เหมาะสมกับการเจริญเติบโตของทุเรียน
+              </div>
+            </div>
+
+            {/* การ์ดโอกาสฝนตก - BG สีเหลือง */}
+            <div
+              style={{
+                ...cardBase,
+                background: "#fef9c3", // 🟡 เหลือง
+              }}
+              className="du-card"
+            >
+              <div
+                className="du-card-title"
+                style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}
               >
                 โอกาสฝนตก
               </div>
@@ -146,6 +406,7 @@ export default function DashboardPage() {
                   fontSize: 24,
                   fontWeight: 800,
                   marginBottom: 2,
+                  color: "#92400e",
                 }}
               >
                 40%
@@ -154,27 +415,9 @@ export default function DashboardPage() {
                 ฝนตกเล็กน้อยช่วงบ่าย
               </div>
             </div>
-
-            <div
-              style={{
-                background: "#dcfce7",
-                borderRadius: 18,
-                padding: "10px 12px",
-              }}
-            >
-              <div
-                style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}
-              >
-                Smart Advisory
-              </div>
-              <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-                📡 ระบบวิเคราะห์ข้อมูลจากเซนเซอร์ + พยากรณ์อากาศ
-                เพื่อสร้างคำแนะนำอัจฉริยะให้เกษตรกร
-              </div>
-            </div>
           </div>
 
-          {/* คำแนะนำ – พื้นหลังแดงเต็มเหมือนรูป */}
+          {/* คำแนะนำ */}
           <div
             className="du-card"
             style={{
@@ -199,9 +442,9 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* แถวกลาง : แผนที่ + สถานะอุปกรณ์ + ปัญหาพื้นที่ */}
-        <div style={{ ...grid3, marginBottom: 16 }} className="du-grid-3">
-          {/* แผนที่ */}
+        {/* ===== แถวกลาง : แผนที่ + สถานะอุปกรณ์ + ปัญหาพื้นที่ ===== */}
+        <div style={{ ...grid3Middle, marginBottom: 16 }} className="du-grid-3">
+          {/* แผนที่และทรัพยากร */}
           <div style={cardBase} className="du-card">
             <div
               className="du-card-title"
@@ -210,26 +453,50 @@ export default function DashboardPage() {
               แผนที่และทรัพยากร
             </div>
             <div
-              className="map-placeholder"
               style={{
                 borderRadius: 22,
-                background:
-                  "linear-gradient(135deg, #dbeafe 0%, #bbf7d0 50%, #fed7aa 100%)",
-                height: 220,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 14,
-                color: "#0f172a",
-                fontWeight: 500,
+                overflow: "hidden",
+                boxShadow: "0 8px 18px rgba(15,23,42,0.18)",
               }}
             >
-              แผนที่พื้นที่สวนทุเรียน
+              <MapContainer
+                center={[13.3, 101.1]}
+                zoom={11}
+                scrollWheelZoom={true}
+                style={{ height: 220, width: "100%" }}
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+
+                <Polygon
+                  positions={fieldPolygon}
+                  pathOptions={{
+                    color: "#16a34a",
+                    weight: 2,
+                    fillColor: "#86efac",
+                    fillOpacity: 0.4,
+                  }}
+                />
+
+                {mapPins.map((p) => (
+                  <Marker key={p.id} position={p.position}>
+                    <Popup>{p.label}</Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
             </div>
           </div>
 
-          {/* สถานะอุปกรณ์ */}
-          <div style={cardBase} className="du-card">
+          {/* สถานะการทำงานของอุปกรณ์ */}
+          <div
+            style={{
+              ...cardBase,
+              background: "#dcfce7", // เขียวอ่อน
+            }}
+            className="du-card"
+          >
             <div
               className="du-card-title"
               style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}
@@ -261,7 +528,10 @@ export default function DashboardPage() {
               <span
                 className="du-tag du-badge-success"
                 style={{
-                  padding: "4px 10px",
+                  paddingTop: 4,
+                  paddingRight: 10,
+                  paddingBottom: 4,
+                  paddingLeft: 10,
                   borderRadius: 999,
                   background: "#22c55e",
                   color: "#fff",
@@ -274,7 +544,10 @@ export default function DashboardPage() {
               <span
                 className="du-tag"
                 style={{
-                  padding: "4px 10px",
+                  paddingTop: 4,
+                  paddingRight: 10,
+                  paddingBottom: 4,
+                  paddingLeft: 10,
                   borderRadius: 999,
                   background: "#e5e7eb",
                   fontSize: 12,
@@ -287,7 +560,13 @@ export default function DashboardPage() {
           </div>
 
           {/* ปัญหาพื้นที่ */}
-          <div style={cardBase} className="du-card">
+          <div
+            style={{
+              ...cardBase,
+              background: "#fed7aa", // ส้มอ่อน
+            }}
+            className="du-card"
+          >
             <div
               className="du-card-title"
               style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}
@@ -301,7 +580,10 @@ export default function DashboardPage() {
               className="du-tag du-badge-danger"
               style={{
                 display: "inline-block",
-                padding: "4px 10px",
+                paddingTop: 4,
+                paddingRight: 10,
+                paddingBottom: 4,
+                paddingLeft: 10,
                 borderRadius: 999,
                 background: "#f97316",
                 color: "#fff",
@@ -314,138 +596,86 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* แถวล่าง : ข้อมูล Pin 1–3 */}
-        <div style={grid3} className="du-grid-3">
+        {/* ===== แถวล่าง : ข้อมูล Pin 1–3 ===== */}
+        <div style={grid3Pins} className="du-grid-3">
           {[1, 2, 3].map((pin) => {
-            const bg =
-              pin === 1 ? "#e0ffe5" : pin === 2 ? "#e0f7ff" : "#ffe4e6";
+            const groups = getPinSensorGroups(pin);
+
+            // สีพื้นหลังเฉพาะ pin 3
+            const backgroundColor = pin === 3 ? "#FFBABA" : "#dfffee";
 
             return (
               <div
                 key={pin}
-                className="du-card"
-                style={{ ...cardBase, background: bg }}
+                style={{
+                  ...pinCardBase,
+                  background: backgroundColor, // override background
+                }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 8,
-                  }}
-                >
-                  <div
-                    className="du-card-title"
-                    style={{ fontSize: 16, fontWeight: 700 }}
-                  >
-                    ข้อมูล : Pin {pin}
+                {/* header การ์ด */}
+                <div style={pinHeaderRow}>
+                  <div style={pinTitleBlock}>
+                    <span style={pinTitle}>ข้อมูล : Pin {pin}</span>
+                    <span style={pinSubtitle}>รายละเอียดแปลงและเซนเซอร์</span>
                   </div>
-                  <span
-                    className="du-tag du-badge-success"
-                    style={{
-                      padding: "4px 12px",
-                      borderRadius: 999,
-                      background: "#22c55e",
-                      color: "#fff",
-                      fontSize: 12,
-                      fontWeight: 600,
-                    }}
-                  >
-                    ON
-                  </span>
+                  <span style={pinStatus}>ON</span>
                 </div>
 
-                {/* ตารางข้อมูลให้ฟีลเหมือนในรูป */}
-                <table
-                  className="du-table"
-                  style={{
-                    width: "100%",
-                    borderCollapse: "separate",
-                    borderSpacing: 0,
-                    fontSize: 12,
-                  }}
-                >
-                  <tbody>
-                    <tr>
-                      <th
-                        style={{
-                          textAlign: "left",
-                          padding: "6px 8px",
-                          fontWeight: 600,
-                          width: "50%",
-                        }}
-                      >
-                        เซนเซอร์ความชื้นในดิน
-                      </th>
-                      <td
-                        style={{
-                          padding: "6px 8px",
-                          background:
-                            pin === 3 ? "#fed7aa" : "rgba(255,255,255,0.7)",
-                        }}
-                      >
-                        {pin === 3 ? "92% (เกินเกณฑ์)" : "65–78%"}
-                      </td>
-                    </tr>
-                    <tr>
-                      <th
-                        style={{
-                          textAlign: "left",
-                          padding: "6px 8px",
-                          fontWeight: 600,
-                        }}
-                      >
-                        อุณหภูมิอากาศ
-                      </th>
-                      <td
-                        style={{
-                          padding: "6px 8px",
-                          background: "rgba(255,255,255,0.7)",
-                        }}
-                      >
-                        {pin === 3 ? "34°C" : "31°C"}
-                      </td>
-                    </tr>
-                    <tr>
-                      <th
-                        style={{
-                          textAlign: "left",
-                          padding: "6px 8px",
-                          fontWeight: 600,
-                        }}
-                      >
-                        ความชื้นสัมพัทธ์
-                      </th>
-                      <td
-                        style={{
-                          padding: "6px 8px",
-                          background: "rgba(255,255,255,0.7)",
-                        }}
-                      >
-                        {pin === 3 ? "88%" : "72%"}
-                      </td>
-                    </tr>
-                    <tr>
-                      <th
-                        style={{
-                          textAlign: "left",
-                          padding: "6px 8px",
-                          fontWeight: 600,
-                        }}
-                      >
-                        ค่า NPK
-                      </th>
-                      <td
-                        style={{
-                          padding: "6px 8px",
-                          background: "rgba(255,255,255,0.7)",
-                        }}
-                      >
-                        N: 15 &nbsp; P: 8 &nbsp; K: 12
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                {/* pill ข้อมูลหลัก 4 ช่อง */}
+                <div style={pinPillRow}>
+                  <div style={pinInfoPill}>
+                    <div style={pinInfoLabel}>ผู้ดูแล</div>
+                    <div style={pinInfoValue}>สมชาย ใจดี</div>
+                  </div>
+                  <div style={pinInfoPill}>
+                    <div style={pinInfoLabel}>ประเภทพืช</div>
+                    <div style={pinInfoValue}>ทุเรียน</div>
+                  </div>
+                  <div style={pinInfoPill}>
+                    <div style={pinInfoLabel}>วันที่เริ่มปลูก</div>
+                    <div style={pinInfoValue}>15/8/2568</div>
+                  </div>
+                  <div style={pinInfoPill}>
+                    <div style={pinInfoLabel}>จำนวนเซนเซอร์</div>
+                    <div style={pinInfoValue}>6 ชนิด</div>
+                  </div>
+                </div>
+
+                {/* กลุ่มเซนเซอร์ */}
+                <div style={{ flex: 1, overflow: "auto" }}>
+                  {groups.map((g) => (
+                    <div key={g.group} style={pinGroupContainer}>
+                      <div style={pinGroupLabel}>{g.group}</div>
+                      <div style={pinGroupGrid}>
+                        {g.items.map((it) => {
+                          const isAlert = !!it.isAlert;
+                          const itemStyle = {
+                            ...pinGroupItem,
+                            background: isAlert ? "#fef9c3" : "#f9fafb",
+                            boxShadow: isAlert
+                              ? "0 0 0 1px #facc15"
+                              : pinGroupItem.boxShadow,
+                          };
+                          const nameStyle = {
+                            ...pinSensorName,
+                            color: isAlert ? "#b91c1c" : "#111827",
+                          };
+                          const valueStyle = {
+                            ...pinSensorValue,
+                            color: isAlert ? "#b91c1c" : "#6b7280",
+                            fontWeight: isAlert ? 600 : 400,
+                          };
+                          return (
+                            <div key={it.name} style={itemStyle}>
+                              <div style={nameStyle}>{it.name}</div>
+                              <div style={valueStyle}>{it.value}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             );
           })}

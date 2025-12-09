@@ -61,8 +61,8 @@ export default function AddPlantingPlotsPage() {
         className="du-card"
         style={{
           marginBottom: 16,
-          background: "linear-gradient(135deg,#2563eb,#22c55e)",
-          color: "#fff",
+          background: "linear-gradient(135deg,#40B596,#676FC7)",
+            color: "#fff",
         }}
       >
         <div className="du-card-title" style={{ color: "#fff" }}>

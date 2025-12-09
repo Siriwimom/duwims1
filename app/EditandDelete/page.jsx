@@ -1,7 +1,30 @@
 "use client";
 
-import { MapContainer, TileLayer, Polygon, Marker, Popup } from "react-leaflet";
+import { useState } from "react";
+import dynamic from "next/dynamic";
 import L from "leaflet";
+
+// --- dynamic import React-Leaflet เฉพาะฝั่ง client ---
+const MapContainer = dynamic(
+  () => import("react-leaflet").then((m) => m.MapContainer),
+  { ssr: false }
+);
+const TileLayer = dynamic(
+  () => import("react-leaflet").then((m) => m.TileLayer),
+  { ssr: false }
+);
+const Polygon = dynamic(
+  () => import("react-leaflet").then((m) => m.Polygon),
+  { ssr: false }
+);
+const Marker = dynamic(
+  () => import("react-leaflet").then((m) => m.Marker),
+  { ssr: false }
+);
+const Popup = dynamic(
+  () => import("react-leaflet").then((m) => m.Popup),
+  { ssr: false }
+);
 
 const pinIcon = new L.Icon({
   iconUrl:
@@ -30,8 +53,7 @@ const styles = {
   headerPanel: {
     borderRadius: 24,
     padding: "16px 20px 18px",
-    background:
-      "linear-gradient(90deg,#0ea5e9 0%,#22c55e 35%,#a855f7 100%)",
+    background: "linear-gradient(135deg,#40B596,#676FC7)",
     color: "#fff",
     marginBottom: 18,
     boxShadow: "0 16px 36px rgba(15,23,42,0.18)",
@@ -58,50 +80,39 @@ const styles = {
     boxShadow: "0 4px 10px rgba(15,23,42,0.25)",
   },
 
+  // grid ในกล่องตัวกรอง
   topGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(4,minmax(0,1fr))",
     gap: 10,
   },
-  columnCard: {
+  fieldCard: {
     borderRadius: 18,
     background:
-      "linear-gradient(135deg,rgba(255,255,255,0.95),rgba(224,242,254,0.95))",
-    padding: "8px 10px 6px",
+      "linear-gradient(135deg,rgba(255,255,255,0.96),rgba(224,242,254,0.96))",
+    padding: "10px 12px 12px",
     fontSize: 12,
     color: "#0f172a",
+    boxShadow: "0 4px 10px rgba(15,23,42,0.15)",
   },
-  columnHeader: {
-    fontSize: 12,
-    fontWeight: 600,
-    color: "#1f2933",
-    marginBottom: 4,
-  },
-  columnTable: {
-    width: "100%",
-    borderCollapse: "separate",
-    borderSpacing: "0 5px",
-    fontSize: 12,
-  },
-  columnTh: {
-    textAlign: "left",
-    padding: "2px 6px 4px",
-    color: "#6b7280",
-    fontWeight: 500,
+  fieldLabel: {
     fontSize: 11,
+    fontWeight: 600,
+    color: "#1f2937",
+    marginBottom: 4,
+    display: "block",
   },
-  columnTd: {
-    padding: "5px 8px",
-  },
-  rowPill: {
-    borderRadius: 999,
+  fieldSelect: {
+    width: "100%",
+    borderRadius: 14,
+    border: "none",
+    padding: "6px 10px",
+    fontSize: 12,
+    outline: "none",
+    color: "#0f172a",
+    background: "rgba(255,255,255,0.95)",
+    boxShadow: "0 1px 3px rgba(148,163,184,0.6) inset",
     cursor: "pointer",
-  },
-  rowPillSelected: {
-    borderRadius: 999,
-    cursor: "pointer",
-    background: "linear-gradient(90deg,#c7ebff,#e0e7ff)",
-    boxShadow: "0 2px 6px rgba(148,163,184,0.7)",
   },
 
   // main bottom panel
@@ -227,7 +238,8 @@ const styles = {
   },
 };
 
-const pins = [
+// initial data สำหรับใช้กับ useState
+const initialPins = [
   { id: 1, lat: "50.50759149432365", lon: "3.1261322928973054" },
   { id: 2, lat: "50.50759149432365", lon: "3.1261322928973054" },
   { id: 3, lat: "50.50759149432365", lon: "3.1261322928973054" },
@@ -236,6 +248,9 @@ const pins = [
 ];
 
 export default function EditDelete() {
+  // ใช้ state เก็บ list ของ PIN
+  const [pins, setPins] = useState(initialPins);
+
   const fieldPolygon = [
     [13.35, 101.0],
     [13.35, 101.2],
@@ -251,6 +266,11 @@ export default function EditDelete() {
     [13.28, 101.1],
   ];
 
+  // ฟังก์ชันลบ PIN ตาม id
+  const handleDeletePin = (id) => {
+    setPins((prev) => prev.filter((p) => p.id !== id));
+  };
+
   return (
     <div style={pageStyle}>
       <main style={bodyStyle} className="du-edit-delete">
@@ -261,113 +281,46 @@ export default function EditDelete() {
             <button style={styles.headerDangerBtn}>ลบ / แก้ไข</button>
           </div>
 
+          {/* dropdown filters */}
           <div style={styles.topGrid}>
-            {/* แปลง */}
-            <div style={styles.columnCard}>
-              <div style={styles.columnHeader}>แปลง</div>
-              <table style={styles.columnTable}>
-                <thead>
-                  <tr>
-                    <th style={styles.columnTh}>ลำดับ</th>
-                    <th style={styles.columnTh}>ชื่อแปลง</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr style={styles.rowPillSelected}>
-                    <td style={styles.columnTd}>1</td>
-                    <td style={styles.columnTd}>ทุเรียนล่าง</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>2</td>
-                    <td style={styles.columnTd}>ทุเรียนบน</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>3</td>
-                    <td style={styles.columnTd}>แปลง B</td>
-                  </tr>
-                </tbody>
-              </table>
+            {/* เลือกแปลง */}
+            <div style={styles.fieldCard}>
+              <label style={styles.fieldLabel}>แปลง</label>
+              <select defaultValue="A" style={styles.fieldSelect}>
+                <option value="A">ทุเรียนล่าง (แปลง A)</option>
+                <option value="B">ทุเรียนบน (แปลง B)</option>
+                <option value="C">แปลง C</option>
+              </select>
             </div>
 
-            {/* Node */}
-            <div style={styles.columnCard}>
-              <div style={styles.columnHeader}>เลือก Node</div>
-              <table style={styles.columnTable}>
-                <thead>
-                  <tr>
-                    <th style={styles.columnTh}>Node</th>
-                    <th style={styles.columnTh}>ชื่อ Node</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr style={styles.rowPillSelected}>
-                    <td style={styles.columnTd}>1</td>
-                    <td style={styles.columnTd}>จัน</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>2</td>
-                    <td style={styles.columnTd}>ภา</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>3</td>
-                    <td style={styles.columnTd}>ส้ม</td>
-                  </tr>
-                </tbody>
-              </table>
+            {/* เลือก Node */}
+            <div style={styles.fieldCard}>
+              <label style={styles.fieldLabel}>เลือก Node</label>
+              <select defaultValue="1" style={styles.fieldSelect}>
+                <option value="1">Node 1 – จัน</option>
+                <option value="2">Node 2 – ภา</option>
+                <option value="3">Node 3 – ส้ม</option>
+              </select>
             </div>
 
             {/* ชนิดเซนเซอร์ */}
-            <div style={styles.columnCard}>
-              <div style={styles.columnHeader}>ชนิดเซนเซอร์</div>
-              <table style={styles.columnTable}>
-                <thead>
-                  <tr>
-                    <th style={styles.columnTh}>ลำดับ</th>
-                    <th style={styles.columnTh}>ชนิดค่า</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr style={styles.rowPillSelected}>
-                    <td style={styles.columnTd}>1</td>
-                    <td style={styles.columnTd}>ความชื้นดิน</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>2</td>
-                    <td style={styles.columnTd}>ความชื้นสัมพัทธ์</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>3</td>
-                    <td style={styles.columnTd}>การให้น้ำ</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>4</td>
-                    <td style={styles.columnTd}>NPK</td>
-                  </tr>
-                </tbody>
-              </table>
+            <div style={styles.fieldCard}>
+              <label style={styles.fieldLabel}>ชนิดเซนเซอร์</label>
+              <select defaultValue="soil" style={styles.fieldSelect}>
+                <option value="soil">ความชื้นดิน</option>
+                <option value="rh">ความชื้นสัมพัทธ์</option>
+                <option value="water">การให้น้ำ</option>
+                <option value="npk">NPK</option>
+              </select>
             </div>
 
-            {/* ดึงข้อมูล */}
-            <div style={styles.columnCard}>
-              <div style={styles.columnHeader}>ดึงข้อมูล</div>
-              <table style={styles.columnTable}>
-                <thead>
-                  <tr>
-                    <th style={styles.columnTh}>ประเภท</th>
-                    <th style={styles.columnTh}>รายละเอียด</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr style={styles.rowPillSelected}>
-                    <td style={styles.columnTd}>ความชื้นดิน</td>
-                    <td style={styles.columnTd}>Pin เซนเซอร์</td>
-                  </tr>
-                  <tr style={styles.rowPill}>
-                    <td style={styles.columnTd}>ความชื้นดิน</td>
-                    <td style={styles.columnTd}>Polygon แปลง</td>
-                  </tr>
-                </tbody>
-              </table>
+            {/* ดึงข้อมูลจากอะไร */}
+            <div style={styles.fieldCard}>
+              <label style={styles.fieldLabel}>ดึงข้อมูล</label>
+              <select defaultValue="pin" style={styles.fieldSelect}>
+                <option value="pin">ตามตำแหน่ง PIN เซนเซอร์</option>
+                <option value="polygon">ตาม Polygon แปลง</option>
+              </select>
             </div>
           </div>
         </section>
@@ -376,7 +329,12 @@ export default function EditDelete() {
         <section style={styles.bottomPanel}>
           <div style={styles.bottomHeaderRow}>
             <div style={styles.bottomTitle}>ข้อมูลแปลง: แปลง A</div>
-            <button style={styles.deleteAllBtn}>ลบทั้งหมด</button>
+            <button
+              style={styles.deleteAllBtn}
+              onClick={() => setPins([])}
+            >
+              ลบทั้งหมด
+            </button>
           </div>
           <div style={styles.bottomSub}>
             ปรับแก้ Polygon และลบ / เพิ่มตำแหน่ง PIN ของแปลงนี้
@@ -456,7 +414,7 @@ export default function EditDelete() {
           </div>
 
           {/* รายการ PIN ด้านล่าง */}
-          {pins.map((p, idx) => (
+          {pins.map((p) => (
             <div key={p.id} style={styles.pinRow}>
               <div style={styles.pinNumberBox}>
                 <div style={styles.pinIconCircle}>📍</div>
@@ -470,7 +428,12 @@ export default function EditDelete() {
               <div style={styles.pinCoord}>
                 ลองจิจูด&nbsp;&nbsp;{p.lon}
               </div>
-              <button style={styles.deleteBtn}>🗑️</button>
+              <button
+                style={styles.deleteBtn}
+                onClick={() => handleDeletePin(p.id)}
+              >
+                🗑️
+              </button>
             </div>
           ))}
 

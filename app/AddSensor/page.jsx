@@ -36,9 +36,8 @@ export default function AddSensor() {
     topPanel: {
       borderRadius: 24,
       padding: "16px 20px 18px",
-      background:
-        "linear-gradient(90deg,#0ea5e9 0%,#22c55e 35%,#a855f7 100%)",
-      color: "#fff",
+      background: "linear-gradient(135deg,#40B596,#676FC7)",
+            color: "#fff",
       marginBottom: 18,
       boxShadow: "0 16px 36px rgba(15,23,42,0.18)",
     },
