@@ -267,17 +267,17 @@ export default function ManagementPage() {
             <div style={styles.headerTitle}>ตัวกรองและเครื่องมือ</div>
             <div style={styles.headerButtons}>
               {/* ✅ ใช้ลิงก์แบบ relative path แทน router.push เพื่อให้ GitHub Pages ใช้ได้แน่นอน */}
-              <a href="./addplantingplots/">
+              <a href="./addplantingplots">
                 <button style={{ ...styles.headerBtn, ...styles.btnPink }}>
                   + เพิ่มแปลง
                 </button>
               </a>
-              <a href="./AddSensor/">
+              <a href="./AddSensor">
                 <button style={{ ...styles.headerBtn, ...styles.btnOrange }}>
                   + เพิ่ม PIN และ Sensor
                 </button>
               </a>
-              <a href="./EditandDelete/">
+              <a href="./EditandDelete">
                 <button style={{ ...styles.headerBtn, ...styles.btnYellow }}>
                   ลบ / แก้ไข
                 </button>
