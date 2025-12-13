@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useMap } from "react-leaflet";
 import dynamic from "next/dynamic";
 
 // --- dynamic import React-Leaflet เฉพาะฝั่ง client ---
@@ -34,7 +36,7 @@ const pageStyle = {
 };
 
 const bodyStyle = {
-  maxWidth: 1280, // <<< ขยายความกว้างหน้า Dashboard
+  maxWidth: 1280,
   margin: "22px auto 40px",
   paddingTop: 0,
   paddingRight: 16,
@@ -190,16 +192,64 @@ const pinSensorValue = {
   color: "#6b7280",
 };
 
+// ================== Utility Components ==================
+
+// ให้ map คำนวณขนาดใหม่หลัง render (กัน tile วางเพี้ยนเมื่อ container เปลี่ยนขนาด)
+function FixMapResize() {
+  const map = useMap();
+  useEffect(() => {
+    const id = setTimeout(() => {
+      map.invalidateSize();
+    }, 300);
+    return () => clearTimeout(id);
+  }, [map]);
+  return null;
+}
+
+// Marker ที่สร้าง Leaflet Icon แบบ client-side เท่านั้น (กัน window is not defined)
+function PinMarker({ position, label }) {
+  const [icon, setIcon] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    import("leaflet").then((L) => {
+      if (!mounted) return;
+      const pinIcon = new L.Icon({
+        iconUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+        shadowSize: [41, 41],
+      });
+      setIcon(pinIcon);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (!icon) return null; // ยังโหลด icon ไม่เสร็จ
+
+  return (
+    <Marker position={position} icon={icon}>
+      <Popup>{label}</Popup>
+    </Marker>
+  );
+}
+
 // ===== DATA สำหรับ PIN =====
 function getPinSensorGroups(pin) {
-  // ความชื้นดิน – กำหนดให้ Pin 3 ตัวแรกเป็นปัญหา (alert)
+  // ความชื้นดิน – กำหนดให้ Pin 3 เป็นปัญหา (alert)
   let moistureItems;
   if (pin === 3) {
     moistureItems = [
       {
         name: "เซนเซอร์ความชื้นดิน #1",
         value: "ความชื้นดิน - 38 % (เกินเกณฑ์)",
-        isAlert: true, // <<< highlight
+        isAlert: true,
       },
       {
         name: "เซนเซอร์ความชื้นดิน #2",
@@ -298,7 +348,7 @@ export default function DashboardPage() {
   return (
     <div style={pageStyle}>
       <main style={bodyStyle} className="du-dashboard">
-        {/* ===== แถวบน: พยากรณ์ + ค่า ณ ปัจจุบัน + คำแนะนำ ===== */}
+        {/* ===== แถวบน: พยากรณ์ + ค่า ณ ปัจจุบัน + การ์ด 4 ใบ ===== */}
         <div style={{ ...grid3Top, marginBottom: 16 }}>
           {/* พยากรณ์ 7 วัน */}
           <div style={cardBase} className="du-card">
@@ -349,13 +399,13 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* อุณหภูมิปัจจุบัน + โอกาสฝนตก (แยกการ์ด) */}
+          {/* คอลัมน์กลาง: อุณหภูมิ + โอกาสฝนตก */}
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {/* การ์ดอุณหภูมิปัจจุบัน - BG สีน้ำเงิน */}
             <div
               style={{
                 ...cardBase,
-                background: "#1d4ed8", // 🔵 น้ำเงิน
+                background: "#1d4ed8",
                 color: "#ffffff",
               }}
               className="du-card"
@@ -391,7 +441,8 @@ export default function DashboardPage() {
             <div
               style={{
                 ...cardBase,
-                background: "#fef9c3", // 🟡 เหลือง
+                background: "#facc15",
+                color: "#111827",
               }}
               className="du-card"
             >
@@ -406,39 +457,66 @@ export default function DashboardPage() {
                   fontSize: 24,
                   fontWeight: 800,
                   marginBottom: 2,
-                  color: "#92400e",
                 }}
               >
                 40%
               </div>
-              <div style={{ fontSize: 12, color: "#4b5563" }}>
-                ฝนตกเล็กน้อยช่วงบ่าย
-              </div>
+              <div style={{ fontSize: 12 }}>ฝนตกเล็กน้อยช่วงบ่าย</div>
             </div>
           </div>
 
-          {/* คำแนะนำ */}
-          <div
-            className="du-card"
-            style={{
-              ...cardBase,
-              background: "#ef4444",
-              color: "#ffffff",
-            }}
-          >
+          {/* คอลัมน์ขวา: คำแนะนำ + ปริมาณน้ำฝน */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {/* คำแนะนำ (แดง) */}
             <div
-              className="du-card-title"
-              style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}
+              className="du-card"
+              style={{
+                ...cardBase,
+                background: "#ef4444",
+                color: "#ffffff",
+              }}
             >
-              คำแนะนำ
+              <div
+                className="du-card-title"
+                style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}
+              >
+                คำแนะนำ
+              </div>
+              <p style={{ fontSize: 14, margin: 0, lineHeight: 1.6 }}>
+                ควรเตรียมระบบระบายน้ำในแปลง เนื่องจากคาดว่าจะมีฝนตกหนักในอีก
+                2–3 วันข้างหน้า
+              </p>
             </div>
-            <p style={{ fontSize: 14, margin: 0, lineHeight: 1.6 }}>
-              ควรเตรียมระบบน้ำในแปลง เนื่องจากคาดว่าจะมีฝนตกหนักในอีก
-              2–3 วันข้างหน้า
-            </p>
-            <p style={{ fontSize: 12, marginTop: 10 }}>
-              ⚠️ หากความชื้นในดิน &gt; 80% ระบบจะเตือนให้หยุดรดน้ำอัตโนมัติ
-            </p>
+
+            {/* ปริมาณน้ำฝน (เขียว) */}
+            <div
+              className="du-card"
+              style={{
+                ...cardBase,
+                background:
+                  "linear-gradient(135deg,#16a34a 0%,#22c55e 50%,#4ade80 100%)",
+                color: "#f0fdf4",
+              }}
+            >
+              <div
+                className="du-card-title"
+                style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}
+              >
+                ปริมาณน้ำฝน
+              </div>
+              <div
+                style={{
+                  fontSize: 24,
+                  fontWeight: 800,
+                  marginBottom: 2,
+                }}
+              >
+                152 mm
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.95 }}>
+                เพียงพอต่อการสะสมในช่วง 7 วันล่าสุด
+              </div>
+            </div>
           </div>
         </div>
 
@@ -465,9 +543,10 @@ export default function DashboardPage() {
                 scrollWheelZoom={true}
                 style={{ height: 220, width: "100%" }}
               >
+                <FixMapResize />
                 <TileLayer
                   attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
 
                 <Polygon
@@ -481,9 +560,11 @@ export default function DashboardPage() {
                 />
 
                 {mapPins.map((p) => (
-                  <Marker key={p.id} position={p.position}>
-                    <Popup>{p.label}</Popup>
-                  </Marker>
+                  <PinMarker
+                    key={p.id}
+                    position={p.position}
+                    label={p.label}
+                  />
                 ))}
               </MapContainer>
             </div>
@@ -493,7 +574,7 @@ export default function DashboardPage() {
           <div
             style={{
               ...cardBase,
-              background: "#dcfce7", // เขียวอ่อน
+              background: "#dcfce7",
             }}
             className="du-card"
           >
@@ -563,7 +644,7 @@ export default function DashboardPage() {
           <div
             style={{
               ...cardBase,
-              background: "#fed7aa", // ส้มอ่อน
+              background: "#fed7aa",
             }}
             className="du-card"
           >
@@ -600,8 +681,6 @@ export default function DashboardPage() {
         <div style={grid3Pins} className="du-grid-3">
           {[1, 2, 3].map((pin) => {
             const groups = getPinSensorGroups(pin);
-
-            // สีพื้นหลังเฉพาะ pin 3
             const backgroundColor = pin === 3 ? "#FFBABA" : "#dfffee";
 
             return (
@@ -609,7 +688,7 @@ export default function DashboardPage() {
                 key={pin}
                 style={{
                   ...pinCardBase,
-                  background: backgroundColor, // override background
+                  background: backgroundColor,
                 }}
               >
                 {/* header การ์ด */}

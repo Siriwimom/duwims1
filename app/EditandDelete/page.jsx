@@ -237,6 +237,11 @@ const styles = {
     boxShadow: "0 8px 20px rgba(59,130,246,0.5)",
   },
 };
+useEffect(() => {
+  const baseUrl = window.location.origin;
+  console.log(baseUrl);
+}, []);
+
 
 // initial data สำหรับใช้กับ useState
 const initialPins = [

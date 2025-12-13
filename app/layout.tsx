@@ -1,6 +1,7 @@
 // app/layout.tsx
 import "./globals.css";
 import TopBar from "./TopBar";
+import "leaflet/dist/leaflet.css";
 
 export const metadata = {
   title: "DuWIMS",
