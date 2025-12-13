@@ -1,0 +1,3 @@
+:HL["/DUWIMS1/_next/static/chunks/d4e26b435431c590.css","style"]
+:HL["/DUWIMS1/_next/static/chunks/92775ae1698e5da0.css","style"]
+0:{"buildId":"brASVwKmNWC4eZj0VlbJV","tree":{"name":"","paramType":null,"paramKey":"","hasRuntimePrefetch":false,"slots":{"children":{"name":"EditandDelete","paramType":null,"paramKey":"EditandDelete","hasRuntimePrefetch":false,"slots":{"children":{"name":"__PAGE__","paramType":null,"paramKey":"__PAGE__","hasRuntimePrefetch":false,"slots":null,"isRootLayout":false}},"isRootLayout":false}},"isRootLayout":true},"staleTime":300}
