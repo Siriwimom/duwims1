@@ -1,19 +1,34 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import TopBar from "../TopBar";
 
-// --- แผนที่ (React Leaflet) ---
-import { MapContainer, TileLayer, Marker, Popup, Polygon } from "react-leaflet";
-import L from "leaflet";
+// --- React Leaflet: dynamic import เฉพาะฝั่ง client ---
+const MapContainer = dynamic(
+  () => import("react-leaflet").then((m) => m.MapContainer),
+  { ssr: false }
+);
+const TileLayer = dynamic(
+  () => import("react-leaflet").then((m) => m.TileLayer),
+  { ssr: false }
+);
+const Marker = dynamic(
+  () => import("react-leaflet").then((m) => m.Marker),
+  { ssr: false }
+);
+const Popup = dynamic(
+  () => import("react-leaflet").then((m) => m.Popup),
+  { ssr: false }
+);
+const Polygon = dynamic(
+  () => import("react-leaflet").then((m) => m.Polygon),
+  { ssr: false }
+);
 
-const pinIcon = new L.Icon({
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-});
+// ❌ ห้าม new L.Icon ตรงนี้
+// ✅ เราจะสร้าง icon ใน useEffect ด้านล่างแทน
 
 const pageStyle = {
   fontFamily:
@@ -43,7 +58,7 @@ const styles = {
     borderRadius: 20,
     padding: "8px 14px",
     background: "linear-gradient(135deg,#40B596,#676FC7)",
-            color: "#fff",
+    color: "#fff",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
@@ -204,6 +219,29 @@ const sensors = [
 
 export default function ManagementPage() {
   const router = useRouter();
+  const [pinIcon, setPinIcon] = useState(null);
+
+  // โหลด Leaflet และสร้าง icon เฉพาะฝั่ง client
+  useEffect(() => {
+    let mounted = true;
+    import("leaflet").then((L) => {
+      if (!mounted) return;
+      const icon = new L.Icon({
+        iconUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+        shadowSize: [41, 41],
+      });
+      setPinIcon(icon);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // polygon แทนขอบเขตแปลง
   const fieldPolygon = [
@@ -226,6 +264,9 @@ export default function ManagementPage() {
   return (
     <div style={pageStyle}>
       <main className="du-management" style={bodyStyle}>
+        {/* ถ้าอยากใช้ TopBar จริง ๆ ก็ใส่ตรงนี้ได้ */}
+        {/* <TopBar /> */}
+
         {/* PANEL บนสุด */}
         <section style={styles.mainPanel}>
           {/* แถบ gradient ด้านบน */}
@@ -321,11 +362,12 @@ export default function ManagementPage() {
               />
 
               {/* เซนเซอร์แต่ละตัว */}
-              {sensorPositions.map((pos, i) => (
-                <Marker key={i} position={pos} icon={pinIcon}>
-                  <Popup>Sensor #{i + 1}</Popup>
-                </Marker>
-              ))}
+              {pinIcon &&
+                sensorPositions.map((pos, i) => (
+                  <Marker key={i} position={pos} icon={pinIcon}>
+                    <Popup>Sensor #{i + 1}</Popup>
+                  </Marker>
+                ))}
             </MapContainer>
           </div>
         </section>

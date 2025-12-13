@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 // --- dynamic import React-Leaflet เฉพาะฝั่ง client ---
 const MapContainer = dynamic(
@@ -26,12 +26,8 @@ const Popup = dynamic(
   { ssr: false }
 );
 
-const pinIcon = new L.Icon({
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-});
+// ❌ ห้ามสร้าง Icon ด้วย Leaflet ที่ top-level
+// ✅ สร้างใน useEffect แล้วเก็บใน state แทน
 
 const pageStyle = {
   fontFamily:
@@ -237,11 +233,6 @@ const styles = {
     boxShadow: "0 8px 20px rgba(59,130,246,0.5)",
   },
 };
-useEffect(() => {
-  const baseUrl = window.location.origin;
-  console.log(baseUrl);
-}, []);
-
 
 // initial data สำหรับใช้กับ useState
 const initialPins = [
@@ -252,9 +243,40 @@ const initialPins = [
   { id: 5, lat: "50.50759149432365", lon: "3.1261322928973054" },
 ];
 
-export default function EditDelete() {
-  // ใช้ state เก็บ list ของ PIN
+export default function EditAndDelete() {
+  const [baseUrl, setBaseUrl] = useState("");
+  const [pinIcon, setPinIcon] = useState(null);
   const [pins, setPins] = useState(initialPins);
+
+  // อ่าน baseUrl เฉพาะฝั่ง client
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setBaseUrl(window.location.origin);
+      console.log("baseUrl:", window.location.origin);
+    }
+  }, []);
+
+  // โหลด Leaflet และสร้าง icon เฉพาะฝั่ง client
+  useEffect(() => {
+    let mounted = true;
+    import("leaflet").then((L) => {
+      if (!mounted) return;
+      const icon = new L.Icon({
+        iconUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+        shadowSize: [41, 41],
+      });
+      setPinIcon(icon);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const fieldPolygon = [
     [13.35, 101.0],
@@ -334,10 +356,7 @@ export default function EditDelete() {
         <section style={styles.bottomPanel}>
           <div style={styles.bottomHeaderRow}>
             <div style={styles.bottomTitle}>ข้อมูลแปลง: แปลง A</div>
-            <button
-              style={styles.deleteAllBtn}
-              onClick={() => setPins([])}
-            >
+            <button style={styles.deleteAllBtn} onClick={() => setPins([])}>
               ลบทั้งหมด
             </button>
           </div>
@@ -410,11 +429,12 @@ export default function EditDelete() {
                   fillOpacity: 0.35,
                 }}
               />
-              {pinPositions.map((pos, i) => (
-                <Marker key={i} position={pos} icon={pinIcon}>
-                  <Popup>PIN #{i + 1}</Popup>
-                </Marker>
-              ))}
+              {pinIcon &&
+                pinPositions.map((pos, i) => (
+                  <Marker key={i} position={pos} icon={pinIcon}>
+                    <Popup>PIN #{i + 1}</Popup>
+                  </Marker>
+                ))}
             </MapContainer>
           </div>
 
@@ -427,12 +447,8 @@ export default function EditDelete() {
                   <div style={styles.pinLabel}>number #{p.id}</div>
                 </div>
               </div>
-              <div style={styles.pinCoord}>
-                ละติจูด&nbsp;&nbsp;{p.lat}
-              </div>
-              <div style={styles.pinCoord}>
-                ลองจิจูด&nbsp;&nbsp;{p.lon}
-              </div>
+              <div style={styles.pinCoord}>ละติจูด&nbsp;&nbsp;{p.lat}</div>
+              <div style={styles.pinCoord}>ลองจิจูด&nbsp;&nbsp;{p.lon}</div>
               <button
                 style={styles.deleteBtn}
                 onClick={() => handleDeletePin(p.id)}

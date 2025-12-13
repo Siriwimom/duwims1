@@ -1,20 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
 
-import {
-  MapContainer,
-  TileLayer,
-  FeatureGroup,
-  Polygon,
-} from "react-leaflet";
-import { EditControl } from "react-leaflet-draw";
+// --- dynamic import React-Leaflet & React-Leaflet-Draw เฉพาะฝั่ง client ---
+const MapContainer = dynamic(
+  () => import("react-leaflet").then((m) => m.MapContainer),
+  { ssr: false }
+);
+const TileLayer = dynamic(
+  () => import("react-leaflet").then((m) => m.TileLayer),
+  { ssr: false }
+);
+const FeatureGroup = dynamic(
+  () => import("react-leaflet").then((m) => m.FeatureGroup),
+  { ssr: false }
+);
+const Polygon = dynamic(
+  () => import("react-leaflet").then((m) => m.Polygon),
+  { ssr: false }
+);
+const EditControl = dynamic(
+  () => import("react-leaflet-draw").then((m) => m.EditControl),
+  { ssr: false }
+);
 
 let polygonIdCounter = 1;
 
 export default function AddPlantingPlotsPage() {
+  const [baseUrl, setBaseUrl] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setBaseUrl(window.location.origin);
+    }
+  }, []);
+
   // เก็บ polygon ทั้งหมด
   const [polygons, setPolygons] = useState([]);
   // สีที่กำลังเลือกอยู่ (ใช้ตอนวาดใหม่)
@@ -62,7 +85,7 @@ export default function AddPlantingPlotsPage() {
         style={{
           marginBottom: 16,
           background: "linear-gradient(135deg,#40B596,#676FC7)",
-            color: "#fff",
+          color: "#fff",
         }}
       >
         <div className="du-card-title" style={{ color: "#fff" }}>
@@ -174,6 +197,7 @@ export default function AddPlantingPlotsPage() {
               center={[13.3, 101.0]}
               zoom={16}
               scrollWheelZoom={true}
+              style={{ height: 360, width: "100%" }}
             >
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -244,7 +268,13 @@ export default function AddPlantingPlotsPage() {
                       padding: "4px 0",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
                       <span># {poly.id}</span>
                       <span
                         style={{

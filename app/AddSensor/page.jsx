@@ -1,22 +1,63 @@
 "use client";
 
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Popup,
-  Polygon,
-} from "react-leaflet";
-import L from "leaflet";
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+import "leaflet/dist/leaflet.css";
 
-const pinIcon = new L.Icon({
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-});
+// --- dynamic import React-Leaflet เฉพาะฝั่ง client ---
+const MapContainer = dynamic(
+  () => import("react-leaflet").then((m) => m.MapContainer),
+  { ssr: false }
+);
+const TileLayer = dynamic(
+  () => import("react-leaflet").then((m) => m.TileLayer),
+  { ssr: false }
+);
+const Marker = dynamic(
+  () => import("react-leaflet").then((m) => m.Marker),
+  { ssr: false }
+);
+const Popup = dynamic(
+  () => import("react-leaflet").then((m) => m.Popup),
+  { ssr: false }
+);
+const Polygon = dynamic(
+  () => import("react-leaflet").then((m) => m.Polygon),
+  { ssr: false }
+);
 
 export default function AddSensor() {
+  const [baseUrl, setBaseUrl] = useState("");
+  const [pinIcon, setPinIcon] = useState(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setBaseUrl(window.location.origin);
+    }
+  }, []);
+
+  // สร้าง Leaflet Icon แบบ client-side เท่านั้น
+  useEffect(() => {
+    let mounted = true;
+    import("leaflet").then((L) => {
+      if (!mounted) return;
+      const icon = new L.Icon({
+        iconUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+        shadowSize: [41, 41],
+      });
+      setPinIcon(icon);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const styles = {
     page: {
       fontFamily:
@@ -37,7 +78,7 @@ export default function AddSensor() {
       borderRadius: 24,
       padding: "16px 20px 18px",
       background: "linear-gradient(135deg,#40B596,#676FC7)",
-            color: "#fff",
+      color: "#fff",
       marginBottom: 18,
       boxShadow: "0 16px 36px rgba(15,23,42,0.18)",
     },
@@ -384,9 +425,11 @@ export default function AddSensor() {
                   fillOpacity: 0.4,
                 }}
               />
-              <Marker position={pinPosition} icon={pinIcon}>
-                <Popup>Pin เซนเซอร์ #1</Popup>
-              </Marker>
+              {pinIcon && (
+                <Marker position={pinPosition} icon={pinIcon}>
+                  <Popup>Pin เซนเซอร์ #1</Popup>
+                </Marker>
+              )}
             </MapContainer>
           </div>
 
