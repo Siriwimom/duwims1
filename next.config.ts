@@ -1,10 +1,8 @@
 /** @type {import('next').NextConfig} */
-const isProd = process.env.NODE_ENV === "production";
-
 const nextConfig = {
-  output: "export", // สำหรับ static export
-  basePath: "/duwims1",
-  assetPrefix: "/duwims1/",
+  output: "export",          // ใช้ static export
+  basePath: "/duwims1",      // ชื่อตรงกับ repo
+  // อย่าใส่ assetPrefix ตรงนี้ ให้ปล่อยว่างไว้
 };
 
 module.exports = nextConfig;
