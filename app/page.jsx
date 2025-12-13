@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMap } from "react-leaflet";
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
-
 
 // --- dynamic import React-Leaflet เฉพาะฝั่ง client ---
 const MapContainer = dynamic(
@@ -64,7 +62,6 @@ const grid3Top = {
 
 const grid3Middle = grid3Top;
 
-// แถว PIN ให้การ์ดสูงเท่ากัน
 const grid3Pins = {
   display: "grid",
   gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
@@ -92,43 +89,36 @@ const pinCardBase = {
   flexDirection: "column",
   height: "100%",
 };
-
 const pinHeaderRow = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "flex-start",
   marginBottom: 10,
 };
-
 const pinTitleBlock = {
   display: "flex",
   flexDirection: "column",
   gap: 2,
 };
-
 const pinTitle = {
   fontSize: 18,
   fontWeight: 700,
 };
-
 const pinSubtitle = {
   fontSize: 11,
   color: "#6b7280",
 };
-
 const pinStatus = {
   fontSize: 18,
   fontWeight: 700,
   color: "#16a34a",
 };
-
 const pinPillRow = {
   display: "grid",
   gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
   gap: 8,
   marginBottom: 12,
 };
-
 const pinInfoPill = {
   borderRadius: 999,
   background: "#ffffff",
@@ -139,18 +129,15 @@ const pinInfoPill = {
   fontSize: 11,
   boxShadow: "0 1px 3px rgba(148,163,184,0.35)",
 };
-
 const pinInfoLabel = {
   fontSize: 10,
   color: "#6b7280",
   marginBottom: 2,
 };
-
 const pinInfoValue = {
   fontSize: 12,
   fontWeight: 600,
 };
-
 const pinGroupContainer = {
   borderRadius: 22,
   background: "rgba(255,255,255,0.85)",
@@ -160,19 +147,16 @@ const pinGroupContainer = {
   paddingLeft: 10,
   marginBottom: 6,
 };
-
 const pinGroupLabel = {
   fontSize: 12,
   fontWeight: 600,
   marginBottom: 4,
 };
-
 const pinGroupGrid = {
   display: "grid",
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
   gap: 6,
 };
-
 const pinGroupItem = {
   borderRadius: 999,
   background: "#f9fafb",
@@ -183,68 +167,17 @@ const pinGroupItem = {
   fontSize: 11,
   boxShadow: "0 1px 2px rgba(148,163,184,0.35)",
 };
-
 const pinSensorName = {
   fontWeight: 500,
   marginBottom: 1,
 };
-
 const pinSensorValue = {
   fontSize: 10,
   color: "#6b7280",
 };
 
-// ================== Utility Components ==================
-
-// ให้ map คำนวณขนาดใหม่หลัง render (กัน tile วางเพี้ยนเมื่อ container เปลี่ยนขนาด)
-function FixMapResize() {
-  const map = useMap();
-  useEffect(() => {
-    const id = setTimeout(() => {
-      map.invalidateSize();
-    }, 300);
-    return () => clearTimeout(id);
-  }, [map]);
-  return null;
-}
-
-// Marker ที่สร้าง Leaflet Icon แบบ client-side เท่านั้น (กัน window is not defined)
-function PinMarker({ position, label }) {
-  const [icon, setIcon] = useState(null);
-
-  useEffect(() => {
-    let mounted = true;
-    import("leaflet").then((L) => {
-      if (!mounted) return;
-      const pinIcon = new L.Icon({
-        iconUrl:
-          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-        iconSize: [25, 41],
-        iconAnchor: [12, 41],
-        popupAnchor: [1, -34],
-        shadowUrl:
-          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-        shadowSize: [41, 41],
-      });
-      setIcon(pinIcon);
-    });
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  if (!icon) return null; // ยังโหลด icon ไม่เสร็จ
-
-  return (
-    <Marker position={position} icon={icon}>
-      <Popup>{label}</Popup>
-    </Marker>
-  );
-}
-
-// ===== DATA สำหรับ PIN =====
+// ===== DATA FUNCTIONS =====
 function getPinSensorGroups(pin) {
-  // ความชื้นดิน – กำหนดให้ Pin 3 เป็นปัญหา (alert)
   let moistureItems;
   if (pin === 3) {
     moistureItems = [
@@ -346,10 +279,18 @@ const mapPins = [
   { id: 3, position: [13.29, 101.11], label: "Pin 3" },
 ];
 
-
 export default function DashboardPage() {
   const [pinIcon, setPinIcon] = useState(null);
+  const [isClient, setIsClient] = useState(false);
+
+  // ให้รู้ก่อนว่าอยู่ฝั่ง client แล้วค่อย render map
   useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  // โหลด Leaflet icon ฝั่ง client เท่านั้น
+  useEffect(() => {
+    if (!isClient) return;
     let mounted = true;
     import("leaflet").then((L) => {
       if (!mounted) return;
@@ -366,7 +307,7 @@ export default function DashboardPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [isClient]);
 
   return (
     <div style={pageStyle}>
@@ -424,7 +365,7 @@ export default function DashboardPage() {
 
           {/* คอลัมน์กลาง: อุณหภูมิ + โอกาสฝนตก */}
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {/* การ์ดอุณหภูมิปัจจุบัน - BG สีน้ำเงิน */}
+            {/* อุณหภูมิปัจจุบัน */}
             <div
               style={{
                 ...cardBase,
@@ -439,7 +380,6 @@ export default function DashboardPage() {
               >
                 อุณหภูมิปัจจุบัน
               </div>
-
               <div
                 style={{
                   fontSize: 28,
@@ -460,7 +400,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* การ์ดโอกาสฝนตก - BG สีเหลือง */}
+            {/* โอกาสฝนตก */}
             <div
               style={{
                 ...cardBase,
@@ -490,7 +430,7 @@ export default function DashboardPage() {
 
           {/* คอลัมน์ขวา: คำแนะนำ + ปริมาณน้ำฝน */}
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {/* คำแนะนำ (แดง) */}
+            {/* คำแนะนำ */}
             <div
               className="du-card"
               style={{
@@ -511,7 +451,7 @@ export default function DashboardPage() {
               </p>
             </div>
 
-            {/* ปริมาณน้ำฝน (เขียว) */}
+            {/* ปริมาณน้ำฝน */}
             <div
               className="du-card"
               style={{
@@ -560,34 +500,36 @@ export default function DashboardPage() {
                 boxShadow: "0 8px 18px rgba(15,23,42,0.18)",
               }}
             >
-              <MapContainer
-                center={[13.3, 101.1]}
-                zoom={11}
-                scrollWheelZoom={true}
-                style={{ height: 220, width: "100%" }}
-              >
-                <FixMapResize />
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
-                  url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
+              {isClient && (
+                <MapContainer
+                  center={[13.3, 101.1]}
+                  zoom={11}
+                  scrollWheelZoom={true}
+                  style={{ height: 220, width: "100%" }}
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
+                    url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
 
-                <Polygon
-                  positions={fieldPolygon}
-                  pathOptions={{
-                    color: "#16a34a",
-                    weight: 2,
-                    fillColor: "#86efac",
-                    fillOpacity: 0.4,
-                  }}
-                />
+                  <Polygon
+                    positions={fieldPolygon}
+                    pathOptions={{
+                      color: "#16a34a",
+                      weight: 2,
+                      fillColor: "#86efac",
+                      fillOpacity: 0.4,
+                    }}
+                  />
 
-                {mapPins.map((p) => (
-                  <Marker key={p.id} position={p.position} icon={pinIcon}>
-                    <Popup>{p.label}</Popup>
-                  </Marker>
-                ))}
-              </MapContainer>
+                  {pinIcon &&
+                    mapPins.map((p) => (
+                      <Marker key={p.id} position={p.position} icon={pinIcon}>
+                        <Popup>{p.label}</Popup>
+                      </Marker>
+                    ))}
+                </MapContainer>
+              )}
             </div>
           </div>
 
@@ -716,7 +658,9 @@ export default function DashboardPage() {
                 <div style={pinHeaderRow}>
                   <div style={pinTitleBlock}>
                     <span style={pinTitle}>ข้อมูล : Pin {pin}</span>
-                    <span style={pinSubtitle}>รายละเอียดแปลงและเซนเซอร์</span>
+                    <span style={pinSubtitle}>
+                      รายละเอียดแปลงและเซนเซอร์
+                    </span>
                   </div>
                   <span style={pinStatus}>ON</span>
                 </div>
@@ -783,6 +727,4 @@ export default function DashboardPage() {
       </main>
     </div>
   );
-
 }
-
