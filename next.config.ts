@@ -1,10 +1,16 @@
 /** @type {import('next').NextConfig} */
+const isProd = process.env.NODE_ENV === "production";
+
 const nextConfig = {
-  output: "export", // ทำให้ build ออกมาเป็น static site (แทน next export)
-  basePath: "/duwims1", // ชื่อ repo ของ Pat บน GitHub ต้องตรงเป๊ะ
-  assetPrefix: "/duwims1",
+  // ใช้ static export
+  output: "export",
+
+  // ถ้าใช้ GitHub Pages แบบ project page: https://username.github.io/duwims1
+  basePath: isProd ? "/duwims1" : "",
+  assetPrefix: isProd ? "/duwims1/" : "",
+
   images: {
-    unoptimized: true, // ปิด image optimization ตอน static export
+    unoptimized: true,
   },
 };
 

@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "export": "next export",
-    "deploy": "gh-pages -d out"
+    "deploy": "npm run build && gh-pages -d out"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
