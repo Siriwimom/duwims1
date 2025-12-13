@@ -1,9 +1,9 @@
 "use client";
 
+import "leaflet/dist/leaflet.css"; // ✅ ให้ CSS ของ Leaflet โหลดทุกครั้ง
+
 import React, { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import TopBar from "../TopBar";
 
 // --- React Leaflet: dynamic import เฉพาะฝั่ง client ---
 const MapContainer = dynamic(
@@ -26,9 +26,6 @@ const Polygon = dynamic(
   () => import("react-leaflet").then((m) => m.Polygon),
   { ssr: false }
 );
-
-// ❌ ห้าม new L.Icon ตรงนี้
-// ✅ เราจะสร้าง icon ใน useEffect ด้านล่างแทน
 
 const pageStyle = {
   fontFamily:
@@ -218,7 +215,6 @@ const sensors = [
 ];
 
 export default function ManagementPage() {
-  const router = useRouter();
   const [pinIcon, setPinIcon] = useState(null);
 
   // โหลด Leaflet และสร้าง icon เฉพาะฝั่ง client
@@ -264,33 +260,28 @@ export default function ManagementPage() {
   return (
     <div style={pageStyle}>
       <main className="du-management" style={bodyStyle}>
-        {/* ถ้าอยากใช้ TopBar จริง ๆ ก็ใส่ตรงนี้ได้ */}
-        {/* <TopBar /> */}
-
         {/* PANEL บนสุด */}
         <section style={styles.mainPanel}>
           {/* แถบ gradient ด้านบน */}
           <div style={styles.headerBar}>
             <div style={styles.headerTitle}>ตัวกรองและเครื่องมือ</div>
             <div style={styles.headerButtons}>
-              <button
-                style={{ ...styles.headerBtn, ...styles.btnPink }}
-                onClick={() => router.push("/addplantingplots")}
-              >
-                + เพิ่มแปลง
-              </button>
-              <button
-                style={{ ...styles.headerBtn, ...styles.btnOrange }}
-                onClick={() => router.push("/AddSensor")}
-              >
-                + เพิ่ม PIN และ Sensor
-              </button>
-              <button
-                style={{ ...styles.headerBtn, ...styles.btnYellow }}
-                onClick={() => router.push("/EditandDelete")}
-              >
-                ลบ / แก้ไข
-              </button>
+              {/* ✅ ใช้ลิงก์แบบ relative path แทน router.push เพื่อให้ GitHub Pages ใช้ได้แน่นอน */}
+              <a href="./addplantingplots/">
+                <button style={{ ...styles.headerBtn, ...styles.btnPink }}>
+                  + เพิ่มแปลง
+                </button>
+              </a>
+              <a href="./AddSensor/">
+                <button style={{ ...styles.headerBtn, ...styles.btnOrange }}>
+                  + เพิ่ม PIN และ Sensor
+                </button>
+              </a>
+              <a href="./EditandDelete/">
+                <button style={{ ...styles.headerBtn, ...styles.btnYellow }}>
+                  ลบ / แก้ไข
+                </button>
+              </a>
             </div>
           </div>
 

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useMap } from "react-leaflet";
 import dynamic from "next/dynamic";
+import "leaflet/dist/leaflet.css";
+
 
 // --- dynamic import React-Leaflet เฉพาะฝั่ง client ---
 const MapContainer = dynamic(
@@ -344,7 +346,28 @@ const mapPins = [
   { id: 3, position: [13.29, 101.11], label: "Pin 3" },
 ];
 
+
 export default function DashboardPage() {
+  const [pinIcon, setPinIcon] = useState(null);
+  useEffect(() => {
+    let mounted = true;
+    import("leaflet").then((L) => {
+      if (!mounted) return;
+      const icon = new L.Icon({
+        iconUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+        shadowUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+      });
+      setPinIcon(icon);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <div style={pageStyle}>
       <main style={bodyStyle} className="du-dashboard">
@@ -560,11 +583,9 @@ export default function DashboardPage() {
                 />
 
                 {mapPins.map((p) => (
-                  <PinMarker
-                    key={p.id}
-                    position={p.position}
-                    label={p.label}
-                  />
+                  <Marker key={p.id} position={p.position} icon={pinIcon}>
+                    <Popup>{p.label}</Popup>
+                  </Marker>
                 ))}
               </MapContainer>
             </div>
@@ -762,4 +783,6 @@ export default function DashboardPage() {
       </main>
     </div>
   );
+
 }
+
