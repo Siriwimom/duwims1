@@ -11,12 +11,16 @@ export const metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="th">
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </head>
+
       <body>
-        {/* ท็อปบาร์ใช้ร่วมกันทุกหน้า */}
         <TopBar />
 
-        {/* กล่องเนื้อหากลางจอ ใช้ร่วมกันทุกหน้า */}
-        <div className="du-main">{children}</div>
+        <div className="du-main">
+          <div className="du-container">{children}</div>
+        </div>
       </body>
     </html>
   );

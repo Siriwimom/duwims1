@@ -1,11 +1,10 @@
 "use client";
 
-import "leaflet/dist/leaflet.css"; // ✅ ให้ CSS ของ Leaflet โหลดทุกครั้ง
+import "leaflet/dist/leaflet.css";
 
 import React, { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 
-// --- React Leaflet: dynamic import เฉพาะฝั่ง client ---
 const MapContainer = dynamic(
   () => import("react-leaflet").then((m) => m.MapContainer),
   { ssr: false }
@@ -18,10 +17,9 @@ const Marker = dynamic(
   () => import("react-leaflet").then((m) => m.Marker),
   { ssr: false }
 );
-const Popup = dynamic(
-  () => import("react-leaflet").then((m) => m.Popup),
-  { ssr: false }
-);
+const Popup = dynamic(() => import("react-leaflet").then((m) => m.Popup), {
+  ssr: false,
+});
 const Polygon = dynamic(
   () => import("react-leaflet").then((m) => m.Polygon),
   { ssr: false }
@@ -36,13 +34,11 @@ const pageStyle = {
 };
 
 const bodyStyle = {
-  maxWidth: 1120,
-  margin: "22px auto 40px",
-  padding: "0 16px 30px",
+  width: "100%",
+  padding: "22px 16px 40px",
 };
 
 const styles = {
-  // PANEL / FRAME หลัก
   mainPanel: {
     borderRadius: 24,
     background: "#ffffff",
@@ -50,7 +46,6 @@ const styles = {
     padding: "18px 22px 22px",
   },
 
-  // BAR ด้านบน (gradient + ปุ่ม)
   headerBar: {
     borderRadius: 20,
     padding: "8px 14px",
@@ -60,15 +55,20 @@ const styles = {
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 14,
+    gap: 10,
+    flexWrap: "wrap",
   },
   headerTitle: {
     fontSize: 15,
     fontWeight: 600,
     color: "#f9fafb",
+    whiteSpace: "nowrap",
   },
   headerButtons: {
     display: "flex",
     gap: 10,
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
   },
   headerBtn: {
     borderRadius: 999,
@@ -78,15 +78,15 @@ const styles = {
     border: "none",
     cursor: "pointer",
     boxShadow: "0 4px 10px rgba(15,23,42,0.25)",
+    whiteSpace: "nowrap",
   },
   btnPink: { background: "#ff6b81", color: "#ffffff" },
   btnOrange: { background: "#ffb347", color: "#111827" },
   btnYellow: { background: "#ffe45e", color: "#111827" },
 
-  // GRID ด้านบน (4 ช่อง dropdown)
   topGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     gap: 12,
     marginTop: 6,
   },
@@ -118,7 +118,6 @@ const styles = {
     cursor: "pointer",
   },
 
-  // MAP
   mapTitle: {
     fontSize: 14,
     fontWeight: 600,
@@ -132,7 +131,6 @@ const styles = {
     boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
   },
 
-  // PANEL ล่าง
   bottomPanel: {
     marginTop: 22,
     borderRadius: 26,
@@ -152,7 +150,7 @@ const styles = {
   },
   infoGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
     gap: 12,
     marginBottom: 12,
   },
@@ -193,6 +191,7 @@ const styles = {
     marginRight: 10,
     fontSize: 15,
     color: "#16a34a",
+    flex: "0 0 auto",
   },
   sensorTextMain: {
     fontSize: 13,
@@ -217,7 +216,19 @@ const sensors = [
 export default function ManagementPage() {
   const [pinIcon, setPinIcon] = useState(null);
 
-  // โหลด Leaflet และสร้าง icon เฉพาะฝั่ง client
+  const [mapH, setMapH] = useState(280);
+  useEffect(() => {
+    const calc = () => {
+      const w = window.innerWidth;
+      if (w < 640) setMapH(220);
+      else if (w < 1024) setMapH(260);
+      else setMapH(280);
+    };
+    calc();
+    window.addEventListener("resize", calc);
+    return () => window.removeEventListener("resize", calc);
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     import("leaflet").then((L) => {
@@ -239,7 +250,6 @@ export default function ManagementPage() {
     };
   }, []);
 
-  // polygon แทนขอบเขตแปลง
   const fieldPolygon = [
     [13.35, 101.0],
     [13.35, 101.2],
@@ -247,7 +257,6 @@ export default function ManagementPage() {
     [13.25, 101.0],
   ];
 
-  // ตำแหน่ง sensor แต่ละตัว
   const sensorPositions = [
     [13.33, 101.08],
     [13.33, 101.15],
@@ -260,13 +269,11 @@ export default function ManagementPage() {
   return (
     <div style={pageStyle}>
       <main className="du-management" style={bodyStyle}>
-        {/* PANEL บนสุด */}
         <section style={styles.mainPanel}>
-          {/* แถบ gradient ด้านบน */}
           <div style={styles.headerBar}>
             <div style={styles.headerTitle}>ตัวกรองและเครื่องมือ</div>
+
             <div style={styles.headerButtons}>
-              {/* ✅ ใช้ลิงก์แบบ relative path แทน router.push เพื่อให้ GitHub Pages ใช้ได้แน่นอน */}
               <a href="./addplantingplots">
                 <button style={{ ...styles.headerBtn, ...styles.btnPink }}>
                   + เพิ่มแปลง
@@ -285,9 +292,7 @@ export default function ManagementPage() {
             </div>
           </div>
 
-          {/* 4 DROPDOWN ด้านบน */}
           <div style={styles.topGrid}>
-            {/* เลือกแปลง */}
             <div style={styles.dropdownCard}>
               <label style={styles.fieldLabel}>แปลง</label>
               <select defaultValue="A" style={styles.fieldSelect}>
@@ -297,7 +302,6 @@ export default function ManagementPage() {
               </select>
             </div>
 
-            {/* เลือก Node */}
             <div style={styles.dropdownCard}>
               <label style={styles.fieldLabel}>เลือก Node</label>
               <select defaultValue="1" style={styles.fieldSelect}>
@@ -307,7 +311,6 @@ export default function ManagementPage() {
               </select>
             </div>
 
-            {/* ชนิดเซนเซอร์ */}
             <div style={styles.dropdownCard}>
               <label style={styles.fieldLabel}>ชนิดเซนเซอร์</label>
               <select defaultValue="soil" style={styles.fieldSelect}>
@@ -318,7 +321,6 @@ export default function ManagementPage() {
               </select>
             </div>
 
-            {/* วิธีดึงข้อมูล */}
             <div style={styles.dropdownCard}>
               <label style={styles.fieldLabel}>ดึงข้อมูล</label>
               <select defaultValue="pin" style={styles.fieldSelect}>
@@ -328,21 +330,19 @@ export default function ManagementPage() {
             </div>
           </div>
 
-          {/* แผนที่จริง */}
           <div style={styles.mapTitle}>แผนที่และทรัพยากร</div>
           <div style={styles.mapWrapper}>
             <MapContainer
               center={[13.3, 101.1]}
               zoom={11}
               scrollWheelZoom={true}
-              style={{ height: 280, width: "100%" }}
+              style={{ height: mapH, width: "100%" }}
             >
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
 
-              {/* ขอบเขตแปลง */}
               <Polygon
                 positions={fieldPolygon}
                 pathOptions={{
@@ -352,7 +352,6 @@ export default function ManagementPage() {
                 }}
               />
 
-              {/* เซนเซอร์แต่ละตัว */}
               {pinIcon &&
                 sensorPositions.map((pos, i) => (
                   <Marker key={i} position={pos} icon={pinIcon}>
@@ -363,12 +362,9 @@ export default function ManagementPage() {
           </div>
         </section>
 
-        {/* PANEL ล่าง – สีเขียวอ่อน */}
         <section style={styles.bottomPanel}>
           <div style={styles.bottomHeader}>ข้อมูลแปลง: แปลง A</div>
-          <div style={styles.bottomSub}>
-            รายละเอียดของแปลงและตำแหน่งเซนเซอร์
-          </div>
+          <div style={styles.bottomSub}>รายละเอียดของแปลงและตำแหน่งเซนเซอร์</div>
 
           <div style={styles.infoGrid}>
             <div>

@@ -27,37 +27,43 @@ const Polygon = dynamic(
 );
 
 export default function AddSensor() {
-  const [baseUrl, setBaseUrl] = useState("");
   const [pinIcon, setPinIcon] = useState(null);
 
+  // ===== responsive =====
+  const [width, setWidth] = useState(1200);
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setBaseUrl(window.location.origin);
-    }
+    const onResize = () => setWidth(window.innerWidth);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // สร้าง Leaflet Icon แบบ client-side เท่านั้น
+  const isMobile = width <= 640;
+  const isTablet = width > 640 && width <= 1024;
+
+  // ===== Leaflet icon =====
   useEffect(() => {
     let mounted = true;
     import("leaflet").then((L) => {
       if (!mounted) return;
-      const icon = new L.Icon({
-        iconUrl:
-          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-        iconSize: [25, 41],
-        iconAnchor: [12, 41],
-        popupAnchor: [1, -34],
-        shadowUrl:
-          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-        shadowSize: [41, 41],
-      });
-      setPinIcon(icon);
+      setPinIcon(
+        new L.Icon({
+          iconUrl:
+            "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+          iconSize: [25, 41],
+          iconAnchor: [12, 41],
+          popupAnchor: [1, -34],
+          shadowUrl:
+            "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+        })
+      );
     });
     return () => {
       mounted = false;
     };
   }, []);
 
+  // ===== styles (เดิม + responsive override) =====
   const styles = {
     page: {
       fontFamily:
@@ -73,7 +79,6 @@ export default function AddSensor() {
       padding: "0 16px",
     },
 
-    // แถบด้านบน gradient + กล่องฟิลเตอร์
     topPanel: {
       borderRadius: 24,
       padding: "16px 20px 18px",
@@ -84,8 +89,10 @@ export default function AddSensor() {
     },
     topHeaderRow: {
       display: "flex",
+      flexDirection: isMobile ? "column" : "row",
       justifyContent: "space-between",
-      alignItems: "center",
+      alignItems: isMobile ? "flex-start" : "center",
+      gap: isMobile ? 8 : 0,
       marginBottom: 10,
     },
     topTitle: {
@@ -102,10 +109,16 @@ export default function AddSensor() {
       color: "#1f2937",
       cursor: "pointer",
       boxShadow: "0 4px 10px rgba(15,23,42,0.25)",
+      width: isMobile ? "100%" : "auto",
     },
+
     filterGrid: {
       display: "grid",
-      gridTemplateColumns: "repeat(4,minmax(0,1fr))",
+      gridTemplateColumns: isMobile
+        ? "1fr"
+        : isTablet
+        ? "repeat(2,minmax(0,1fr))"
+        : "repeat(4,minmax(0,1fr))",
       gap: 10,
       marginTop: 4,
     },
@@ -132,7 +145,6 @@ export default function AddSensor() {
       background: "#e0f2fe",
     },
 
-    // PANEL ข้อมูลแปลง + แผนที่ + แถว PIN
     plotPanel: {
       borderRadius: 26,
       background: "#dffff3",
@@ -142,8 +154,10 @@ export default function AddSensor() {
     },
     plotHeaderRow: {
       display: "flex",
+      flexDirection: isMobile ? "column" : "row",
       justifyContent: "space-between",
-      alignItems: "center",
+      alignItems: isMobile ? "flex-start" : "center",
+      gap: isMobile ? 6 : 0,
       marginBottom: 6,
     },
     plotTitle: {
@@ -162,10 +176,16 @@ export default function AddSensor() {
       fontSize: 12,
       background: "#facc15",
       cursor: "pointer",
+      width: isMobile ? "100%" : "auto",
     },
+
     infoGrid: {
       display: "grid",
-      gridTemplateColumns: "repeat(4,minmax(0,1fr))",
+      gridTemplateColumns: isMobile
+        ? "1fr"
+        : isTablet
+        ? "repeat(2,minmax(0,1fr))"
+        : "repeat(4,minmax(0,1fr))",
       gap: 10,
       marginBottom: 14,
     },
@@ -201,7 +221,9 @@ export default function AddSensor() {
       background: "#fef9c3",
       padding: "8px 10px",
       display: "grid",
-      gridTemplateColumns: "auto 1fr 1.2fr 1.2fr",
+      gridTemplateColumns: isMobile
+        ? "1fr"
+        : "auto 1fr 1.2fr 1.2fr",
       gap: 8,
       fontSize: 12,
       alignItems: "center",
@@ -215,23 +237,8 @@ export default function AddSensor() {
       cursor: "pointer",
       fontSize: 18,
       fontWeight: 600,
-      boxShadow: "0 2px 6px rgba(148,163,184,0.7)",
-    },
-    pinMetaBox: {
-      borderRadius: 12,
-      background: "#ffffff",
-      padding: "5px 8px",
-      fontSize: 12,
-      display: "flex",
-      alignItems: "center",
-      gap: 6,
-    },
-    pinMetaLabel: {
-      fontSize: 11,
-      color: "#6b7280",
     },
 
-    // PANEL PIN ล่างสีชมพู
     pinPanel: {
       borderRadius: 26,
       background: "#ffe4f4",
@@ -241,8 +248,10 @@ export default function AddSensor() {
     },
     pinHeaderRow: {
       display: "flex",
+      flexDirection: isMobile ? "column" : "row",
       justifyContent: "space-between",
-      alignItems: "center",
+      alignItems: isMobile ? "flex-start" : "center",
+      gap: isMobile ? 8 : 0,
       marginBottom: 10,
     },
     pinTitle: {
@@ -256,46 +265,18 @@ export default function AddSensor() {
       fontSize: 12,
       background: "#f9a8d4",
       cursor: "pointer",
+      width: isMobile ? "100%" : "auto",
     },
+
     sensorRow: {
       borderRadius: 16,
       background: "#ffffff",
       padding: "8px 10px",
       marginBottom: 6,
       display: "grid",
-      gridTemplateColumns: "1.1fr 1.5fr",
+      gridTemplateColumns: isMobile ? "1fr" : "1.1fr 1.5fr",
       gap: 8,
       alignItems: "center",
-      boxShadow: "0 1px 4px rgba(148,163,184,0.4)",
-    },
-    sensorLeft: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-    },
-    sensorIcon: {
-      width: 26,
-      height: 26,
-      borderRadius: "999px",
-      background: "#e0f2fe",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontSize: 16,
-      color: "#2563eb",
-    },
-    sensorLabelMain: {
-      fontSize: 12,
-      fontWeight: 500,
-    },
-    sensorLabelSub: {
-      fontSize: 11,
-      color: "#6b7280",
-    },
-    sensorRight: {
-      fontSize: 11,
-      color: "#4b5563",
-      lineHeight: 1.45,
     },
 
     saveBtn: {
@@ -311,20 +292,19 @@ export default function AddSensor() {
       background: "linear-gradient(135deg,#6366f1,#a855f7)",
       color: "#fff",
       cursor: "pointer",
-      boxShadow: "0 8px 20px rgba(99,102,241,0.5)",
+      width: isMobile ? "100%" : "auto",
     },
   };
 
-  // polygon แทนขอบเขตแปลง A (ลองเปลี่ยนพิกัดจริงได้)
   const fieldPolygon = [
     [13.35, 101.0],
     [13.35, 101.2],
     [13.25, 101.2],
     [13.25, 101.0],
   ];
-
   const pinPosition = [13.3, 101.12];
 
+  // ===== JSX เดิมทั้งหมด =====
   return (
     <div style={styles.page}>
       <div style={styles.body} className="du-add-sensor">

@@ -26,9 +26,6 @@ const Popup = dynamic(
   { ssr: false }
 );
 
-// ❌ ห้ามสร้าง Icon ด้วย Leaflet ที่ top-level
-// ✅ สร้างใน useEffect แล้วเก็บใน state แทน
-
 const pageStyle = {
   fontFamily:
     '"Prompt", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -44,197 +41,7 @@ const bodyStyle = {
   padding: "0 16px",
 };
 
-const styles = {
-  // header gradient
-  headerPanel: {
-    borderRadius: 24,
-    padding: "16px 20px 18px",
-    background: "linear-gradient(135deg,#40B596,#676FC7)",
-    color: "#fff",
-    marginBottom: 18,
-    boxShadow: "0 16px 36px rgba(15,23,42,0.18)",
-  },
-  headerRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: 700,
-  },
-  headerDangerBtn: {
-    borderRadius: 999,
-    border: "none",
-    padding: "8px 18px",
-    fontSize: 13,
-    fontWeight: 500,
-    background: "#ef4444",
-    color: "#fff",
-    cursor: "pointer",
-    boxShadow: "0 4px 10px rgba(15,23,42,0.25)",
-  },
-
-  // grid ในกล่องตัวกรอง
-  topGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4,minmax(0,1fr))",
-    gap: 10,
-  },
-  fieldCard: {
-    borderRadius: 18,
-    background:
-      "linear-gradient(135deg,rgba(255,255,255,0.96),rgba(224,242,254,0.96))",
-    padding: "10px 12px 12px",
-    fontSize: 12,
-    color: "#0f172a",
-    boxShadow: "0 4px 10px rgba(15,23,42,0.15)",
-  },
-  fieldLabel: {
-    fontSize: 11,
-    fontWeight: 600,
-    color: "#1f2937",
-    marginBottom: 4,
-    display: "block",
-  },
-  fieldSelect: {
-    width: "100%",
-    borderRadius: 14,
-    border: "none",
-    padding: "6px 10px",
-    fontSize: 12,
-    outline: "none",
-    color: "#0f172a",
-    background: "rgba(255,255,255,0.95)",
-    boxShadow: "0 1px 3px rgba(148,163,184,0.6) inset",
-    cursor: "pointer",
-  },
-
-  // main bottom panel
-  bottomPanel: {
-    borderRadius: 26,
-    background: "#dffff3",
-    padding: "18px 20px 20px",
-    boxShadow: "0 14px 32px rgba(15,23,42,0.12)",
-  },
-  bottomHeaderRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  bottomTitle: { fontSize: 14, fontWeight: 600 },
-  deleteAllBtn: {
-    borderRadius: 999,
-    border: "none",
-    padding: "6px 14px",
-    fontSize: 12,
-    background: "#ef4444",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  bottomSub: {
-    fontSize: 11,
-    color: "#6b7280",
-    marginBottom: 10,
-  },
-  infoGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4,minmax(0,1fr))",
-    gap: 10,
-    marginBottom: 14,
-  },
-  infoLabel: {
-    fontSize: 11,
-    color: "#6b7280",
-    marginBottom: 3,
-  },
-  infoBox: {
-    borderRadius: 12,
-    background: "#ffffff",
-    border: "1px solid #c7f0df",
-    padding: "6px 10px",
-    fontSize: 12,
-  },
-
-  mapCard: {
-    borderRadius: 22,
-    overflow: "hidden",
-    background: "#ffffff",
-    boxShadow: "0 10px 24px rgba(15,23,42,0.15)",
-    marginBottom: 14,
-  },
-  mapTitle: {
-    fontSize: 13,
-    fontWeight: 600,
-    padding: "10px 14px 4px",
-  },
-
-  // pin list
-  pinRow: {
-    display: "grid",
-    gridTemplateColumns: "140px 1fr 1fr 60px",
-    gap: 8,
-    alignItems: "center",
-    padding: "6px 10px",
-    background: "#e5f5ff",
-    borderRadius: 18,
-    marginBottom: 6,
-    fontSize: 13,
-  },
-  pinNumberBox: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-  },
-  pinIconCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: "999px",
-    background: "#d1fae5",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 15,
-    color: "#16a34a",
-  },
-  pinLabel: {
-    fontWeight: 500,
-  },
-  pinCoord: {
-    fontSize: 12,
-    color: "#4b5563",
-  },
-  deleteBtn: {
-    borderRadius: 999,
-    border: "none",
-    width: 34,
-    height: 34,
-    background: "#111827",
-    color: "#ffffff",
-    cursor: "pointer",
-    fontSize: 16,
-  },
-
-  saveBtn: {
-    marginTop: 12,
-    display: "block",
-    marginLeft: "auto",
-    marginRight: "auto",
-    borderRadius: 999,
-    border: "none",
-    padding: "8px 40px",
-    fontSize: 13,
-    fontWeight: 600,
-    background: "linear-gradient(135deg,#6366f1,#3b82f6)",
-    color: "#fff",
-    cursor: "pointer",
-    boxShadow: "0 8px 20px rgba(59,130,246,0.5)",
-  },
-};
-
-// initial data สำหรับใช้กับ useState
+// initial data
 const initialPins = [
   { id: 1, lat: "50.50759149432365", lon: "3.1261322928973054" },
   { id: 2, lat: "50.50759149432365", lon: "3.1261322928973054" },
@@ -244,39 +51,209 @@ const initialPins = [
 ];
 
 export default function EditAndDelete() {
-  const [baseUrl, setBaseUrl] = useState("");
   const [pinIcon, setPinIcon] = useState(null);
   const [pins, setPins] = useState(initialPins);
 
-  // อ่าน baseUrl เฉพาะฝั่ง client
+  // ===== responsive =====
+  const [width, setWidth] = useState(1200);
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setBaseUrl(window.location.origin);
-      console.log("baseUrl:", window.location.origin);
-    }
+    const onResize = () => setWidth(window.innerWidth);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // โหลด Leaflet และสร้าง icon เฉพาะฝั่ง client
+  const isMobile = width <= 640;
+  const isTablet = width > 640 && width <= 1024;
+
+  // ===== Leaflet icon =====
   useEffect(() => {
     let mounted = true;
     import("leaflet").then((L) => {
       if (!mounted) return;
-      const icon = new L.Icon({
-        iconUrl:
-          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-        iconSize: [25, 41],
-        iconAnchor: [12, 41],
-        popupAnchor: [1, -34],
-        shadowUrl:
-          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-        shadowSize: [41, 41],
-      });
-      setPinIcon(icon);
+      setPinIcon(
+        new L.Icon({
+          iconUrl:
+            "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+          iconSize: [25, 41],
+          iconAnchor: [12, 41],
+          popupAnchor: [1, -34],
+          shadowUrl:
+            "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+        })
+      );
     });
     return () => {
       mounted = false;
     };
   }, []);
+
+  const styles = {
+    headerPanel: {
+      borderRadius: 24,
+      padding: "16px 20px 18px",
+      background: "linear-gradient(135deg,#40B596,#676FC7)",
+      color: "#fff",
+      marginBottom: 18,
+      boxShadow: "0 16px 36px rgba(15,23,42,0.18)",
+    },
+    headerRow: {
+      display: "flex",
+      flexDirection: isMobile ? "column" : "row",
+      justifyContent: "space-between",
+      alignItems: isMobile ? "flex-start" : "center",
+      gap: isMobile ? 8 : 0,
+      marginBottom: 10,
+    },
+    headerTitle: { fontSize: 16, fontWeight: 700 },
+    headerDangerBtn: {
+      borderRadius: 999,
+      border: "none",
+      padding: "8px 18px",
+      fontSize: 13,
+      background: "#ef4444",
+      color: "#fff",
+      cursor: "pointer",
+      width: isMobile ? "100%" : "auto",
+    },
+
+    topGrid: {
+      display: "grid",
+      gridTemplateColumns: isMobile
+        ? "1fr"
+        : isTablet
+        ? "repeat(2,minmax(0,1fr))"
+        : "repeat(4,minmax(0,1fr))",
+      gap: 10,
+    },
+
+    fieldCard: {
+      borderRadius: 18,
+      background:
+        "linear-gradient(135deg,rgba(255,255,255,0.96),rgba(224,242,254,0.96))",
+      padding: "10px 12px 12px",
+      fontSize: 12,
+      boxShadow: "0 4px 10px rgba(15,23,42,0.15)",
+    },
+    fieldLabel: {
+      fontSize: 11,
+      fontWeight: 600,
+      marginBottom: 4,
+      display: "block",
+    },
+    fieldSelect: {
+      width: "100%",
+      borderRadius: 14,
+      border: "none",
+      padding: "6px 10px",
+      fontSize: 12,
+      background: "#fff",
+    },
+
+    bottomPanel: {
+      borderRadius: 26,
+      background: "#dffff3",
+      padding: "18px 20px 20px",
+      boxShadow: "0 14px 32px rgba(15,23,42,0.12)",
+    },
+    bottomHeaderRow: {
+      display: "flex",
+      flexDirection: isMobile ? "column" : "row",
+      justifyContent: "space-between",
+      alignItems: isMobile ? "flex-start" : "center",
+      gap: isMobile ? 6 : 0,
+      marginBottom: 6,
+    },
+    bottomTitle: { fontSize: 14, fontWeight: 600 },
+    deleteAllBtn: {
+      borderRadius: 999,
+      border: "none",
+      padding: "6px 14px",
+      fontSize: 12,
+      background: "#ef4444",
+      color: "#fff",
+      cursor: "pointer",
+      width: isMobile ? "100%" : "auto",
+    },
+    bottomSub: {
+      fontSize: 11,
+      color: "#6b7280",
+      marginBottom: 10,
+    },
+
+    infoGrid: {
+      display: "grid",
+      gridTemplateColumns: isMobile
+        ? "1fr"
+        : isTablet
+        ? "repeat(2,minmax(0,1fr))"
+        : "repeat(4,minmax(0,1fr))",
+      gap: 10,
+      marginBottom: 14,
+    },
+    infoLabel: { fontSize: 11, color: "#6b7280" },
+    infoBox: {
+      borderRadius: 12,
+      background: "#ffffff",
+      border: "1px solid #c7f0df",
+      padding: "6px 10px",
+      fontSize: 12,
+    },
+
+    mapCard: {
+      borderRadius: 22,
+      overflow: "hidden",
+      background: "#ffffff",
+      boxShadow: "0 10px 24px rgba(15,23,42,0.15)",
+      marginBottom: 14,
+    },
+    mapTitle: {
+      fontSize: 13,
+      fontWeight: 600,
+      padding: "10px 14px 4px",
+    },
+
+    pinRow: {
+      display: "grid",
+      gridTemplateColumns: isMobile
+        ? "1fr"
+        : "140px 1fr 1fr 60px",
+      gap: 8,
+      alignItems: "center",
+      padding: "8px 10px",
+      background: "#e5f5ff",
+      borderRadius: 18,
+      marginBottom: 6,
+      fontSize: 13,
+    },
+
+    deleteBtn: {
+      borderRadius: 999,
+      border: "none",
+      width: 34,
+      height: 34,
+      background: "#111827",
+      color: "#ffffff",
+      cursor: "pointer",
+      justifySelf: isMobile ? "flex-end" : "center",
+    },
+
+    saveBtn: {
+      marginTop: 12,
+      display: "block",
+      marginLeft: "auto",
+      marginRight: "auto",
+      borderRadius: 999,
+      border: "none",
+      padding: "8px 40px",
+      fontSize: 13,
+      fontWeight: 600,
+      background: "linear-gradient(135deg,#6366f1,#3b82f6)",
+      color: "#fff",
+      cursor: "pointer",
+      width: isMobile ? "100%" : "auto",
+    },
+  };
 
   const fieldPolygon = [
     [13.35, 101.0],
@@ -293,7 +270,6 @@ export default function EditAndDelete() {
     [13.28, 101.1],
   ];
 
-  // ฟังก์ชันลบ PIN ตาม id
   const handleDeletePin = (id) => {
     setPins((prev) => prev.filter((p) => p.id !== id));
   };

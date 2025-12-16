@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
 
@@ -36,8 +36,9 @@ const pageStyle = {
 };
 
 const bodyStyle = {
-  maxWidth: 1280,
-  margin: "22px auto 40px",
+  width: "100%",
+  maxWidth: 1180,
+  margin: "0 auto",
   paddingTop: 0,
   paddingRight: 16,
   paddingBottom: 30,
@@ -52,28 +53,8 @@ const cardBase = {
   paddingBottom: 18,
   paddingLeft: 20,
   boxShadow: "0 4px 10px rgba(15,23,42,0.12)",
-};
-
-const grid3Top = {
-  display: "grid",
-  gridTemplateColumns: "2fr 1.1fr 1.1fr",
-  gap: 16,
-};
-
-const grid3Middle = grid3Top;
-
-const grid3Pins = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: 16,
-  alignItems: "stretch",
-  gridAutoRows: "1fr",
-};
-
-const grid4 = {
-  display: "grid",
-  gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-  gap: 8,
+  minWidth: 0,
+  overflow: "hidden",
 };
 
 // ===== PIN CARD STYLES =====
@@ -88,17 +69,22 @@ const pinCardBase = {
   display: "flex",
   flexDirection: "column",
   height: "100%",
+  minWidth: 0,
+  overflow: "hidden",
 };
 const pinHeaderRow = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "flex-start",
   marginBottom: 10,
+  gap: 10,
+  flexWrap: "wrap",
 };
 const pinTitleBlock = {
   display: "flex",
   flexDirection: "column",
   gap: 2,
+  minWidth: 0,
 };
 const pinTitle = {
   fontSize: 18,
@@ -113,12 +99,6 @@ const pinStatus = {
   fontWeight: 700,
   color: "#16a34a",
 };
-const pinPillRow = {
-  display: "grid",
-  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-  gap: 8,
-  marginBottom: 12,
-};
 const pinInfoPill = {
   borderRadius: 999,
   background: "#ffffff",
@@ -128,6 +108,8 @@ const pinInfoPill = {
   paddingLeft: 10,
   fontSize: 11,
   boxShadow: "0 1px 3px rgba(148,163,184,0.35)",
+  minWidth: 0,
+  overflow: "hidden",
 };
 const pinInfoLabel = {
   fontSize: 10,
@@ -137,6 +119,9 @@ const pinInfoLabel = {
 const pinInfoValue = {
   fontSize: 12,
   fontWeight: 600,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 const pinGroupContainer = {
   borderRadius: 22,
@@ -152,11 +137,6 @@ const pinGroupLabel = {
   fontWeight: 600,
   marginBottom: 4,
 };
-const pinGroupGrid = {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: 6,
-};
 const pinGroupItem = {
   borderRadius: 999,
   background: "#f9fafb",
@@ -166,14 +146,22 @@ const pinGroupItem = {
   paddingLeft: 8,
   fontSize: 11,
   boxShadow: "0 1px 2px rgba(148,163,184,0.35)",
+  minWidth: 0,
+  overflow: "hidden",
 };
 const pinSensorName = {
   fontWeight: 500,
   marginBottom: 1,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 const pinSensorValue = {
   fontSize: 10,
   color: "#6b7280",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 
 // ===== DATA FUNCTIONS =====
@@ -210,10 +198,7 @@ function getPinSensorGroups(pin) {
   }
 
   return [
-    {
-      group: "เซนเซอร์ความชื้นดิน",
-      items: moistureItems,
-    },
+    { group: "เซนเซอร์ความชื้นดิน", items: moistureItems },
     {
       group: "เซนเซอร์ อุณหภูมิ",
       items: [
@@ -283,6 +268,143 @@ export default function DashboardPage() {
   const [pinIcon, setPinIcon] = useState(null);
   const [isClient, setIsClient] = useState(false);
 
+  // ✅ responsive breakpoint (ใช้ innerWidth แบบเดิม แต่คุม layout ให้แน่นขึ้น)
+  const [vw, setVw] = useState(1280);
+  useEffect(() => {
+    const onResize = () => setVw(window.innerWidth || 1280);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const isMobile = vw < 640;
+  const isTablet = vw >= 640 && vw < 1024;
+
+  // ✅ ลด padding/รัศมี/ฟอนต์บนจอเล็ก
+  const cardPad = isMobile ? 14 : isTablet ? 16 : 20;
+  const cardRadius = isMobile ? 18 : 24;
+
+  const cardBaseR = useMemo(() => {
+    return {
+      ...cardBase,
+      borderRadius: cardRadius,
+      paddingTop: cardPad,
+      paddingRight: cardPad,
+      paddingBottom: cardPad,
+      paddingLeft: cardPad,
+    };
+  }, [cardPad, cardRadius]);
+
+  const mapHeight = isMobile ? 220 : isTablet ? 260 : 260;
+
+  // ===== TOP ROW: ใช้ grid areas เพื่อคุมการเรียงบน tablet/mobile =====
+  const gridTop = useMemo(() => {
+    if (isMobile) {
+      return {
+        display: "grid",
+        gridTemplateColumns: "1fr",
+        gridTemplateAreas: `"forecast" "mid" "right"`,
+        gap: 12,
+      };
+    }
+    if (isTablet) {
+      return {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gridTemplateAreas: `"forecast forecast" "mid right"`,
+        gap: 14,
+      };
+    }
+    return {
+      display: "grid",
+      gridTemplateColumns: "2fr 1.1fr 1.1fr",
+      gridTemplateAreas: `"forecast mid right"`,
+      gap: 16,
+    };
+  }, [isMobile, isTablet]);
+
+  // ===== MIDDLE ROW: map ใหญ่ก่อน แล้ว 2 การ์ดคู่กันบน tablet =====
+  const gridMiddle = useMemo(() => {
+    if (isMobile) {
+      return {
+        display: "grid",
+        gridTemplateColumns: "1fr",
+        gridTemplateAreas: `"map" "status" "issue"`,
+        gap: 12,
+      };
+    }
+    if (isTablet) {
+      return {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gridTemplateAreas: `"map map" "status issue"`,
+        gap: 14,
+      };
+    }
+    return {
+      display: "grid",
+      gridTemplateColumns: "2fr 1.1fr 1.1fr",
+      gridTemplateAreas: `"map status issue"`,
+      gap: 16,
+    };
+  }, [isMobile, isTablet]);
+
+  const gridPins = useMemo(() => {
+    if (isMobile) return { display: "grid", gridTemplateColumns: "1fr", gap: 12 };
+    if (isTablet) return { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 };
+    return {
+      display: "grid",
+      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+      gap: 16,
+      alignItems: "stretch",
+      gridAutoRows: "1fr",
+    };
+  }, [isMobile, isTablet]);
+
+  const gridWeather = useMemo(() => {
+    if (isMobile) {
+      return {
+        display: "grid",
+        gridTemplateColumns: "repeat(7, minmax(92px, 1fr))",
+        gap: 8,
+        overflowX: "auto",
+        paddingBottom: 2,
+        WebkitOverflowScrolling: "touch",
+      };
+    }
+    return {
+      display: "grid",
+      gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+      gap: 8,
+    };
+  }, [isMobile]);
+
+  const pinPillRow = useMemo(() => {
+    if (isMobile) {
+      return {
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gap: 8,
+        marginBottom: 12,
+      };
+    }
+    return {
+      display: "grid",
+      gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+      gap: 8,
+      marginBottom: 12,
+    };
+  }, [isMobile]);
+
+  const pinGroupGrid = useMemo(() => {
+    if (isMobile) return { display: "grid", gridTemplateColumns: "1fr", gap: 6 };
+    return { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 6 };
+  }, [isMobile]);
+
+  const title18 = { fontSize: isMobile ? 16 : 18, fontWeight: 700 };
+  const bigTemp = { fontSize: isMobile ? 24 : 28, fontWeight: 800 };
+  const bigNum = { fontSize: isMobile ? 22 : 24, fontWeight: 800 };
+
   // ให้รู้ก่อนว่าอยู่ฝั่ง client แล้วค่อย render map
   useEffect(() => {
     setIsClient(true);
@@ -311,191 +433,145 @@ export default function DashboardPage() {
 
   return (
     <div style={pageStyle}>
-      <main style={bodyStyle} className="du-dashboard">
-        {/* ===== แถวบน: พยากรณ์ + ค่า ณ ปัจจุบัน + การ์ด 4 ใบ ===== */}
-        <div style={{ ...grid3Top, marginBottom: 16 }}>
+      <main
+        style={{
+          ...bodyStyle,
+          paddingLeft: isMobile ? 12 : 16,
+          paddingRight: isMobile ? 12 : 16,
+          paddingBottom: isMobile ? 22 : 30,
+        }}
+        className="du-dashboard"
+      >
+        {/* ===== แถวบน ===== */}
+        <div style={{ ...gridTop, marginBottom: 16 }}>
           {/* พยากรณ์ 7 วัน */}
-          <div style={cardBase} className="du-card">
-            <div
-              className="du-card-title"
-              style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}
-            >
+          <div style={{ ...cardBaseR, gridArea: "forecast" }} className="du-card">
+            <div className="du-card-title" style={{ ...title18, marginBottom: 6 }}>
               พยากรณ์อากาศ 7 วันข้างหน้า
             </div>
-            <div style={{ ...grid4, marginTop: 8 }} className="du-grid-4">
-              {[
-                { day: "จันทร์", temp: "32°", rain: "40%" },
-                { day: "อังคาร", temp: "31°", rain: "60%" },
-                { day: "พุธ", temp: "30°", rain: "80%" },
-                { day: "พฤหัส", temp: "32°", rain: "20%" },
-                { day: "ศุกร์", temp: "34°", rain: "10%" },
-                { day: "เสาร์", temp: "31°", rain: "50%" },
-                { day: "อาทิตย์", temp: "32°", rain: "30%" },
-              ].map((d) => (
-                <div
-                  key={d.day}
-                  style={{
-                    background: "#eef3ff",
-                    borderRadius: 18,
-                    paddingTop: 8,
-                    paddingRight: 4,
-                    paddingBottom: 8,
-                    paddingLeft: 4,
-                    textAlign: "center",
-                  }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{d.day}</div>
-                  <div style={{ fontSize: 20, margin: "4px 0" }}>🌤️</div>
+
+            <div style={{ marginTop: 8, overflowX: isMobile ? "auto" : "visible" }}>
+              <div style={gridWeather} className="du-grid-4">
+                {[
+                  { day: "จันทร์", temp: "32°", rain: "40%" },
+                  { day: "อังคาร", temp: "31°", rain: "60%" },
+                  { day: "พุธ", temp: "30°", rain: "80%" },
+                  { day: "พฤหัส", temp: "32°", rain: "20%" },
+                  { day: "ศุกร์", temp: "34°", rain: "10%" },
+                  { day: "เสาร์", temp: "31°", rain: "50%" },
+                  { day: "อาทิตย์", temp: "32°", rain: "30%" },
+                ].map((d) => (
                   <div
+                    key={d.day}
                     style={{
-                      fontSize: 18,
-                      fontWeight: 700,
-                      lineHeight: 1.1,
+                      background: "#eef3ff",
+                      borderRadius: 16,
+                      paddingTop: 8,
+                      paddingRight: 6,
+                      paddingBottom: 8,
+                      paddingLeft: 6,
+                      textAlign: "center",
+                      minWidth: isMobile ? 92 : 0,
                     }}
                   >
-                    {d.temp}
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{d.day}</div>
+                    <div style={{ fontSize: 20, margin: "4px 0" }}>🌤️</div>
+                    <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 700, lineHeight: 1.1 }}>
+                      {d.temp}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#4b5563" }}>
+                      โอกาสฝนตก {d.rain}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 11, color: "#4b5563" }}>
-                    โอกาสฝนตก {d.rain}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* คอลัมน์กลาง: อุณหภูมิ + โอกาสฝนตก */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {/* อุณหภูมิปัจจุบัน */}
+          {/* คอลัมน์กลาง */}
+          <div style={{ gridArea: "mid", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
             <div
               style={{
-                ...cardBase,
+                ...cardBaseR,
                 background: "#1d4ed8",
                 color: "#ffffff",
               }}
               className="du-card"
             >
-              <div
-                className="du-card-title"
-                style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}
-              >
+              <div className="du-card-title" style={{ ...title18, marginBottom: 4 }}>
                 อุณหภูมิปัจจุบัน
               </div>
-              <div
-                style={{
-                  fontSize: 28,
-                  fontWeight: 800,
-                  marginBottom: 4,
-                  color: "#bfdbfe",
-                }}
-              >
+              <div style={{ ...bigTemp, marginBottom: 4, color: "#bfdbfe" }}>
                 25 – 32 °C
               </div>
-              <div
-                style={{
-                  fontSize: 13,
-                  color: "#e0e7ff",
-                }}
-              >
+              <div style={{ fontSize: 13, color: "#e0e7ff", lineHeight: 1.5 }}>
                 เหมาะสมกับการเจริญเติบโตของทุเรียน
               </div>
             </div>
 
-            {/* โอกาสฝนตก */}
             <div
               style={{
-                ...cardBase,
+                ...cardBaseR,
                 background: "#facc15",
                 color: "#111827",
               }}
               className="du-card"
             >
-              <div
-                className="du-card-title"
-                style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}
-              >
+              <div className="du-card-title" style={{ ...title18, marginBottom: 4 }}>
                 โอกาสฝนตก
               </div>
-              <div
-                style={{
-                  fontSize: 24,
-                  fontWeight: 800,
-                  marginBottom: 2,
-                }}
-              >
-                40%
-              </div>
-              <div style={{ fontSize: 12 }}>ฝนตกเล็กน้อยช่วงบ่าย</div>
+              <div style={{ ...bigNum, marginBottom: 2 }}>40%</div>
+              <div style={{ fontSize: 12, lineHeight: 1.5 }}>ฝนตกเล็กน้อยช่วงบ่าย</div>
             </div>
           </div>
 
-          {/* คอลัมน์ขวา: คำแนะนำ + ปริมาณน้ำฝน */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {/* คำแนะนำ */}
+          {/* คอลัมน์ขวา */}
+          <div style={{ gridArea: "right", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
             <div
               className="du-card"
               style={{
-                ...cardBase,
+                ...cardBaseR,
                 background: "#ef4444",
                 color: "#ffffff",
               }}
             >
-              <div
-                className="du-card-title"
-                style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}
-              >
+              <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
                 คำแนะนำ
               </div>
               <p style={{ fontSize: 14, margin: 0, lineHeight: 1.6 }}>
-                ควรเตรียมระบบระบายน้ำในแปลง เนื่องจากคาดว่าจะมีฝนตกหนักในอีก
-                2–3 วันข้างหน้า
+                ควรเตรียมระบบระบายน้ำในแปลง เนื่องจากคาดว่าจะมีฝนตกหนักในอีก 2–3 วันข้างหน้า
               </p>
             </div>
 
-            {/* ปริมาณน้ำฝน */}
             <div
               className="du-card"
               style={{
-                ...cardBase,
+                ...cardBaseR,
                 background:
                   "linear-gradient(135deg,#16a34a 0%,#22c55e 50%,#4ade80 100%)",
                 color: "#f0fdf4",
               }}
             >
-              <div
-                className="du-card-title"
-                style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}
-              >
+              <div className="du-card-title" style={{ ...title18, marginBottom: 4 }}>
                 ปริมาณน้ำฝน
               </div>
-              <div
-                style={{
-                  fontSize: 24,
-                  fontWeight: 800,
-                  marginBottom: 2,
-                }}
-              >
-                152 mm
-              </div>
-              <div style={{ fontSize: 12, opacity: 0.95 }}>
+              <div style={{ ...bigNum, marginBottom: 2 }}>152 mm</div>
+              <div style={{ fontSize: 12, opacity: 0.95, lineHeight: 1.5 }}>
                 เพียงพอต่อการสะสมในช่วง 7 วันล่าสุด
               </div>
             </div>
           </div>
         </div>
 
-        {/* ===== แถวกลาง : แผนที่ + สถานะอุปกรณ์ + ปัญหาพื้นที่ ===== */}
-        <div style={{ ...grid3Middle, marginBottom: 16 }} className="du-grid-3">
-          {/* แผนที่และทรัพยากร */}
-          <div style={cardBase} className="du-card">
-            <div
-              className="du-card-title"
-              style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}
-            >
+        {/* ===== แถวกลาง ===== */}
+        <div style={{ ...gridMiddle, marginBottom: 16 }} className="du-grid-3">
+          <div style={{ ...cardBaseR, gridArea: "map" }} className="du-card">
+            <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
               แผนที่และทรัพยากร
             </div>
             <div
               style={{
-                borderRadius: 22,
+                borderRadius: isMobile ? 18 : 22,
                 overflow: "hidden",
                 boxShadow: "0 8px 18px rgba(15,23,42,0.18)",
               }}
@@ -505,7 +581,7 @@ export default function DashboardPage() {
                   center={[13.3, 101.1]}
                   zoom={11}
                   scrollWheelZoom={true}
-                  style={{ height: 220, width: "100%" }}
+                  style={{ height: mapHeight, width: "100%" }}
                 >
                   <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
@@ -533,42 +609,24 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* สถานะการทำงานของอุปกรณ์ */}
           <div
             style={{
-              ...cardBase,
+              ...cardBaseR,
+              gridArea: "status",
               background: "#dcfce7",
             }}
             className="du-card"
           >
-            <div
-              className="du-card-title"
-              style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}
-            >
+            <div className="du-card-title" style={{ ...title18, marginBottom: 10 }}>
               สถานะการทำงานของอุปกรณ์
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: 6,
-                marginBottom: 8,
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 32,
-                  fontWeight: 800,
-                  color: "#15803d",
-                }}
-              >
-                3
-              </span>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 8 }}>
+              <span style={{ fontSize: isMobile ? 28 : 32, fontWeight: 800, color: "#15803d" }}>3</span>
               <span style={{ fontSize: 14 }}>เครื่องกำลังทำงาน</span>
             </div>
 
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <span
                 className="du-tag du-badge-success"
                 style={{
@@ -581,6 +639,7 @@ export default function DashboardPage() {
                   color: "#fff",
                   fontSize: 12,
                   fontWeight: 600,
+                  whiteSpace: "nowrap",
                 }}
               >
                 ON 3 เครื่อง
@@ -596,6 +655,7 @@ export default function DashboardPage() {
                   background: "#e5e7eb",
                   fontSize: 12,
                   fontWeight: 500,
+                  whiteSpace: "nowrap",
                 }}
               >
                 OFF 0 เครื่อง
@@ -603,21 +663,18 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* ปัญหาพื้นที่ */}
           <div
             style={{
-              ...cardBase,
+              ...cardBaseR,
+              gridArea: "issue",
               background: "#fed7aa",
             }}
             className="du-card"
           >
-            <div
-              className="du-card-title"
-              style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}
-            >
+            <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
               ปัญหาพื้นที่
             </div>
-            <p style={{ fontSize: 13, marginBottom: 6 }}>
+            <p style={{ fontSize: 13, marginBottom: 6, lineHeight: 1.55 }}>
               ตรวจพบความชื้นเกินเกณฑ์ที่ PIN 3
             </p>
             <span
@@ -640,8 +697,8 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ===== แถวล่าง : ข้อมูล Pin 1–3 ===== */}
-        <div style={grid3Pins} className="du-grid-3">
+        {/* ===== แถวล่าง : Pin 1–3 ===== */}
+        <div style={gridPins} className="du-grid-3">
           {[1, 2, 3].map((pin) => {
             const groups = getPinSensorGroups(pin);
             const backgroundColor = pin === 3 ? "#FFBABA" : "#dfffee";
@@ -652,20 +709,23 @@ export default function DashboardPage() {
                 style={{
                   ...pinCardBase,
                   background: backgroundColor,
+                  borderRadius: isMobile ? 22 : 30,
+                  paddingTop: isMobile ? 12 : 14,
+                  paddingRight: isMobile ? 12 : 14,
+                  paddingBottom: isMobile ? 12 : 16,
+                  paddingLeft: isMobile ? 12 : 14,
                 }}
               >
-                {/* header การ์ด */}
                 <div style={pinHeaderRow}>
                   <div style={pinTitleBlock}>
-                    <span style={pinTitle}>ข้อมูล : Pin {pin}</span>
-                    <span style={pinSubtitle}>
-                      รายละเอียดแปลงและเซนเซอร์
+                    <span style={{ ...pinTitle, fontSize: isMobile ? 16 : 18 }}>
+                      ข้อมูล : Pin {pin}
                     </span>
+                    <span style={pinSubtitle}>รายละเอียดแปลงและเซนเซอร์</span>
                   </div>
-                  <span style={pinStatus}>ON</span>
+                  <span style={{ ...pinStatus, fontSize: isMobile ? 16 : 18 }}>ON</span>
                 </div>
 
-                {/* pill ข้อมูลหลัก 4 ช่อง */}
                 <div style={pinPillRow}>
                   <div style={pinInfoPill}>
                     <div style={pinInfoLabel}>ผู้ดูแล</div>
@@ -685,20 +745,18 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* กลุ่มเซนเซอร์ */}
                 <div style={{ flex: 1, overflow: "auto" }}>
                   {groups.map((g) => (
                     <div key={g.group} style={pinGroupContainer}>
                       <div style={pinGroupLabel}>{g.group}</div>
+
                       <div style={pinGroupGrid}>
                         {g.items.map((it) => {
                           const isAlert = !!it.isAlert;
                           const itemStyle = {
                             ...pinGroupItem,
                             background: isAlert ? "#fef9c3" : "#f9fafb",
-                            boxShadow: isAlert
-                              ? "0 0 0 1px #facc15"
-                              : pinGroupItem.boxShadow,
+                            boxShadow: isAlert ? "0 0 0 1px #facc15" : pinGroupItem.boxShadow,
                           };
                           const nameStyle = {
                             ...pinSensorName,

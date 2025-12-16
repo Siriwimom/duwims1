@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
 
-// --- dynamic import React-Leaflet & React-Leaflet-Draw เฉพาะฝั่ง client ---
+// --- dynamic import React-Leaflet & React-Leaflet-Draw ---
 const MapContainer = dynamic(
   () => import("react-leaflet").then((m) => m.MapContainer),
   { ssr: false }
@@ -31,44 +31,34 @@ let polygonIdCounter = 1;
 
 export default function AddPlantingPlotsPage() {
   const [baseUrl, setBaseUrl] = useState("");
-
   useEffect(() => {
     if (typeof window !== "undefined") {
       setBaseUrl(window.location.origin);
     }
   }, []);
 
-  // เก็บ polygon ทั้งหมด
   const [polygons, setPolygons] = useState([]);
-  // สีที่กำลังเลือกอยู่ (ใช้ตอนวาดใหม่)
   const [currentColor, setCurrentColor] = useState("#16a34a");
 
-  // วาด polygon เสร็จ (กด Finish)
   const handleCreated = (e) => {
     if (e.layerType === "polygon") {
       const layer = e.layer;
       const latlngs = layer.getLatLngs()[0] || [];
       const coords = latlngs.map((p) => [p.lat, p.lng]);
 
-      const newPoly = {
-        id: polygonIdCounter++,
-        coords,
-        color: currentColor,
-      };
+      setPolygons((prev) => [
+        ...prev,
+        { id: polygonIdCounter++, coords, color: currentColor },
+      ]);
 
-      setPolygons((prev) => [...prev, newPoly]);
-
-      // ไม่ใช้ layer เดิมของ draw → ลบออกไป
       layer.remove();
     }
   };
 
-  // ลบ polygon ตาม id
   const handleDeletePolygon = (id) => {
     setPolygons((prev) => prev.filter((p) => p.id !== id));
   };
 
-  // สีให้เลือก
   const colorOptions = [
     { value: "#16a34a", label: "เขียว" },
     { value: "#22c55e", label: "เขียวอ่อน" },
@@ -78,8 +68,8 @@ export default function AddPlantingPlotsPage() {
   ];
 
   return (
-    <div className="du-add-plot" style={{ padding: "20px 40px" }}>
-      {/* Card: Filter / Info */}
+    <div className="du-add-plot">
+      {/* ===== Header Card ===== */}
       <div
         className="du-card"
         style={{
@@ -110,15 +100,16 @@ export default function AddPlantingPlotsPage() {
         </div>
       </div>
 
-      {/* Form + Map */}
+      {/* ===== Form + Map ===== */}
       <div className="du-grid-2">
-        {/* Left Panel: Form */}
+        {/* Left: Form */}
         <div className="du-card" style={{ background: "#fff7ed" }}>
           <div className="du-card-title">กรอกข้อมูลแปลง</div>
+
           <div className="du-form-row">
             <div className="du-field">
               <label>ชื่อแปลง</label>
-              <input placeholder="เช่น แปลง A" defaultValue="แปลง A" />
+              <input defaultValue="แปลง A" />
             </div>
             <div className="du-field">
               <label>ชื่อผู้ดูแล</label>
@@ -139,73 +130,54 @@ export default function AddPlantingPlotsPage() {
 
           <div className="du-field">
             <label>คำอธิบาย</label>
-            <textarea
-              rows={3}
-              style={{
-                borderRadius: 16,
-                border: "1px solid var(--border-soft)",
-                padding: "8px 12px",
-                fontSize: 13,
-              }}
-              defaultValue="โซนเนินสูง น้ำไหลดี เหมาะสำหรับทดลองระบบให้น้ำอัตโนมัติ"
-            />
+            <textarea rows={3} defaultValue="โซนเนินสูง น้ำไหลดี" />
           </div>
 
           <button className="du-btn-primary">SAVE</button>
         </div>
 
-        {/* Right Panel: Map + Draw */}
+        {/* Right: Map */}
         <div className="du-card">
-          <div className="du-card-title">Draw Polygons on a Map</div>
+          <div className="du-card-title">Draw Polygons on Map</div>
 
-          {/* ตัวเลือกสีของกรอบที่กำลังจะวาด */}
+          {/* Color picker */}
           <div
             style={{
               display: "flex",
-              alignItems: "center",
               gap: 8,
-              margin: "8px 0 4px",
-              fontSize: 13,
+              flexWrap: "wrap",
+              margin: "6px 0",
             }}
           >
-            <span style={{ marginRight: 4 }}>เลือกสีกรอบ:</span>
             {colorOptions.map((c) => (
               <button
                 key={c.value}
                 onClick={() => setCurrentColor(c.value)}
                 style={{
-                  width: 26,
-                  height: 26,
+                  width: 28,
+                  height: 28,
                   borderRadius: "999px",
                   border:
                     currentColor === c.value
                       ? "3px solid #111827"
                       : "2px solid #e5e7eb",
                   background: c.value,
-                  cursor: "pointer",
                 }}
                 title={c.label}
               />
             ))}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>
-            * เลือกสีด้านบนก่อน แล้วใช้ปุ่ม Polygon (บนแผนที่) เพื่อวาดกรอบแปลง
-          </div>
 
-          <div className="du-leaflet-wrapper" style={{ marginTop: 4 }}>
+          {/* Map */}
+          <div className="du-leaflet-wrapper">
             <MapContainer
               center={[13.3, 101.0]}
               zoom={16}
-              scrollWheelZoom={true}
-              style={{ height: 360, width: "100%" }}
+              style={{ width: "100%", height: "100%" }}
             >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
               <FeatureGroup>
-                {/* Polygon ที่ถูกบันทึกแล้ว – แสดงเป็นสีที่เลือก */}
                 {polygons.map((poly) => (
                   <Polygon
                     key={poly.id}
@@ -222,90 +194,61 @@ export default function AddPlantingPlotsPage() {
                   position="topright"
                   onCreated={handleCreated}
                   draw={{
-                    marker: false,
-                    circle: false,
-                    rectangle: false,
-                    polyline: false,
-                    circlemarker: false,
                     polygon: {
                       allowIntersection: false,
-                      showArea: true,
                       shapeOptions: {
                         color: currentColor,
                         fillColor: currentColor,
                         fillOpacity: 0.25,
                       },
                     },
+                    rectangle: false,
+                    circle: false,
+                    polyline: false,
+                    marker: false,
+                    circlemarker: false,
                   }}
-                  // ไม่ให้ใช้ปุ่ม edit/remove ของ plugin (เราจัดการเอง)
                   edit={{ edit: false, remove: false }}
                 />
               </FeatureGroup>
             </MapContainer>
           </div>
 
-          {/* รายการ polygon + ปุ่มลบ */}
+          {/* Polygon list */}
           {polygons.length > 0 && (
             <div
               style={{
                 marginTop: 10,
-                paddingTop: 8,
                 borderTop: "1px dashed #e5e7eb",
+                paddingTop: 6,
                 fontSize: 12,
               }}
             >
-              <div style={{ marginBottom: 4, fontWeight: 600 }}>
-                กรอบที่วาดไว้ ({polygons.length})
-              </div>
-              <ul style={{ listStyle: "none", paddingLeft: 0, margin: 0 }}>
-                {polygons.map((poly) => (
-                  <li
-                    key={poly.id}
+              {polygons.map((poly) => (
+                <div
+                  key={poly.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 4,
+                  }}
+                >
+                  <span># {poly.id}</span>
+                  <button
+                    onClick={() => handleDeletePolygon(poly.id)}
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "4px 0",
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      border: "none",
+                      background: "#fee2e2",
+                      color: "#b91c1c",
                     }}
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <span># {poly.id}</span>
-                      <span
-                        style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: 999,
-                          background: poly.color,
-                          border: "1px solid #e5e7eb",
-                        }}
-                      />
-                      <span style={{ color: "#6b7280" }}>
-                        จุด {poly.coords.length} จุด
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => handleDeletePolygon(poly.id)}
-                      style={{
-                        fontSize: 11,
-                        padding: "4px 10px",
-                        borderRadius: 999,
-                        border: "none",
-                        background: "#fee2e2",
-                        color: "#b91c1c",
-                        cursor: "pointer",
-                      }}
-                    >
-                      ลบกรอบ
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                    ลบ
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>

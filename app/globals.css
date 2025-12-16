@@ -108,3 +108,114 @@ body {
   width: 100%;
   height: 100%;
 }
+/* ===================================================== */
+/* ================ RESPONSIVE ADD-ON ================== */
+/* ===================================================== */
+
+/* ป้องกัน overflow แนวนอนบนมือถือ */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* ===== Main container (ถ้าใช้ du-main / du-container) ===== */
+.du-main {
+  width: 100%;
+  padding: 16px 0 28px;
+}
+
+.du-container {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+/* ===================================================== */
+/* ===================== TABLET ======================== */
+/* ===================================================== */
+@media (max-width: 1024px) {
+  .du-container {
+    max-width: 960px;
+    padding: 0 14px;
+  }
+
+  .du-card {
+    padding: 16px 18px 20px;
+  }
+
+  .du-grid-2 {
+    grid-template-columns: 1fr; /* จาก 2 ช่อง → 1 ช่อง */
+    gap: 14px;
+  }
+
+  .du-leaflet-wrapper {
+    height: 320px;
+    border-radius: 20px;
+  }
+}
+
+/* ===================================================== */
+/* ===================== MOBILE ======================== */
+/* ===================================================== */
+@media (max-width: 640px) {
+  /* card */
+  .du-card {
+    padding: 14px 14px 16px;
+    border-radius: 18px;
+  }
+
+  .du-card-title {
+    font-size: 15px;
+  }
+
+  /* form → เรียงลง */
+  .du-form-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .du-field input,
+  .du-field select,
+  .du-field textarea {
+    font-size: 14px;
+    padding: 8px 10px;
+  }
+
+  /* grid */
+  .du-grid-2 {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  /* map */
+  .du-leaflet-wrapper {
+    height: 260px;
+    border-radius: 16px;
+  }
+
+  /* ปุ่ม */
+  .du-btn-primary {
+    width: 100%;
+    text-align: center;
+    padding: 10px 0;
+    font-size: 14px;
+  }
+}
+
+/* ===================================================== */
+/* ============ TABLE / GRAPH SCROLL FIX =============== */
+/* ===================================================== */
+.du-table-wrap,
+.du-scroll-x {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* กัน table ดันจอ */
+table {
+  max-width: 100%;
+}
+
+
