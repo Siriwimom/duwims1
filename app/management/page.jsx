@@ -31,11 +31,17 @@ const pageStyle = {
   background: "#e5edf8",
   minHeight: "100vh",
   color: "#111827",
+  overflowX: "hidden", // ✅ กันล้นดันขวา
 };
 
+/* ✅ FIX: center page */
 const bodyStyle = {
   width: "100%",
+  maxWidth: 1180,        // สำคัญ
+  margin: "0 auto",     // สำคัญ
   padding: "22px 16px 40px",
+  boxSizing: "border-box",
+  overflowX: "hidden",
 };
 
 const styles = {
@@ -94,7 +100,7 @@ const styles = {
     borderRadius: 18,
     background:
       "linear-gradient(135deg,#e0f2fe 0%,#e0f7ff 45%,#d1fae5 100%)",
-    padding: "10px 10px 10px",
+    padding: "10px",
     fontSize: 12,
     boxShadow: "0 4px 10px rgba(15,23,42,0.15)",
   },
@@ -216,6 +222,16 @@ const sensors = [
 export default function ManagementPage() {
   const [pinIcon, setPinIcon] = useState(null);
 
+  /* ✅ breakpoint */
+  const [vw, setVw] = useState(1280);
+  useEffect(() => {
+    const onResize = () => setVw(window.innerWidth || 1280);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const isMobile = vw < 640;
+
   const [mapH, setMapH] = useState(280);
   useEffect(() => {
     const calc = () => {
@@ -268,7 +284,15 @@ export default function ManagementPage() {
 
   return (
     <div style={pageStyle}>
-      <main className="du-management" style={bodyStyle}>
+      <main
+        className="du-management"
+        style={{
+          ...bodyStyle,
+          paddingLeft: isMobile ? 12 : 16,
+          paddingRight: isMobile ? 12 : 16,
+          paddingTop: isMobile ? 14 : 22,
+        }}
+      >
         <section style={styles.mainPanel}>
           <div style={styles.headerBar}>
             <div style={styles.headerTitle}>ตัวกรองและเครื่องมือ</div>
@@ -335,14 +359,13 @@ export default function ManagementPage() {
             <MapContainer
               center={[13.3, 101.1]}
               zoom={11}
-              scrollWheelZoom={true}
+              scrollWheelZoom
               style={{ height: mapH, width: "100%" }}
             >
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
-
               <Polygon
                 positions={fieldPolygon}
                 pathOptions={{
@@ -351,7 +374,6 @@ export default function ManagementPage() {
                   fillOpacity: 0.4,
                 }}
               />
-
               {pinIcon &&
                 sensorPositions.map((pos, i) => (
                   <Marker key={i} position={pos} icon={pinIcon}>
