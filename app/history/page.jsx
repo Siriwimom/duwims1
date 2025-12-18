@@ -605,94 +605,40 @@ export default function HistoryPage() {
             >
               <div style={heatGrid}>
                 {/* Map */}
-                <div
-                  style={{
-                    borderRadius: 16,
-                    border: "1px solid rgba(15,23,42,0.08)",
-                    background: "linear-gradient(180deg,#ffffff 0%,#f8fafc 100%)",
-                    padding: 10,
-                    minWidth: 0,
-                  }}
-                >
-                  <svg
-                    viewBox="0 0 220 420"
-                    style={{
-                      width: "100%",
-                      height: isMobile ? 360 : 320, // ✅ กันโดนบีบ
-                      display: "block",
-                      minHeight: isMobile ? 340 : 300,
-                    }}
-                    aria-label="Thailand map (rough)"
-                  >
-                    <rect x="0" y="0" width="220" height="420" fill="#ffffff" />
+                {/* Map */}
+<div
+  style={{
+    borderRadius: 16,
+    border: "1px solid rgba(15,23,42,0.08)",
+    background: "#f8fafc",
+    overflow: "hidden",
+  }}
+>
+  <div
+    style={{
+      width: "100%",
+      height: 540,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+    }}
+  >
+    <img
+      src="/heatmap.jpg"
+      alt="Heatmap"
+      style={{
+        maxWidth: "100%",
+        maxHeight: "100%",
+        objectFit: "contain", // ✅ FIT จริง ไม่ครอป
+        display: "block",
+      }}
+    />
+  </div>
+</div>
 
-                    <path
-                      d="
-                        M120 35
-                        C102 40, 92 58, 84 74
-                        C76 92, 76 112, 88 126
-                        C100 140, 106 152, 98 168
-                        C90 186, 92 204, 112 218
-                        C132 232, 142 244, 134 262
-                        C126 280, 124 294, 134 310
-                        C144 326, 144 342, 132 354
-                        C122 364, 124 384, 140 396
-                        C154 406, 170 400, 168 384
-                        C166 368, 154 360, 156 346
-                        C158 332, 174 326, 178 308
-                        C182 290, 172 276, 160 262
-                        C148 248, 152 234, 166 220
-                        C182 204, 188 180, 178 160
-                        C168 140, 156 128, 156 112
-                        C156 96, 166 78, 158 62
-                        C150 46, 136 32, 120 35
-                        Z
-                      "
-                      fill="#e2e8f0"
-                      stroke="#94a3b8"
-                      strokeWidth="2.2"
-                    />
 
-                    <path
-                      d="M95 150 C120 165, 140 165, 170 150"
-                      fill="none"
-                      stroke="rgba(148,163,184,0.7)"
-                      strokeWidth="1.4"
-                    />
-                    <path
-                      d="M108 250 C128 265, 142 268, 162 250"
-                      fill="none"
-                      stroke="rgba(148,163,184,0.7)"
-                      strokeWidth="1.4"
-                    />
 
-                    {TH_POINTS.map((p) => (
-                      <g key={p.id}>
-                        <circle
-                          cx={p.x}
-                          cy={p.y}
-                          r="9"
-                          fill={blue(p.value)}
-                          stroke="#0f172a"
-                          strokeOpacity="0.16"
-                          strokeWidth="1.3"
-                        />
-                        <circle cx={p.x} cy={p.y} r="3.6" fill="#0f172a" opacity="0.6" />
-                      </g>
-                    ))}
 
-                    <text
-                      x="112"
-                      y="210"
-                      textAnchor="middle"
-                      fontSize="16"
-                      fontWeight="900"
-                      fill="rgba(15,23,42,0.22)"
-                    >
-                      TH
-                    </text>
-                  </svg>
-                </div>
 
                 {/* Legend + list */}
                 <div
