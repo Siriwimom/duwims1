@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useEffect } from "react";
+import Image from "next/image";
 
 const pageStyle = {
   fontFamily:
@@ -605,41 +606,42 @@ export default function HistoryPage() {
             >
               <div style={heatGrid}>
                 {/* Map */}
-                {/* Map */}
 <div
   style={{
     borderRadius: 16,
     border: "1px solid rgba(15,23,42,0.08)",
     background: "#f8fafc",
     overflow: "hidden",
+    minWidth: 0,
   }}
 >
   <div
     style={{
       width: "100%",
-      height: 540,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
+      height: isMobile ? 360 : 540, // จะใช้ 540 ตามที่คุณตั้งไว้ (มือถือเล็กลง)
+      position: "relative",         // ✅ สำคัญมากสำหรับ next/image fill
     }}
   >
-    <img
-  src="/heatmap.jpg"
-  alt="Heatmap"
-  style={{
-    width: "100%",
-    height: "100%",
-    objectFit: "contain",
-    display: "block",
-  }}
-/>
-
+    <Image
+      src="/heatmap.jpg"
+      alt="Heatmap"
+      fill
+      priority
+      sizes="(max-width: 640px) 100vw, 800px"
+      style={{
+        objectFit: "contain", // ✅ FIT เห็นครบ ไม่โดนครอป
+      }}
+      onError={(e) => {
+        // fallback: ถ้าไฟล์หายบน deploy จะเห็นข้อความแทน (ช่วย debug)
+        const parent = e.currentTarget?.parentElement;
+        if (parent) {
+          parent.innerHTML =
+            '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#b91c1c;font-weight:900;font-size:12px;">❌ heatmap.jpg not found (put it in /public and commit)</div>';
+        }
+      }}
+    />
   </div>
 </div>
-
-
-
-
 
                 {/* Legend + list */}
                 <div
