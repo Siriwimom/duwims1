@@ -605,7 +605,7 @@ export default function HistoryPage() {
               }}
             >
               <div style={heatGrid}>
-                {/* Map */}
+                {/* Map (Ventusky embed) */}
 <div
   style={{
     borderRadius: 16,
@@ -615,33 +615,21 @@ export default function HistoryPage() {
     minWidth: 0,
   }}
 >
-  <div
-    style={{
-      width: "100%",
-      height: isMobile ? 360 : 540, // จะใช้ 540 ตามที่คุณตั้งไว้ (มือถือเล็กลง)
-      position: "relative",         // ✅ สำคัญมากสำหรับ next/image fill
-    }}
-  >
-    <Image
-      src="/heatmap.jpg"
-      alt="Heatmap"
-      fill
-      priority
-      sizes="(max-width: 640px) 100vw, 800px"
-      style={{
-        objectFit: "contain", // ✅ FIT เห็นครบ ไม่โดนครอป
-      }}
-      onError={(e) => {
-        // fallback: ถ้าไฟล์หายบน deploy จะเห็นข้อความแทน (ช่วย debug)
-        const parent = e.currentTarget?.parentElement;
-        if (parent) {
-          parent.innerHTML =
-            '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#b91c1c;font-weight:900;font-size:12px;">❌ heatmap.jpg not found (put it in /public and commit)</div>';
-        }
-      }}
+  <div style={{ width: "100%", height: isMobile ? 360 : 540, position: "relative" }}>
+    <iframe
+      title="Ventusky"
+      src="https://embed.ventusky.com/"
+      width="100%"
+      height="100%"
+      style={{ border: "none" }}
+      loading="lazy"
+      allowFullScreen
     />
   </div>
 </div>
+
+
+
 
                 {/* Legend + list */}
                 <div
