@@ -624,15 +624,16 @@ export default function HistoryPage() {
     }}
   >
     <img
-      src="/heatmap.jpg"
-      alt="Heatmap"
-      style={{
-        maxWidth: "100%",
-        maxHeight: "100%",
-        objectFit: "contain", // ✅ FIT จริง ไม่ครอป
-        display: "block",
-      }}
-    />
+  src="/heatmap.jpg"
+  alt="Heatmap"
+  style={{
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    display: "block",
+  }}
+/>
+
   </div>
 </div>
 
