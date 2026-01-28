@@ -9,7 +9,6 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
-
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const otpRefs = useRef([]);
 
@@ -20,56 +19,14 @@ export default function App() {
   const [modal, setModal] = useState(null); // { title, desc, buttonText, onClose }
   const [resetAllowed, setResetAllowed] = useState(false);
 
-  // ---------- tiny "DB" in localStorage ----------
-  const LS_USERS = "AUTH_USERS_V1"; // [{email, password}]
-  const LS_OTP = "AUTH_OTP_V1"; // { email, code, expMs }
+  // ✅ เก็บ token อย่างเดียวพอ
+  const LS_TOKEN = "AUTH_TOKEN_V1";
 
-  function readUsers() {
-    try {
-      return JSON.parse(localStorage.getItem(LS_USERS) || "[]");
-    } catch {
-      return [];
-    }
-  }
-  function writeUsers(users) {
-    localStorage.setItem(LS_USERS, JSON.stringify(users));
-  }
-  function findUser(emailX) {
-    const users = readUsers();
-    return users.find((u) => u.email === (emailX || "").trim().toLowerCase());
-  }
-  function upsertUser(emailX, password) {
-    const emailN = (emailX || "").trim().toLowerCase();
-    const users = readUsers();
-    const idx = users.findIndex((u) => u.email === emailN);
-    if (idx >= 0) users[idx] = { email: emailN, password };
-    else users.push({ email: emailN, password });
-    writeUsers(users);
-  }
   function isValidEmail(v) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
   }
   function isValidPassword(v) {
-    // ปรับเงื่อนไขได้ตามต้องการ
     return String(v || "").length >= 6;
-  }
-
-  function getOtpStore() {
-    try {
-      return JSON.parse(localStorage.getItem(LS_OTP) || "null");
-    } catch {
-      return null;
-    }
-  }
-  function setOtpStore(obj) {
-    localStorage.setItem(LS_OTP, JSON.stringify(obj));
-  }
-  function clearOtpStore() {
-    localStorage.removeItem(LS_OTP);
-  }
-
-  function genOtp6() {
-    return String(Math.floor(100000 + Math.random() * 900000));
   }
 
   function resetFormSensitive() {
@@ -100,6 +57,22 @@ export default function App() {
     }
   }
 
+  // ✅ helper เรียก backend ผ่าน Next rewrite: /api -> http://localhost:3000
+  async function api(path, { method = "GET", body, token } = {}) {
+    const res = await fetch(`/api${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+    return data;
+  }
+
   // ---------- Actions ----------
   function onGo(to) {
     setScreen(to);
@@ -113,15 +86,18 @@ export default function App() {
       if (!isValidEmail(emailN)) throw new Error("Invalid email");
       if (!pw) throw new Error("Enter password");
 
-      const user = findUser(emailN);
-      if (!user) throw new Error("User not found");
-      if (user.password !== pw) throw new Error("Wrong password");
+      const data = await api("/auth/login", {
+        method: "POST",
+        body: { email: emailN, password: pw },
+      });
+
+      localStorage.setItem(LS_TOKEN, data.token);
 
       setModal({
         title: "Login Successfully",
-        desc: "You can continue to your app now.",
+        desc: `Welcome ${data.user.email} (${data.user.role})`,
         buttonText: "Back to Home",
-        onClose: () => setModal(null)
+        onClose: () => setModal(null),
       });
     });
   }
@@ -133,10 +109,10 @@ export default function App() {
       if (!isValidPassword(pw)) throw new Error("Password must be at least 6 characters");
       if (pw !== pw2) throw new Error("Password not match");
 
-      const exists = findUser(emailN);
-      if (exists) throw new Error("Email already exists");
-
-      upsertUser(emailN, pw);
+      await api("/auth/register", {
+        method: "POST",
+        body: { email: emailN, password: pw, role: "employee" }, // เปลี่ยนเป็น owner ได้
+      });
 
       setModal({
         title: "Sign up Successfully",
@@ -147,31 +123,29 @@ export default function App() {
           setEmail("");
           resetFormSensitive();
           setScreen("login");
-        }
+        },
       });
     });
   }
 
+  // ✅ ส่ง OTP ไปอีเมลจริง (backend จะเป็นคนส่ง)
   async function handleSendOtp() {
     await run(async () => {
       const emailN = email.trim().toLowerCase();
       if (!isValidEmail(emailN)) throw new Error("Invalid email");
 
-      const user = findUser(emailN);
-      if (!user) throw new Error("User not found");
-
-      const code = genOtp6();
-      const expMs = Date.now() + 10 * 60 * 1000; // 10 นาที
-      setOtpStore({ email: emailN, code, expMs });
+      // backend ส่ง OTP ไป email แล้ว
+      await api("/auth/forgot", {
+        method: "POST",
+        body: { email: emailN },
+      });
 
       setPendingOtpEmail(emailN);
       setScreen("otp");
       setOtp(["", "", "", "", "", ""]);
       setResetAllowed(false);
 
-      // *** DEMO ONLY ***
-      // ในของจริง OTP จะส่ง Email แต่ตอนนี้แสดงให้เห็นเพื่อทดสอบได้ 100%
-      setErr(`DEMO OTP: ${code} (valid 10 min)`);
+      setErr("OTP has been sent to your email (check inbox/spam).");
     });
   }
 
@@ -185,40 +159,41 @@ export default function App() {
 
   async function handleVerifyOtp() {
     await run(async () => {
-      const store = getOtpStore();
-      if (!store) throw new Error("OTP not found. Please resend.");
-      if (Date.now() > store.expMs) {
-        clearOtpStore();
-        throw new Error("OTP expired. Please resend.");
-      }
+      const emailN = (pendingOtpEmail || "").trim().toLowerCase();
+      if (!isValidEmail(emailN)) throw new Error("Invalid email");
 
       const code = otp.join("");
       if (code.length !== 6) throw new Error("Enter 6 digits OTP");
-      if (store.email !== (pendingOtpEmail || "").trim().toLowerCase()) {
-        throw new Error("OTP email mismatch. Please resend.");
-      }
-      if (code !== store.code) throw new Error("Invalid OTP");
+
+      // backend ตรวจ OTP
+      await api("/auth/verify-otp", {
+        method: "POST",
+        body: { email: emailN, code },
+      });
 
       setResetAllowed(true);
       setScreen("reset");
       setPw("");
       setPw2("");
+      setErr("");
     });
   }
 
   async function handleResetPassword() {
     await run(async () => {
       if (!resetAllowed) throw new Error("Reset not allowed. Verify OTP first.");
+
       const emailN = (pendingOtpEmail || email || "").trim().toLowerCase();
       if (!isValidEmail(emailN)) throw new Error("Invalid email");
       if (!isValidPassword(pw)) throw new Error("Password must be at least 6 characters");
       if (pw !== pw2) throw new Error("Password not match");
 
-      const user = findUser(emailN);
-      if (!user) throw new Error("User not found");
+      // backend อัปเดตรหัสผ่านจริง
+      await api("/auth/reset-password", {
+        method: "POST",
+        body: { email: emailN, code: otp.join(""), newPassword: pw },
+      });
 
-      upsertUser(emailN, pw);
-      clearOtpStore();
       setResetAllowed(false);
 
       setModal({
@@ -231,15 +206,15 @@ export default function App() {
           setPendingOtpEmail("");
           resetFormSensitive();
           setScreen("login");
-        }
+        },
       });
     });
   }
 
   // ถ้าผู้ใช้ refresh หน้า ระหว่าง OTP/reset
   useEffect(() => {
-    const store = getOtpStore();
-    if (store?.email) setPendingOtpEmail(store.email);
+    // ไม่ต้องอ่าน OTP จาก localStorage แล้ว
+    // แต่อยากให้จำ email ที่กำลัง reset อยู่ได้ (optional)
   }, []);
 
   // ---------- UI ----------
@@ -274,7 +249,7 @@ export default function App() {
 
             <button
               className="btn googleBtn"
-              onClick={() => setErr("Google sign-in (demo): ยังไม่เชื่อมจริง")}
+              onClick={() => setErr("Google sign-in: ยังไม่ได้ทำ (ต้องใช้ OAuth)")}
               disabled={loading}
             >
               <span className="gIcon">G</span>
@@ -305,7 +280,7 @@ export default function App() {
 
             <button
               className="btn googleBtn"
-              onClick={() => setErr("Google sign-in (demo): ยังไม่เชื่อมจริง")}
+              onClick={() => setErr("Google sign-in: ยังไม่ได้ทำ (ต้องใช้ OAuth)")}
               disabled={loading}
             >
               <span className="gIcon">G</span>
