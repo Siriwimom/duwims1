@@ -2,7 +2,7 @@
 
 import "leaflet/dist/leaflet.css";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 
 const MapContainer = dynamic(
@@ -31,14 +31,13 @@ const pageStyle = {
   background: "#e5edf8",
   minHeight: "100vh",
   color: "#111827",
-  overflowX: "hidden", // ✅ กันล้นดันขวา
+  overflowX: "hidden",
 };
 
-/* ✅ FIX: center page */
 const bodyStyle = {
   width: "100%",
-  maxWidth: 1180,        // สำคัญ
-  margin: "0 auto",     // สำคัญ
+  maxWidth: 1180,
+  margin: "0 auto",
   padding: "22px 16px 40px",
   boxSizing: "border-box",
   overflowX: "hidden",
@@ -136,6 +135,14 @@ const styles = {
     background: "#ffffff",
     boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
   },
+  mapLoading: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 12,
+    color: "#64748b",
+    background: "#f8fafc",
+  },
 
   bottomPanel: {
     marginTop: 22,
@@ -144,10 +151,17 @@ const styles = {
     padding: "18px 22px 22px",
     boxShadow: "0 12px 32px rgba(15,23,42,0.14)",
   },
+  bottomHeaderWrap: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    flexWrap: "wrap",
+    marginBottom: 2,
+  },
   bottomHeader: {
     fontSize: 14,
     fontWeight: 600,
-    marginBottom: 2,
   },
   bottomSub: {
     fontSize: 11,
@@ -208,23 +222,33 @@ const styles = {
     color: "#6b7280",
     marginTop: 2,
   },
+
+  chipBtn: {
+    border: "none",
+    borderRadius: 999,
+    padding: "6px 12px",
+    fontSize: 12,
+    cursor: "pointer",
+    background: "#111827",
+    color: "#fff",
+    boxShadow: "0 4px 10px rgba(15,23,42,0.18)",
+    whiteSpace: "nowrap",
+  },
 };
 
-const sensors = [
-  "เซนเซอร์ความชื้นดิน #1",
-  "เซนเซอร์ความชื้นดิน #2",
-  "เซนเซอร์ความชื้นดิน #3",
-  "เซนเซอร์ความชื้นดิน #4",
-  "เซนเซอร์ความชื้นดิน #5",
-  "เซนเซอร์ความชื้นดิน #6",
-];
+const sensors = ["เซนเซอร์ #1", "เซนเซอร์ #2", "เซนเซอร์ #3", "เซนเซอร์ #4", "เซนเซอร์ #5", "เซนเซอร์ #6"];
 
 export default function ManagementPage() {
   const [pinIcon, setPinIcon] = useState(null);
 
-  /* ✅ breakpoint */
+  // ✅ กัน error ใน dev/StrictMode: render map หลัง client ready เท่านั้น
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+
+  // ✅ breakpoint
   const [vw, setVw] = useState(1280);
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const onResize = () => setVw(window.innerWidth || 1280);
     onResize();
     window.addEventListener("resize", onResize);
@@ -234,6 +258,7 @@ export default function ManagementPage() {
 
   const [mapH, setMapH] = useState(280);
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const calc = () => {
       const w = window.innerWidth;
       if (w < 640) setMapH(220);
@@ -245,6 +270,7 @@ export default function ManagementPage() {
     return () => window.removeEventListener("resize", calc);
   }, []);
 
+  // ✅ Leaflet icon
   useEffect(() => {
     let mounted = true;
     import("leaflet").then((L) => {
@@ -266,6 +292,78 @@ export default function ManagementPage() {
     };
   }, []);
 
+  const plots = useMemo(
+    () => [
+      {
+        value: "A",
+        label: "แปลง A – ทุเรียนล่าง",
+        meta: {
+          farmer: "สมหมาย ใจดี",
+          plant: "ทุเรียนหมอนทอง",
+          plantedAt: "15/06/2568",
+          sensorCount: "6 เครื่อง",
+        },
+      },
+      {
+        value: "B",
+        label: "แปลง B – ทุเรียนบน",
+        meta: {
+          farmer: "คุณสมชาย สวนทุเรียน",
+          plant: "ทุเรียนหมอนทอง",
+          plantedAt: "11/02/2568",
+          sensorCount: "6 เครื่อง",
+        },
+      },
+      {
+        value: "C",
+        label: "แปลง C",
+        meta: {
+          farmer: "-",
+          plant: "-",
+          plantedAt: "-",
+          sensorCount: "0 เครื่อง",
+        },
+      },
+    ],
+    []
+  );
+
+  // ✅ ลบ “เลือก Node” ออกทั้งชุด -> ไม่ต้องมี selectedNode แล้ว
+  const [selectedPlot, setSelectedPlot] = useState("A");
+  const [nodeCategory, setNodeCategory] = useState("air"); // air | soil
+  const [selectedSensorType, setSelectedSensorType] = useState("rh"); // default ความชื้นสัมพัทธ์
+  const [fetchMode, setFetchMode] = useState("pin");
+
+  const sensorOptions = useMemo(() => {
+    if (nodeCategory === "air") {
+      return [
+        { value: "temp_rh", label: "อุณหภูมิและความชื้น" },
+        { value: "wind", label: "วัดความเร็วลม" },
+        { value: "ppfd", label: "ความเข้มแสง" },
+        { value: "rain", label: "ปริมาณน้ำฝน" },
+        { value: "npk", label: "ความเข้้มข้นธาตุอาหาร (N,P,K)" },
+        { value: "rh", label: "ความชื้นสัมพัทธ์" }, // เผื่ออยากเก็บไว้ในอากาศด้วย
+      ];
+    }
+    return [
+      { value: "irrigation", label: "การให้น้ำ / ความพร้อมใช้น้ำ" },
+      { value: "soil_moisture", label: "ความชื้ื้นในดิน" },
+      { value: "uplink", label: "อ่านค่า sensor ส่งข้อมูล" },
+    ];
+  }, [nodeCategory]);
+
+  useEffect(() => {
+    const ok = sensorOptions.some((x) => x.value === selectedSensorType);
+    if (!ok) setSelectedSensorType(sensorOptions[0]?.value ?? "");
+  }, [sensorOptions, selectedSensorType]);
+
+  const selectedPlotObj = useMemo(
+    () => plots.find((p) => p.value === selectedPlot) || plots[0],
+    [plots, selectedPlot]
+  );
+
+  const mapKey = `${selectedPlot}-${nodeCategory}-${selectedSensorType}-${fetchMode}`;
+
   const fieldPolygon = [
     [13.35, 101.0],
     [13.35, 101.2],
@@ -281,6 +379,31 @@ export default function ManagementPage() {
     [13.28, 101.1],
     [13.27, 101.16],
   ];
+
+  const sensorSubText = useMemo(() => {
+    switch (selectedSensorType) {
+      case "temp_rh":
+        return "อุณหภูมิ: 29°C • ความชื้น: 65%";
+      case "wind":
+        return "ความเร็วลม: 2.4 m/s";
+      case "ppfd":
+        return "ความเข้มแสง: 820 µmol/m²/s";
+      case "rain":
+        return "ปริมาณน้ำฝน: 0.0 mm";
+      case "npk":
+        return "N: 12 • P: 8 • K: 10";
+      case "rh":
+        return "ความชื้นสัมพัทธ์: 65%";
+      case "irrigation":
+        return "การให้น้ำ: ทำงาน";
+      case "soil_moisture":
+        return "ความชื้นในดิน: 32%";
+      case "uplink":
+        return "สถานะ: ส่งข้อมูลล่าสุด 2 นาทีที่แล้ว";
+      default:
+        return "-";
+    }
+  }, [selectedSensorType]);
 
   return (
     <div style={pageStyle}>
@@ -316,38 +439,57 @@ export default function ManagementPage() {
             </div>
           </div>
 
+          {/* ✅ ลบ “เลือก Node” ออกทั้งก้อนแล้ว */}
           <div style={styles.topGrid}>
             <div style={styles.dropdownCard}>
               <label style={styles.fieldLabel}>แปลง</label>
-              <select defaultValue="A" style={styles.fieldSelect}>
-                <option value="A">แปลง A – ทุเรียนล่าง</option>
-                <option value="B">แปลง B – ทุเรียนบน</option>
-                <option value="C">แปลง C</option>
+              <select
+                value={selectedPlot}
+                onChange={(e) => setSelectedPlot(e.target.value)}
+                style={styles.fieldSelect}
+              >
+                {plots.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
               </select>
             </div>
 
             <div style={styles.dropdownCard}>
-              <label style={styles.fieldLabel}>เลือก Node</label>
-              <select defaultValue="1" style={styles.fieldSelect}>
-                <option value="1">Node 1 – จัน</option>
-                <option value="2">Node 2 – ภา</option>
-                <option value="3">Node 3 – ส้ม</option>
+              <label style={styles.fieldLabel}>Node ประเภท</label>
+              <select
+                value={nodeCategory}
+                onChange={(e) => setNodeCategory(e.target.value)}
+                style={styles.fieldSelect}
+              >
+                <option value="air">Node อากาศ</option>
+                <option value="soil">Node ดิน</option>
               </select>
             </div>
 
             <div style={styles.dropdownCard}>
               <label style={styles.fieldLabel}>ชนิดเซนเซอร์</label>
-              <select defaultValue="soil" style={styles.fieldSelect}>
-                <option value="soil">ความชื้นในดิน</option>
-                <option value="rh">ความชื้นสัมพัทธ์</option>
-                <option value="water">การให้น้ำ</option>
-                <option value="npk">NPK</option>
+              <select
+                value={selectedSensorType}
+                onChange={(e) => setSelectedSensorType(e.target.value)}
+                style={styles.fieldSelect}
+              >
+                {sensorOptions.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
               </select>
             </div>
 
             <div style={styles.dropdownCard}>
               <label style={styles.fieldLabel}>ดึงข้อมูล</label>
-              <select defaultValue="pin" style={styles.fieldSelect}>
+              <select
+                value={fetchMode}
+                onChange={(e) => setFetchMode(e.target.value)}
+                style={styles.fieldSelect}
+              >
                 <option value="pin">จากตำแหน่ง PIN เซนเซอร์</option>
                 <option value="polygon">จาก Polygon แปลง</option>
               </select>
@@ -355,55 +497,76 @@ export default function ManagementPage() {
           </div>
 
           <div style={styles.mapTitle}>แผนที่และทรัพยากร</div>
+
           <div style={styles.mapWrapper}>
-            <MapContainer
-              center={[13.3, 101.1]}
-              zoom={11}
-              scrollWheelZoom
-              style={{ height: mapH, width: "100%" }}
-            >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <Polygon
-                positions={fieldPolygon}
-                pathOptions={{
-                  color: "#16a34a",
-                  fillColor: "#86efac",
-                  fillOpacity: 0.4,
-                }}
-              />
-              {pinIcon &&
-                sensorPositions.map((pos, i) => (
-                  <Marker key={i} position={pos} icon={pinIcon}>
-                    <Popup>Sensor #{i + 1}</Popup>
-                  </Marker>
-                ))}
-            </MapContainer>
+            {!hydrated ? (
+              <div style={{ ...styles.mapLoading, height: mapH }}>Loading map...</div>
+            ) : (
+              <MapContainer
+                key={`map-${mapKey}`}
+                center={[13.3, 101.1]}
+                zoom={11}
+                scrollWheelZoom
+                style={{ height: mapH, width: "100%" }}
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <Polygon
+                  positions={fieldPolygon}
+                  pathOptions={{
+                    color: "#16a34a",
+                    fillColor: "#86efac",
+                    fillOpacity: 0.4,
+                  }}
+                />
+                {pinIcon &&
+                  sensorPositions.map((pos, i) => (
+                    <Marker key={i} position={pos} icon={pinIcon}>
+                      <Popup>Sensor #{i + 1}</Popup>
+                    </Marker>
+                  ))}
+              </MapContainer>
+            )}
           </div>
         </section>
 
         <section style={styles.bottomPanel}>
-          <div style={styles.bottomHeader}>ข้อมูลแปลง: แปลง A</div>
-          <div style={styles.bottomSub}>รายละเอียดของแปลงและตำแหน่งเซนเซอร์</div>
+          <div style={styles.bottomHeaderWrap}>
+            <div style={styles.bottomHeader}>
+              ข้อมูลแปลง: {selectedPlotObj?.label || `แปลง ${selectedPlot}`}
+            </div>
+            <button style={styles.chipBtn} type="button">
+              ประเภท Node: {nodeCategory === "air" ? "อากาศ" : "ดิน"}
+            </button>
+          </div>
+
+          <div style={styles.bottomSub}>
+            โหมด:{" "}
+            {fetchMode === "pin"
+              ? "จากตำแหน่ง PIN เซนเซอร์"
+              : "จาก Polygon แปลง"}{" "}
+            • เซนเซอร์:{" "}
+            {sensorOptions.find((x) => x.value === selectedSensorType)?.label || "-"}
+          </div>
 
           <div style={styles.infoGrid}>
             <div>
               <div style={styles.infoLabel}>ผู้ปลูก</div>
-              <div style={styles.infoBox}>สมหมาย ใจดี</div>
+              <div style={styles.infoBox}>{selectedPlotObj.meta.farmer}</div>
             </div>
             <div>
               <div style={styles.infoLabel}>ประเภทพืช</div>
-              <div style={styles.infoBox}>ทุเรียนหมอนทอง</div>
+              <div style={styles.infoBox}>{selectedPlotObj.meta.plant}</div>
             </div>
             <div>
               <div style={styles.infoLabel}>วันที่เริ่มปลูก</div>
-              <div style={styles.infoBox}>15/06/2568</div>
+              <div style={styles.infoBox}>{selectedPlotObj.meta.plantedAt}</div>
             </div>
             <div>
               <div style={styles.infoLabel}>จำนวนเซนเซอร์</div>
-              <div style={styles.infoBox}>6 เครื่อง</div>
+              <div style={styles.infoBox}>{selectedPlotObj.meta.sensorCount}</div>
             </div>
           </div>
 
@@ -413,7 +576,7 @@ export default function ManagementPage() {
                 <div style={styles.sensorIconCircle}>📍</div>
                 <div>
                   <div style={styles.sensorTextMain}>{s}</div>
-                  <div style={styles.sensorTextSub}>ความชื้นในดิน: 32%</div>
+                  <div style={styles.sensorTextSub}>{sensorSubText}</div>
                 </div>
               </div>
             ))}

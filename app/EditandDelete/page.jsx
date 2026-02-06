@@ -1,37 +1,100 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
 
-// --- dynamic import React-Leaflet เฉพาะฝั่ง client ---
-const MapContainer = dynamic(
-  () => import("react-leaflet").then((m) => m.MapContainer),
-  { ssr: false }
-);
-const TileLayer = dynamic(
-  () => import("react-leaflet").then((m) => m.TileLayer),
-  { ssr: false }
-);
-const Polygon = dynamic(
-  () => import("react-leaflet").then((m) => m.Polygon),
-  { ssr: false }
-);
-const Marker = dynamic(
-  () => import("react-leaflet").then((m) => m.Marker),
-  { ssr: false }
-);
-const Popup = dynamic(
-  () => import("react-leaflet").then((m) => m.Popup),
-  { ssr: false }
-);
+// ✅ import react-leaflet แบบก้อนเดียว (ลด race จาก dynamic หลายตัว)
+const LeafletClient = dynamic(async () => {
+  const RL = await import("react-leaflet");
+  const L = await import("leaflet");
+
+  // ✅ Fix default icon path for Next (กัน marker icon หาย/undefined)
+  // (สำคัญมากใน Next เพราะ webpack ไม่รู้ path รูป default ของ Leaflet)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyL = L;
+  if (anyL?.Icon?.Default) {
+    anyL.Icon.Default.mergeOptions({
+      iconUrl:
+        "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+      iconRetinaUrl:
+        "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
+      shadowUrl:
+        "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+    });
+  }
+
+  // ✅ component สำหรับ render map (อยู่ใน client แน่นอน)
+  function LeafletMaps({ fieldPolygon, pinPositions }) {
+    const { MapContainer, TileLayer, Polygon, Marker, Popup } = RL;
+
+    return (
+      <>
+        {/* Polygon แปลง */}
+        <div style={styles.mapCard}>
+          <div style={styles.mapTitle}>Polygon แปลง</div>
+          <MapContainer
+            center={[13.3, 101.1]}
+            zoom={11}
+            scrollWheelZoom
+            style={{ height: 230, width: "100%" }}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <Polygon
+              positions={fieldPolygon}
+              pathOptions={{
+                color: "#16a34a",
+                fillColor: "#86efac",
+                fillOpacity: 0.4,
+              }}
+            />
+          </MapContainer>
+        </div>
+
+        {/* Pin เซนเซอร์ */}
+        <div style={styles.mapCard}>
+          <div style={styles.mapTitle}>Pin เซนเซอร์</div>
+          <MapContainer
+            center={[13.3, 101.1]}
+            zoom={11}
+            scrollWheelZoom
+            style={{ height: 230, width: "100%" }}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <Polygon
+              positions={fieldPolygon}
+              pathOptions={{
+                color: "#16a34a",
+                fillColor: "#86efac",
+                fillOpacity: 0.35,
+              }}
+            />
+            {pinPositions.map((pos, i) => (
+              <Marker key={i} position={pos}>
+                <Popup>PIN #{i + 1}</Popup>
+              </Marker>
+            ))}
+          </MapContainer>
+        </div>
+      </>
+    );
+  }
+
+  return LeafletMaps;
+}, { ssr: false });
 
 const pageStyle = {
   fontFamily:
     '"Prompt", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   background: "#e5edf8",
   minHeight: "100vh",
-  color: "#111827",
+  color: "#000",
   padding: "22px 0 30px",
 };
 
@@ -39,6 +102,7 @@ const bodyStyle = {
   maxWidth: 1120,
   margin: "0 auto",
   padding: "0 16px",
+  color: "#000",
 };
 
 // initial data
@@ -50,210 +114,258 @@ const initialPins = [
   { id: 5, lat: "50.50759149432365", lon: "3.1261322928973054" },
 ];
 
+// ✅ styles (บังคับสีดำ)
+const styles = {
+  headerPanel: {
+    borderRadius: 24,
+    padding: "16px 20px 18px",
+    background: "linear-gradient(135deg,#40B596,#676FC7)",
+    color: "#000",
+    marginBottom: 18,
+    boxShadow: "0 16px 36px rgba(15,23,42,0.18)",
+  },
+  headerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  headerTitle: { fontSize: 16, fontWeight: 700, color: "#000" },
+
+  topGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3,minmax(0,1fr))",
+    gap: 10,
+  },
+
+  fieldCard: {
+    borderRadius: 18,
+    background:
+      "linear-gradient(135deg,rgba(255,255,255,0.96),rgba(224,242,254,0.96))",
+    padding: "10px 12px 12px",
+    fontSize: 12,
+    boxShadow: "0 4px 10px rgba(15,23,42,0.15)",
+    color: "#000",
+  },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    marginBottom: 4,
+    display: "block",
+    color: "#000",
+  },
+  fieldSelect: {
+    width: "100%",
+    borderRadius: 14,
+    border: "none",
+    padding: "6px 10px",
+    fontSize: 12,
+    background: "#fff",
+    outline: "none",
+    color: "#000",
+  },
+
+  bottomPanel: {
+    borderRadius: 26,
+    background: "#dffff3",
+    padding: "18px 20px 20px",
+    boxShadow: "0 14px 32px rgba(15,23,42,0.12)",
+    color: "#000",
+  },
+  bottomHeaderRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 6,
+  },
+  bottomTitle: { fontSize: 14, fontWeight: 700, color: "#000" },
+  deleteAllBtn: {
+    borderRadius: 999,
+    border: "none",
+    padding: "6px 14px",
+    fontSize: 12,
+    background: "#ef4444",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  bottomSub: {
+    fontSize: 11,
+    color: "#000",
+    marginBottom: 10,
+  },
+
+  infoGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4,minmax(0,1fr))",
+    gap: 10,
+    marginBottom: 14,
+  },
+  infoLabel: { fontSize: 11, color: "#000", fontWeight: 700 },
+  infoBox: {
+    borderRadius: 12,
+    background: "#ffffff",
+    border: "1px solid #c7f0df",
+    padding: "6px 10px",
+    fontSize: 12,
+    color: "#000",
+  },
+
+  mapCard: {
+    borderRadius: 22,
+    overflow: "hidden",
+    background: "#ffffff",
+    boxShadow: "0 10px 24px rgba(15,23,42,0.15)",
+    marginBottom: 14,
+    color: "#000",
+  },
+  mapTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    padding: "10px 14px 4px",
+    color: "#000",
+  },
+  mapLoading: {
+    height: 230,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 12,
+    color: "#000",
+    background: "#f8fafc",
+  },
+
+  pinRow: {
+    display: "grid",
+    gridTemplateColumns: "140px 1fr 1fr 60px",
+    gap: 8,
+    alignItems: "center",
+    padding: "8px 10px",
+    background: "#e5f5ff",
+    borderRadius: 18,
+    marginBottom: 6,
+    fontSize: 13,
+    color: "#000",
+  },
+
+  deleteBtn: {
+    borderRadius: 999,
+    border: "none",
+    width: 34,
+    height: 34,
+    background: "#111827",
+    color: "#ffffff",
+    cursor: "pointer",
+  },
+
+  saveBtn: {
+    marginTop: 12,
+    display: "block",
+    marginLeft: "auto",
+    marginRight: "auto",
+    borderRadius: 999,
+    border: "none",
+    padding: "8px 40px",
+    fontSize: 13,
+    fontWeight: 700,
+    background: "linear-gradient(135deg,#6366f1,#3b82f6)",
+    color: "#fff",
+    cursor: "pointer",
+  },
+
+  pinNumberBox: { display: "flex", alignItems: "center", gap: 8, color: "#000" },
+  pinIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    background: "#ffffff",
+    display: "grid",
+    placeItems: "center",
+    border: "1px solid rgba(15,23,42,0.08)",
+  },
+  pinLabel: { fontWeight: 800, fontSize: 12, color: "#000" },
+  pinCoord: { fontSize: 12, color: "#000" },
+};
+
 export default function EditAndDelete() {
-  const [pinIcon, setPinIcon] = useState(null);
   const [pins, setPins] = useState(initialPins);
 
-  // ===== responsive =====
+  // ✅ สำคัญ: รอ hydrated ก่อน render Leaflet (กัน appendChild undefined)
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+
+  // ✅ responsive แบบไม่ทำให้ map race ตอน mount
   const [width, setWidth] = useState(1200);
   useEffect(() => {
+    if (!hydrated) return;
     const onResize = () => setWidth(window.innerWidth);
     onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, []);
+  }, [hydrated]);
 
   const isMobile = width <= 640;
   const isTablet = width > 640 && width <= 1024;
 
-  // ===== Leaflet icon =====
+  // =========================
+  // ✅ FILTER STATES
+  // =========================
+  const [selectedPlot, setSelectedPlot] = useState("A"); // แปลง
+  const [nodeCategory, setNodeCategory] = useState("air"); // air | soil
+  const [selectedSensorType, setSelectedSensorType] = useState("temp_rh");
+
+  const sensorOptions = useMemo(() => {
+    if (nodeCategory === "air") {
+      return [
+        { value: "temp_rh", label: "อุณหภูมิและความชื้น" },
+        { value: "wind", label: "วัดความเร็วลม" },
+        { value: "ppfd", label: "ความเข้มแสง" },
+        { value: "rain", label: "ปริมาณน้ำฝน" },
+        { value: "npk", label: "ความเข้้มข้นธาตุอาหาร (N,P,K)" },
+      ];
+    }
+    return [
+      { value: "irrigation", label: "การให้น้ำ / ความพร้อมใช้น้ำ" },
+      { value: "soil_moisture", label: "ความชื้ื้นในดิน" },
+      { value: "uplink", label: "อ่านค่า sensor ส่งข้อมูล" },
+    ];
+  }, [nodeCategory]);
+
   useEffect(() => {
-    let mounted = true;
-    import("leaflet").then((L) => {
-      if (!mounted) return;
-      setPinIcon(
-        new L.Icon({
-          iconUrl:
-            "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-          iconSize: [25, 41],
-          iconAnchor: [12, 41],
-          popupAnchor: [1, -34],
-          shadowUrl:
-            "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-        })
-      );
-    });
-    return () => {
-      mounted = false;
+    const ok = sensorOptions.some((x) => x.value === selectedSensorType);
+    if (!ok) setSelectedSensorType(sensorOptions[0]?.value ?? "");
+  }, [sensorOptions, selectedSensorType]);
+
+  // ✅ ปรับ grid ตามจอ (ไม่ไปยุ่งกับ map init)
+  const topGridStyle = useMemo(() => {
+    return {
+      ...styles.topGrid,
+      gridTemplateColumns: isMobile
+        ? "1fr"
+        : isTablet
+        ? "repeat(2,minmax(0,1fr))"
+        : "repeat(3,minmax(0,1fr))",
     };
-  }, []);
+  }, [isMobile, isTablet]);
 
-  const styles = {
-    headerPanel: {
-      borderRadius: 24,
-      padding: "16px 20px 18px",
-      background: "linear-gradient(135deg,#40B596,#676FC7)",
-      color: "#fff",
-      marginBottom: 18,
-      boxShadow: "0 16px 36px rgba(15,23,42,0.18)",
-    },
-    headerRow: {
-      display: "flex",
-      flexDirection: isMobile ? "column" : "row",
-      justifyContent: "space-between",
-      alignItems: isMobile ? "flex-start" : "center",
-      gap: isMobile ? 8 : 0,
-      marginBottom: 10,
-    },
-    headerTitle: { fontSize: 16, fontWeight: 700 },
-    headerDangerBtn: {
-      borderRadius: 999,
-      border: "none",
-      padding: "8px 18px",
-      fontSize: 13,
-      background: "#ef4444",
-      color: "#fff",
-      cursor: "pointer",
-      width: isMobile ? "100%" : "auto",
-    },
-
-    topGrid: {
-      display: "grid",
+  const infoGridStyle = useMemo(() => {
+    return {
+      ...styles.infoGrid,
       gridTemplateColumns: isMobile
         ? "1fr"
         : isTablet
         ? "repeat(2,minmax(0,1fr))"
         : "repeat(4,minmax(0,1fr))",
-      gap: 10,
-    },
+    };
+  }, [isMobile, isTablet]);
 
-    fieldCard: {
-      borderRadius: 18,
-      background:
-        "linear-gradient(135deg,rgba(255,255,255,0.96),rgba(224,242,254,0.96))",
-      padding: "10px 12px 12px",
-      fontSize: 12,
-      boxShadow: "0 4px 10px rgba(15,23,42,0.15)",
-    },
-    fieldLabel: {
-      fontSize: 11,
-      fontWeight: 600,
-      marginBottom: 4,
-      display: "block",
-    },
-    fieldSelect: {
-      width: "100%",
-      borderRadius: 14,
-      border: "none",
-      padding: "6px 10px",
-      fontSize: 12,
-      background: "#fff",
-    },
-
-    bottomPanel: {
-      borderRadius: 26,
-      background: "#dffff3",
-      padding: "18px 20px 20px",
-      boxShadow: "0 14px 32px rgba(15,23,42,0.12)",
-    },
-    bottomHeaderRow: {
-      display: "flex",
-      flexDirection: isMobile ? "column" : "row",
-      justifyContent: "space-between",
-      alignItems: isMobile ? "flex-start" : "center",
-      gap: isMobile ? 6 : 0,
-      marginBottom: 6,
-    },
-    bottomTitle: { fontSize: 14, fontWeight: 600 },
-    deleteAllBtn: {
-      borderRadius: 999,
-      border: "none",
-      padding: "6px 14px",
-      fontSize: 12,
-      background: "#ef4444",
-      color: "#fff",
-      cursor: "pointer",
-      width: isMobile ? "100%" : "auto",
-    },
-    bottomSub: {
-      fontSize: 11,
-      color: "#6b7280",
-      marginBottom: 10,
-    },
-
-    infoGrid: {
-      display: "grid",
-      gridTemplateColumns: isMobile
-        ? "1fr"
-        : isTablet
-        ? "repeat(2,minmax(0,1fr))"
-        : "repeat(4,minmax(0,1fr))",
-      gap: 10,
-      marginBottom: 14,
-    },
-    infoLabel: { fontSize: 11, color: "#6b7280" },
-    infoBox: {
-      borderRadius: 12,
-      background: "#ffffff",
-      border: "1px solid #c7f0df",
-      padding: "6px 10px",
-      fontSize: 12,
-    },
-
-    mapCard: {
-      borderRadius: 22,
-      overflow: "hidden",
-      background: "#ffffff",
-      boxShadow: "0 10px 24px rgba(15,23,42,0.15)",
-      marginBottom: 14,
-    },
-    mapTitle: {
-      fontSize: 13,
-      fontWeight: 600,
-      padding: "10px 14px 4px",
-    },
-
-    pinRow: {
-      display: "grid",
-      gridTemplateColumns: isMobile
-        ? "1fr"
-        : "140px 1fr 1fr 60px",
-      gap: 8,
-      alignItems: "center",
-      padding: "8px 10px",
-      background: "#e5f5ff",
-      borderRadius: 18,
-      marginBottom: 6,
-      fontSize: 13,
-    },
-
-    deleteBtn: {
-      borderRadius: 999,
-      border: "none",
-      width: 34,
-      height: 34,
-      background: "#111827",
-      color: "#ffffff",
-      cursor: "pointer",
-      justifySelf: isMobile ? "flex-end" : "center",
-    },
-
-    saveBtn: {
-      marginTop: 12,
-      display: "block",
-      marginLeft: "auto",
-      marginRight: "auto",
-      borderRadius: 999,
-      border: "none",
-      padding: "8px 40px",
-      fontSize: 13,
-      fontWeight: 600,
-      background: "linear-gradient(135deg,#6366f1,#3b82f6)",
-      color: "#fff",
-      cursor: "pointer",
-      width: isMobile ? "100%" : "auto",
-    },
-  };
+  const pinRowStyle = useMemo(() => {
+    return {
+      ...styles.pinRow,
+      gridTemplateColumns: isMobile ? "1fr" : "140px 1fr 1fr 60px",
+    };
+  }, [isMobile]);
 
   const fieldPolygon = [
     [13.35, 101.0],
@@ -278,73 +390,78 @@ export default function EditAndDelete() {
     <div style={pageStyle}>
       <main style={bodyStyle} className="du-edit-delete">
         {/* HEADER + FILTERS */}
-        <section style={styles.headerPanel}>
+        <section style={{ ...styles.headerPanel, color: "#000" }}>
           <div style={styles.headerRow}>
-            <div style={styles.headerTitle}>ตัวกรองและเครื่องมือ</div>
-            <button style={styles.headerDangerBtn}>ลบ / แก้ไข</button>
+            <div style={styles.headerTitle}>ตัวกรอง</div>
           </div>
 
-          {/* dropdown filters */}
-          <div style={styles.topGrid}>
-            {/* เลือกแปลง */}
+          <div style={topGridStyle}>
+            {/* แปลง */}
             <div style={styles.fieldCard}>
               <label style={styles.fieldLabel}>แปลง</label>
-              <select defaultValue="A" style={styles.fieldSelect}>
-                <option value="A">ทุเรียนล่าง (แปลง A)</option>
-                <option value="B">ทุเรียนบน (แปลง B)</option>
+              <select
+                value={selectedPlot}
+                onChange={(e) => setSelectedPlot(e.target.value)}
+                style={styles.fieldSelect}
+              >
+                <option value="A">แปลง A</option>
+                <option value="B">แปลง B</option>
                 <option value="C">แปลง C</option>
               </select>
             </div>
 
-            {/* เลือก Node */}
+            {/* Node ประเภท */}
             <div style={styles.fieldCard}>
-              <label style={styles.fieldLabel}>เลือก Node</label>
-              <select defaultValue="1" style={styles.fieldSelect}>
-                <option value="1">Node 1 – จัน</option>
-                <option value="2">Node 2 – ภา</option>
-                <option value="3">Node 3 – ส้ม</option>
+              <label style={styles.fieldLabel}>Node ประเภท</label>
+              <select
+                value={nodeCategory}
+                onChange={(e) => setNodeCategory(e.target.value)}
+                style={styles.fieldSelect}
+              >
+                <option value="air">อากาศ</option>
+                <option value="soil">ดิน</option>
               </select>
             </div>
 
             {/* ชนิดเซนเซอร์ */}
             <div style={styles.fieldCard}>
               <label style={styles.fieldLabel}>ชนิดเซนเซอร์</label>
-              <select defaultValue="soil" style={styles.fieldSelect}>
-                <option value="soil">ความชื้นดิน</option>
-                <option value="rh">ความชื้นสัมพัทธ์</option>
-                <option value="water">การให้น้ำ</option>
-                <option value="npk">NPK</option>
-              </select>
-            </div>
-
-            {/* ดึงข้อมูลจากอะไร */}
-            <div style={styles.fieldCard}>
-              <label style={styles.fieldLabel}>ดึงข้อมูล</label>
-              <select defaultValue="pin" style={styles.fieldSelect}>
-                <option value="pin">ตามตำแหน่ง PIN เซนเซอร์</option>
-                <option value="polygon">ตาม Polygon แปลง</option>
+              <select
+                value={selectedSensorType}
+                onChange={(e) => setSelectedSensorType(e.target.value)}
+                style={styles.fieldSelect}
+              >
+                {sensorOptions.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
         </section>
 
-        {/* MAIN PANEL: polygon + pins + list */}
+        {/* MAIN PANEL */}
         <section style={styles.bottomPanel}>
           <div style={styles.bottomHeaderRow}>
-            <div style={styles.bottomTitle}>ข้อมูลแปลง: แปลง A</div>
-            <button style={styles.deleteAllBtn} onClick={() => setPins([])}>
+            <div style={styles.bottomTitle}>ข้อมูลแปลง</div>
+            <button
+              style={styles.deleteAllBtn}
+              type="button"
+              onClick={() => setPins([])}
+            >
               ลบทั้งหมด
             </button>
           </div>
+
           <div style={styles.bottomSub}>
             ปรับแก้ Polygon และลบ / เพิ่มตำแหน่ง PIN ของแปลงนี้
           </div>
 
-          {/* info row */}
-          <div style={styles.infoGrid}>
+          <div style={infoGridStyle}>
             <div>
               <div style={styles.infoLabel}>ชื่อแปลง</div>
-              <div style={styles.infoBox}>แปลง A</div>
+              <div style={styles.infoBox}>แปลง {selectedPlot}</div>
             </div>
             <div>
               <div style={styles.infoLabel}>ผู้ดูแล</div>
@@ -360,63 +477,25 @@ export default function EditAndDelete() {
             </div>
           </div>
 
-          {/* Polygon แปลง */}
-          <div style={styles.mapCard}>
-            <div style={styles.mapTitle}>Polygon แปลง</div>
-            <MapContainer
-              center={[13.3, 101.1]}
-              zoom={11}
-              scrollWheelZoom={true}
-              style={{ height: 230, width: "100%" }}
-            >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <Polygon
-                positions={fieldPolygon}
-                pathOptions={{
-                  color: "#16a34a",
-                  fillColor: "#86efac",
-                  fillOpacity: 0.4,
-                }}
-              />
-            </MapContainer>
-          </div>
-
-          {/* Pin เซนเซอร์ */}
-          <div style={styles.mapCard}>
-            <div style={styles.mapTitle}>Pin เซนเซอร์</div>
-            <MapContainer
-              center={[13.3, 101.1]}
-              zoom={11}
-              scrollWheelZoom={true}
-              style={{ height: 230, width: "100%" }}
-            >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <Polygon
-                positions={fieldPolygon}
-                pathOptions={{
-                  color: "#16a34a",
-                  fillColor: "#86efac",
-                  fillOpacity: 0.35,
-                }}
-              />
-              {pinIcon &&
-                pinPositions.map((pos, i) => (
-                  <Marker key={i} position={pos} icon={pinIcon}>
-                    <Popup>PIN #{i + 1}</Popup>
-                  </Marker>
-                ))}
-            </MapContainer>
-          </div>
+          {/* ✅ render map หลัง hydrated เท่านั้น */}
+          {!hydrated ? (
+            <>
+              <div style={styles.mapCard}>
+                <div style={styles.mapTitle}>Polygon แปลง</div>
+                <div style={styles.mapLoading}>Loading map...</div>
+              </div>
+              <div style={styles.mapCard}>
+                <div style={styles.mapTitle}>Pin เซนเซอร์</div>
+                <div style={styles.mapLoading}>Loading map...</div>
+              </div>
+            </>
+          ) : (
+            <LeafletClient fieldPolygon={fieldPolygon} pinPositions={pinPositions} />
+          )}
 
           {/* รายการ PIN ด้านล่าง */}
           {pins.map((p) => (
-            <div key={p.id} style={styles.pinRow}>
+            <div key={p.id} style={pinRowStyle}>
               <div style={styles.pinNumberBox}>
                 <div style={styles.pinIconCircle}>📍</div>
                 <div>
@@ -427,6 +506,7 @@ export default function EditAndDelete() {
               <div style={styles.pinCoord}>ลองจิจูด&nbsp;&nbsp;{p.lon}</div>
               <button
                 style={styles.deleteBtn}
+                type="button"
                 onClick={() => handleDeletePin(p.id)}
               >
                 🗑️
@@ -434,7 +514,9 @@ export default function EditAndDelete() {
             </div>
           ))}
 
-          <button style={styles.saveBtn}>SAVE</button>
+          <button style={styles.saveBtn} type="button">
+            SAVE
+          </button>
         </section>
       </main>
     </div>

@@ -38,6 +38,12 @@ export default function AddPlantingPlotsPage() {
     if (typeof window !== "undefined") setBaseUrl(window.location.origin);
   }, []);
 
+  // ✅ กัน Leaflet/Draw crash ใน Next dev (StrictMode/mount timing)
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // ====== (DO NOT TOUCH) polygon logic ======
   const [polygons, setPolygons] = useState([]);
   const [currentColor, setCurrentColor] = useState("#16a34a");
@@ -86,14 +92,18 @@ export default function AddPlantingPlotsPage() {
   };
 
   const updateNote = (id, patch) => {
-    setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)));
+    setNotes((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, ...patch } : n))
+    );
   };
 
   // ====== ✅ ปุ่มบันทึกของ "ข้อมูลอื่นๆ" ======
-  const [noteSaveState, setNoteSaveState] = useState({ saving: false, saved: false });
+  const [noteSaveState, setNoteSaveState] = useState({
+    saving: false,
+    saved: false,
+  });
 
   const saveNotes = async () => {
-    // ✅ คุณจะเอา payload นี้ไปส่ง backend ได้เลย (ไม่ยุ่ง polygon)
     const payload = { notes };
 
     try {
@@ -146,17 +156,6 @@ export default function AddPlantingPlotsPage() {
                 <option value="3">3</option>
               </select>
             </div>
-
-            <div className="pui-field">
-              <div className="pui-label">การบันทึก</div>
-              <select className="pui-select" defaultValue="1">
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-              </select>
-            </div>
-
-            
           </div>
         </section>
 
@@ -174,32 +173,51 @@ export default function AddPlantingPlotsPage() {
             <div className="pui-form-grid">
               <div className="pui-field">
                 <div className="pui-label-dark">ข้อมูลแปลงปลูก แปลง A</div>
-                <input className="pui-input" defaultValue="แปลง D" />
+                <input
+                  className="pui-input pui-input-short"
+                  defaultValue="แปลง D"
+                />
               </div>
 
               <div className="pui-field">
                 <div className="pui-label-dark">ชื่อผู้ดูแล</div>
-                <input className="pui-input" defaultValue="สมใจ สวัสดิ์" />
+                <input
+                  className="pui-input pui-input-short"
+                  defaultValue="สมใจ สวัสดิ์"
+                />
               </div>
 
               <div className="pui-field">
                 <div className="pui-label-dark">ประเภทพืช</div>
-                <input className="pui-input" defaultValue="ทุเรียน" />
+                <input
+                  className="pui-input pui-input-short"
+                  defaultValue="ทุเรียน"
+                />
               </div>
 
               <div className="pui-field">
                 <div className="pui-label-dark">วันที่เริ่มปลูก</div>
-                <input className="pui-input" defaultValue="11/02/2568" />
+                <input
+                  className="pui-input pui-input-short"
+                  defaultValue="11/02/2568"
+                />
               </div>
             </div>
 
             {/* ===== ✅ เพิ่มข้อมูล (2 ช่อง + ปุ่มบันทึก) ===== */}
             <div className="pui-notes">
               <div className="pui-notes-head">
-                <div className="pui-notes-title">เพิ่มข้อมูล (หัวข้อเรื่อง + เนื้อหา)</div>
+                <div className="pui-notes-title">
+                  เพิ่มข้อมูล (หัวข้อเรื่อง + เนื้อหา)
+                </div>
 
                 <div className="pui-notes-actions">
-                  <button className="pui-plus" type="button" onClick={addNote} title="เพิ่มรายการ">
+                  <button
+                    className="pui-plus"
+                    type="button"
+                    onClick={addNote}
+                    title="เพิ่มรายการ"
+                  >
                     +
                   </button>
 
@@ -228,7 +246,9 @@ export default function AddPlantingPlotsPage() {
                         <input
                           className="pui-input"
                           value={n.topic}
-                          onChange={(e) => updateNote(n.id, { topic: e.target.value })}
+                          onChange={(e) =>
+                            updateNote(n.id, { topic: e.target.value })
+                          }
                           placeholder="เช่น โซนเนินสูง"
                         />
                       </div>
@@ -249,7 +269,9 @@ export default function AddPlantingPlotsPage() {
                         className="pui-textarea"
                         rows={2}
                         value={n.content}
-                        onChange={(e) => updateNote(n.id, { content: e.target.value })}
+                        onChange={(e) =>
+                          updateNote(n.id, { content: e.target.value })
+                        }
                         placeholder="พิมพ์รายละเอียด..."
                       />
                     </div>
@@ -268,7 +290,9 @@ export default function AddPlantingPlotsPage() {
                 <button
                   key={c.value}
                   onClick={() => setCurrentColor(c.value)}
-                  className={currentColor === c.value ? "pui-color active" : "pui-color"}
+                  className={
+                    currentColor === c.value ? "pui-color active" : "pui-color"
+                  }
                   style={{ background: c.value }}
                   title={c.label}
                   type="button"
@@ -277,44 +301,52 @@ export default function AddPlantingPlotsPage() {
             </div>
 
             <div className="pui-map">
-              <MapContainer center={[13.3, 101.0]} zoom={16} style={{ width: "100%", height: "100%" }}>
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              {!mounted ? (
+                <div className="pui-map-loading">Loading map...</div>
+              ) : (
+                <MapContainer
+                  center={[13.3, 101.0]}
+                  zoom={16}
+                  style={{ width: "100%", height: "100%" }}
+                >
+                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-                <FeatureGroup>
-                  {polygons.map((poly) => (
-                    <Polygon
-                      key={poly.id}
-                      positions={poly.coords}
-                      pathOptions={{
-                        color: poly.color,
-                        fillColor: poly.color,
-                        fillOpacity: 0.35,
-                      }}
-                    />
-                  ))}
+                  <FeatureGroup>
+                    {polygons.map((poly) => (
+                      <Polygon
+                        key={poly.id}
+                        positions={poly.coords}
+                        pathOptions={{
+                          color: poly.color,
+                          fillColor: poly.color,
+                          fillOpacity: 0.35,
+                        }}
+                      />
+                    ))}
 
-                  <EditControl
-                    position="topright"
-                    onCreated={handleCreated}
-                    draw={{
-                      polygon: {
-                        allowIntersection: false,
-                        shapeOptions: {
-                          color: currentColor,
-                          fillColor: currentColor,
-                          fillOpacity: 0.25,
+                    <EditControl
+                      position="topright"
+                      onCreated={handleCreated}
+                      draw={{
+                        polygon: {
+                          allowIntersection: false,
+                          shapeOptions: {
+                            color: currentColor,
+                            fillColor: currentColor,
+                            fillOpacity: 0.25,
+                          },
                         },
-                      },
-                      rectangle: false,
-                      circle: false,
-                      polyline: false,
-                      marker: false,
-                      circlemarker: false,
-                    }}
-                    edit={{ edit: false, remove: false }}
-                  />
-                </FeatureGroup>
-              </MapContainer>
+                        rectangle: false,
+                        circle: false,
+                        polyline: false,
+                        marker: false,
+                        circlemarker: false,
+                      }}
+                      edit={{ edit: false, remove: false }}
+                    />
+                  </FeatureGroup>
+                </MapContainer>
+              )}
             </div>
 
             {polygons.length > 0 && (
@@ -322,8 +354,15 @@ export default function AddPlantingPlotsPage() {
                 {polygons.map((poly) => (
                   <div className="pui-polyrow" key={poly.id}>
                     <span className="pui-polynum"># {poly.id}</span>
-                    <span className="pui-polychip" style={{ background: poly.color }} />
-                    <button className="pui-danger small" type="button" onClick={() => handleDeletePolygon(poly.id)}>
+                    <span
+                      className="pui-polychip"
+                      style={{ background: poly.color }}
+                    />
+                    <button
+                      className="pui-danger small"
+                      type="button"
+                      onClick={() => handleDeletePolygon(poly.id)}
+                    >
                       ลบ
                     </button>
                   </div>
@@ -353,8 +392,8 @@ export default function AddPlantingPlotsPage() {
         body {
           margin: 0;
           background: #ffffff;
-          font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial,
-            "Noto Sans Thai", "Noto Sans", sans-serif;
+          font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI,
+            Roboto, Arial, "Noto Sans Thai", "Noto Sans", sans-serif;
         }
 
         .pui-wrap {
@@ -395,7 +434,7 @@ export default function AddPlantingPlotsPage() {
         }
         .pui-hero-grid {
           display: grid;
-          grid-template-columns: 1fr 1fr 1.2fr;
+          grid-template-columns: 1fr;
           gap: 10px;
         }
 
@@ -448,9 +487,6 @@ export default function AddPlantingPlotsPage() {
         .pui-field {
           min-width: 0;
         }
-        .pui-field-wide {
-          grid-column: 1 / -1;
-        }
 
         .pui-label {
           font-size: 11px;
@@ -475,6 +511,13 @@ export default function AddPlantingPlotsPage() {
           outline: none;
           background: rgba(255, 255, 255, 0.9);
         }
+
+        /* ✅ make these 4 inputs shorter */
+        .pui-input-short {
+          width: 260px;
+          max-width: 100%;
+        }
+
         .pui-textarea {
           width: 100%;
           border: 1px solid rgba(0, 0, 0, 0.1);
@@ -486,7 +529,7 @@ export default function AddPlantingPlotsPage() {
           resize: vertical;
         }
 
-        /* ===== NOTES (หัวข้อเรื่อง + เนื้อหา + ปุ่มบันทึก) ===== */
+        /* ===== NOTES ===== */
         .pui-notes {
           margin-top: 12px;
           padding-top: 12px;
@@ -592,6 +635,15 @@ export default function AddPlantingPlotsPage() {
           overflow: hidden;
           border: 1px solid rgba(0, 0, 0, 0.1);
           background: rgba(255, 255, 255, 0.8);
+          position: relative;
+        }
+        .pui-map-loading {
+          height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 12px;
+          color: rgba(0, 0, 0, 0.6);
         }
 
         .pui-polylist {
@@ -663,6 +715,9 @@ export default function AddPlantingPlotsPage() {
           }
           .pui-form-grid {
             grid-template-columns: 1fr;
+          }
+          .pui-input-short {
+            width: 100%;
           }
         }
       `}</style>
