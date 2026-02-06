@@ -22,6 +22,17 @@ export default function App() {
   // ✅ เก็บ token อย่างเดียวพอ
   const LS_TOKEN = "AUTH_TOKEN_V1";
 
+  // ✅ backend base (Express ที่รันอยู่ เช่น http://localhost:3000)
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3000";
+
+  // session (ถ้าเคย login แล้ว)
+  const [sessionUser, setSessionUser] = useState(null);
+  const [sessionChecking, setSessionChecking] = useState(true);
+
+  // signup option
+  const [signupIsOwner, setSignupIsOwner] = useState(false);
+
+
   function isValidEmail(v) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
   }
@@ -57,9 +68,9 @@ export default function App() {
     }
   }
 
-  // ✅ helper เรียก backend ผ่าน Next rewrite: /api -> http://localhost:3000
+  // ✅ helper เรียก backend ตรง ๆ (Express / NestJS)
   async function api(path, { method = "GET", body, token } = {}) {
-    const res = await fetch(`/api${path}`, {
+    const res = await fetch(`${API_BASE}${path}`, {
       method,
       headers: {
         "Content-Type": "application/json",
@@ -93,13 +104,11 @@ export default function App() {
 
       localStorage.setItem(LS_TOKEN, data.token);
 
-      setModal({
-        title: "Login Successfully",
-        desc: `Welcome ${data.user.email} (${data.user.role})`,
-        buttonText: "Back to Home",
-        onClose: () => setModal(null),
-      });
-    });
+      setSessionUser(data.user);
+
+      // ✅ redirect to dashboard
+      window.location.href = "http://localhost:3001";
+});
   }
 
   async function handleSignup() {
@@ -109,23 +118,34 @@ export default function App() {
       if (!isValidPassword(pw)) throw new Error("Password must be at least 6 characters");
       if (pw !== pw2) throw new Error("Password not match");
 
+      // 1) register (default employee; owner only if selected)
       await api("/auth/register", {
         method: "POST",
-        body: { email: emailN, password: pw, role: "employee" }, // เปลี่ยนเป็น owner ได้
+        body: { email: emailN, password: pw, role: signupIsOwner ? "owner" : "employee" },
       });
 
-      setModal({
-        title: "Sign up Successfully",
-        desc: "Sign up successfully, you can login now",
-        buttonText: "Back to Login",
-        onClose: () => {
-          setModal(null);
-          setEmail("");
-          resetFormSensitive();
-          setScreen("login");
-        },
+      // 2) login automatically to get token
+      const data = await api("/auth/login", {
+        method: "POST",
+        body: { email: emailN, password: pw },
       });
+
+      localStorage.setItem(LS_TOKEN, data.token);
+      setSessionUser(data.user);
+
+      // ✅ redirect to dashboard
+      window.location.href = "http://localhost:3001";
     });
+  }
+
+
+  function logout() {
+    localStorage.removeItem(LS_TOKEN);
+    setSessionUser(null);
+    setEmail("");
+    setPw("");
+    setPw2("");
+    setScreen("login");
   }
 
   // ✅ ส่ง OTP ไปอีเมลจริง (backend จะเป็นคนส่ง)
@@ -213,8 +233,24 @@ export default function App() {
 
   // ถ้าผู้ใช้ refresh หน้า ระหว่าง OTP/reset
   useEffect(() => {
-    // ไม่ต้องอ่าน OTP จาก localStorage แล้ว
-    // แต่อยากให้จำ email ที่กำลัง reset อยู่ได้ (optional)
+    // ✅ auto-restore session จาก token
+    (async () => {
+      try {
+        const t = localStorage.getItem(LS_TOKEN);
+        if (!t) {
+          setSessionChecking(false);
+          return;
+        }
+        const me = await api("/me", { token: t });
+        setSessionUser(me.user);
+      } catch (e) {
+        // token หมดอายุ/ไม่ถูกต้อง → ลบทิ้ง
+        localStorage.removeItem(LS_TOKEN);
+        setSessionUser(null);
+      } finally {
+        setSessionChecking(false);
+      }
+    })();
   }, []);
 
   // ---------- UI ----------
@@ -223,6 +259,24 @@ export default function App() {
       <style>{css}</style>
 
       <div className="panel">
+        <div className="sessionBar">
+          {sessionChecking ? (
+            <span className="muted">Checking session…</span>
+          ) : sessionUser ? (
+            <>
+              <div className="sessionLeft">
+                <div className="sessionName">{sessionUser.email}</div>
+                <div className="sessionRole">{sessionUser.role}</div>
+              </div>
+              <button className="btn ghost" onClick={logout} disabled={loading}>
+                Logout
+              </button>
+            </>
+          ) : (
+            <span className="muted">Not logged in</span>
+          )}
+        </div>
+
         <h1>{title}</h1>
 
         {err && <div className="err">{err}</div>}
@@ -271,6 +325,17 @@ export default function App() {
 
             <div className="label">Password Confirm</div>
             <input className="input" type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+
+            <div className="checkboxRow">
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={signupIsOwner}
+                  onChange={(e) => setSignupIsOwner(e.target.checked)}
+                />
+                <span>สมัครเป็น Owner (ถ้าไม่ติ๊กจะเป็นพนักงาน)</span>
+              </label>
+            </div>
 
             <button className="btn blue" onClick={handleSignup} disabled={loading}>
               {loading ? "Loading..." : "Sign up"}
@@ -400,6 +465,32 @@ html,body{ height:100%; margin:0; font-family: system-ui, -apple-system, Segoe U
   background: linear-gradient(135deg, var(--bg1), var(--bg2));
 }
 .panel{ width:min(720px, 94vw); text-align:center; }
+
+.sessionBar{
+  width:min(540px, 94vw);
+  margin:0 auto 14px;
+  padding:10px 12px;
+  border-radius:18px;
+  background:rgba(255,255,255,.14);
+  backdrop-filter: blur(6px);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.sessionLeft{ display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
+.sessionName{ color:#fff; font-weight:800; font-size:14px; line-height:1.1; }
+.sessionRole{ color:rgba(255,255,255,.7); font-size:12px; font-weight:700; text-transform:capitalize; }
+.muted{ color:rgba(255,255,255,.65); font-size:12px; font-weight:700; }
+.checkboxRow{ width:min(540px, 94vw); margin:8px auto 10px; text-align:left; }
+.check{ display:flex; align-items:center; gap:10px; color:rgba(255,255,255,.85); font-size:13px; font-weight:700; }
+.check input{ width:16px; height:16px; }
+.btn.ghost{
+  background:rgba(255,255,255,.18);
+  border:2px solid rgba(255,255,255,.25);
+  color:#fff;
+}
+.btn.ghost:hover{ filter:brightness(1.1); }
 
 h1{
   color:#fff;
