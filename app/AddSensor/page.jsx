@@ -9,16 +9,11 @@ const MapContainer = dynamic(
   () => import("react-leaflet").then((m) => m.MapContainer),
   { ssr: false }
 );
-const TileLayer = dynamic(
-  () => import("react-leaflet").then((m) => m.TileLayer),
-  { ssr: false }
-);
-const Marker = dynamic(() => import("react-leaflet").then((m) => m.Marker), {
+const TileLayer = dynamic(() => import("react-leaflet").then((m) => m.TileLayer), {
   ssr: false,
 });
-const Popup = dynamic(() => import("react-leaflet").then((m) => m.Popup), {
-  ssr: false,
-});
+const Marker = dynamic(() => import("react-leaflet").then((m) => m.Marker), { ssr: false });
+const Popup = dynamic(() => import("react-leaflet").then((m) => m.Popup), { ssr: false });
 const Polygon = dynamic(() => import("react-leaflet").then((m) => m.Polygon), {
   ssr: false,
 });
@@ -46,6 +41,9 @@ export default function AddSensor() {
   // ✅ กัน Leaflet crash ใน dev (StrictMode/mount timing)
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // ✅ สำคัญ: รอให้ map ready ก่อนค่อย render layers (กัน appendChild undefined)
+  const [mapReady, setMapReady] = useState(false);
 
   // ===== responsive =====
   const [width, setWidth] = useState(1200);
@@ -85,9 +83,7 @@ export default function AddSensor() {
   const onEditClick = () => setEditOpen((v) => !v);
 
   // ===== ✅ PIN LIST =====
-  const [pins, setPins] = useState([
-    { id: 1, number: 1, lat: 13.3, lng: 101.12 },
-  ]);
+  const [pins, setPins] = useState([{ id: 1, number: 1, lat: 13.3, lng: 101.12 }]);
 
   // ✅ เลือก pin ที่กำลังแก้ไข
   const [activePinId, setActivePinId] = useState(1);
@@ -95,69 +91,73 @@ export default function AddSensor() {
     return pins.find((p) => p.id === activePinId) || pins[0];
   }, [pins, activePinId]);
 
-  // ✅ เพิ่ม pin: active ไป pin ใหม่ทันที
+  // ✅ เพิ่ม pin: number ไม่ซ้ำ และ active ไป pin ใหม่ทันที
   const addPin = () => {
     const newId = Date.now() + Math.random();
 
     setPins((prev) => {
-      const nextNumber = prev.length + 1;
+      const usedNumbers = new Set(prev.map((p) => p.number));
+      let nextNumber = 1;
+      while (usedNumbers.has(nextNumber)) nextNumber += 1;
+
       const last = prev[prev.length - 1] || { lat: 13.3, lng: 101.12 };
-      return [
-        ...prev,
-        { id: newId, number: nextNumber, lat: last.lat, lng: last.lng },
-      ];
+      return [...prev, { id: newId, number: nextNumber, lat: last.lat, lng: last.lng }];
     });
 
     setActivePinId(newId);
   };
 
-  // ✅ ลบ pin: ถ้าลบตัวที่ active ให้ active กลับไปตัวท้ายใหม่
-  const removePin = () => {
+  // ✅ ลบ pin ตาม id (ลบ #2/#3/#4 ได้)
+  const removePinById = (pinId) => {
     setPins((prev) => {
       if (prev.length <= 1) return prev;
 
-      const isActiveLast = prev[prev.length - 1].id === activePinId;
-      const next = prev.slice(0, -1);
+      const idx = prev.findIndex((p) => p.id === pinId);
+      if (idx === -1) return prev;
 
-      if (isActiveLast) {
-        const last = next[next.length - 1];
-        setActivePinId(last.id);
-      } else {
-        const still = next.some((p) => p.id === activePinId);
-        if (!still) setActivePinId(next[next.length - 1].id);
+      const next = prev.filter((p) => p.id !== pinId);
+
+      // ถ้าลบตัวที่ active อยู่ ให้ active ย้ายไปตัวถัดไป/ก่อนหน้า
+      if (pinId === activePinId) {
+        const pick = next[idx] || next[idx - 1] || next[0];
+        if (pick) setActivePinId(pick.id);
       }
+
       return next;
     });
+  };
+
+  // ✅ ปุ่ม "-" ด้านบน: ลบ pin ที่กำลังเลือก (active)
+  const removeActivePin = () => {
+    removePinById(activePinId);
   };
 
   // ✅ คลิกแผนที่ => ย้ายพิกัดเฉพาะ pin ที่เลือก (active)
   const onPickLatLng = (latlng) => {
     if (!latlng) return;
     const { lat, lng } = latlng;
-    setPins((prev) =>
-      prev.map((p) => (p.id === activePinId ? { ...p, lat, lng } : p))
-    );
+    setPins((prev) => prev.map((p) => (p.id === activePinId ? { ...p, lat, lng } : p)));
   };
 
   // ✅ แก้ lat/lng จาก input => แก้เฉพาะ active pin
   const setActiveLat = (lat) => {
-    setPins((prev) =>
-      prev.map((p) => (p.id === activePinId ? { ...p, lat } : p))
-    );
+    setPins((prev) => prev.map((p) => (p.id === activePinId ? { ...p, lat } : p)));
   };
   const setActiveLng = (lng) => {
-    setPins((prev) =>
-      prev.map((p) => (p.id === activePinId ? { ...p, lng } : p))
-    );
+    setPins((prev) => prev.map((p) => (p.id === activePinId ? { ...p, lng } : p)));
   };
 
   // =========================
-  // ✅ FILTER STATE (เดิม)
+  // ✅ FILTER STATE
   // =========================
-  const [selectedPlot, setSelectedPlot] = useState("A");
+  const [selectedPlot, setSelectedPlot] = useState("all");
   const [selectedNode, setSelectedNode] = useState("all");
   const [selectedSensorType, setSelectedSensorType] = useState("soil_moisture");
-  const [selectedFetch, setSelectedFetch] = useState("pin");
+
+  const plotLabel = useMemo(() => {
+    if (selectedPlot === "all") return "ทุกแปลง";
+    return `แปลง ${selectedPlot}`;
+  }, [selectedPlot]);
 
   const nodeOptions = [
     { value: "all", label: "ทุก Node" },
@@ -368,7 +368,7 @@ export default function AddSensor() {
           ? "1fr"
           : isTablet
           ? "repeat(2,minmax(0,1fr))"
-          : "repeat(4,minmax(0,1fr))",
+          : "repeat(3,minmax(0,1fr))",
         gap: 10,
         marginTop: 4,
       },
@@ -380,12 +380,7 @@ export default function AddSensor() {
         fontSize: 12,
         color: "#0f172a",
       },
-      filterLabel: {
-        fontSize: 11,
-        fontWeight: 600,
-        color: "#64748b",
-        marginBottom: 4,
-      },
+      filterLabel: { fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 },
       filterSelect: {
         width: "100%",
         borderRadius: 12,
@@ -500,7 +495,6 @@ export default function AddSensor() {
       pinMetaLabel: { fontSize: 10, fontWeight: 800, color: "#6b7280", marginBottom: 3 },
       pinMetaValue: { fontSize: 12, fontWeight: 800, color: "#0f172a" },
 
-      // ✅ PIN details panel
       pinPanel: {
         borderRadius: 26,
         background: "#ffd9f1",
@@ -627,11 +621,7 @@ export default function AddSensor() {
         padding: 10,
         border: "1px solid rgba(15,23,42,0.10)",
       },
-      inlineRow: {
-        display: "grid",
-        gridTemplateColumns: "1fr",
-        gap: 8,
-      },
+      inlineRow: { display: "grid", gridTemplateColumns: "1fr", gap: 8 },
 
       saveBtn: {
         marginTop: 14,
@@ -664,7 +654,6 @@ export default function AddSensor() {
       plot: selectedPlot,
       node: selectedNode,
       sensorType: selectedSensorType,
-      fetch: selectedFetch,
       pins,
       activePinId,
       sensors: sensorGroups,
@@ -729,26 +718,13 @@ export default function AddSensor() {
                 ))}
               </select>
             </div>
-
-            <div style={styles.filterCard}>
-              <div style={styles.filterLabel}>ดึงข้อมูล</div>
-              <select
-                style={styles.filterSelect}
-                value={selectedFetch}
-                onChange={(e) => setSelectedFetch(e.target.value)}
-              >
-                <option value="soil">ความชื้นดิน</option>
-                <option value="pin">Pin เซนเซอร์</option>
-                <option value="polygon">Polygon แปลง</option>
-              </select>
-            </div>
           </div>
         </section>
 
         {/* PANEL ข้อมูลแปลง + แผนที่ + PIN meta */}
         <section style={styles.plotPanel}>
           <div style={styles.plotHeaderRow}>
-            <div style={styles.plotTitle}>ข้อมูลแปลง: แปลง A</div>
+            <div style={styles.plotTitle}>ข้อมูลแปลง: {plotLabel}</div>
             <button style={styles.editBtn} type="button" onClick={onEditClick}>
               ลบ / แก้ไข
             </button>
@@ -758,7 +734,7 @@ export default function AddSensor() {
           <div style={styles.infoGrid}>
             <div>
               <div style={styles.infoLabel}>ชื่อแปลง</div>
-              <div style={styles.infoBox}>แปลง A</div>
+              <div style={styles.infoBox}>{plotLabel}</div>
             </div>
             <div>
               <div style={styles.infoLabel}>ประเภทพืช</div>
@@ -777,7 +753,7 @@ export default function AddSensor() {
           {/* แผนที่ polygon + pins */}
           <div style={styles.mapCard}>
             <div style={styles.mapTitle}>
-              Pin เซนเซอร์ชุดนี้ต้องการวัด (คลิกแผนที่เพื่อปักพิกัดให้ Pin ที่เลือก)
+              จุด Pin เซนเซอร์ชุดนี้ (คลิกแผนที่เพื่อปักพิกัดให้ Pin ที่เลือก)
             </div>
             <div style={styles.mapHelp}>
               เลือก Pin จากรายการด้านล่างก่อน แล้วค่อยคลิกบนแผนที่เพื่อย้ายหมุด
@@ -787,33 +763,40 @@ export default function AddSensor() {
               <div style={styles.mapLoading}>Loading map...</div>
             ) : (
               <MapContainer
+                key="duwims-map"
                 center={[13.3, 101.1]}
                 zoom={11}
                 scrollWheelZoom={true}
                 style={{ height: 230, width: "100%" }}
+                whenReady={() => setMapReady(true)}
               >
                 <TileLayer
                   attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
 
-                <Polygon
-                  positions={fieldPolygon}
-                  pathOptions={{
-                    color: "#16a34a",
-                    fillColor: "#86efac",
-                    fillOpacity: 0.4,
-                  }}
-                />
+                {/* ✅ กัน appendChild error: render layer เมื่อ map พร้อมแล้วเท่านั้น */}
+                {mapReady && (
+                  <>
+                    <Polygon
+                      positions={fieldPolygon}
+                      pathOptions={{
+                        color: "#16a34a",
+                        fillColor: "#86efac",
+                        fillOpacity: 0.4,
+                      }}
+                    />
 
-                <MapClickHandler onPick={onPickLatLng} />
+                    <MapClickHandler onPick={onPickLatLng} />
 
-                {pinIcon &&
-                  pins.map((p) => (
-                    <Marker key={p.id} position={[p.lat, p.lng]} icon={pinIcon}>
-                      <Popup>Pin เซนเซอร์ #{p.number}</Popup>
-                    </Marker>
-                  ))}
+                    {pinIcon &&
+                      pins.map((p) => (
+                        <Marker key={p.id} position={[p.lat, p.lng]} icon={pinIcon}>
+                          <Popup>Pin #{p.number}</Popup>
+                        </Marker>
+                      ))}
+                  </>
+                )}
               </MapContainer>
             )}
           </div>
@@ -823,7 +806,13 @@ export default function AddSensor() {
             <button style={styles.pinMetaBtn} type="button" onClick={addPin}>
               +
             </button>
-            <button style={styles.pinMetaBtn} type="button" onClick={removePin}>
+            <button
+              style={styles.pinMetaBtn}
+              type="button"
+              onClick={removeActivePin}
+              disabled={pins.length <= 1}
+              title={pins.length <= 1 ? "ต้องมีอย่างน้อย 1 pin" : "ลบ pin ที่กำลังเลือก"}
+            >
               −
             </button>
 
@@ -839,13 +828,42 @@ export default function AddSensor() {
               return (
                 <div
                   key={p.id}
-                  style={styles.pinCard(active)}
+                  style={{ ...styles.pinCard(active), position: "relative" }}
                   onClick={() => setActivePinId(p.id)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => e.key === "Enter" && setActivePinId(p.id)}
                   title="คลิกเพื่อเลือก pin นี้ แล้วค่อยคลิกบนแผนที่เพื่อย้ายหมุด"
                 >
+                  {/* ✅ ปุ่มลบอยู่ตรงการ์ด pin */}
+                  {editOpen && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removePinById(p.id);
+                      }}
+                      disabled={pins.length <= 1}
+                      style={{
+                        position: "absolute",
+                        right: 10,
+                        top: 10,
+                        border: "none",
+                        borderRadius: 999,
+                        padding: "6px 10px",
+                        fontSize: 11,
+                        fontWeight: 900,
+                        cursor: pins.length <= 1 ? "not-allowed" : "pointer",
+                        background: "#ef4444",
+                        color: "#fff",
+                        opacity: pins.length <= 1 ? 0.5 : 1,
+                      }}
+                      title={pins.length <= 1 ? "ต้องมีอย่างน้อย 1 pin" : `ลบ Pin #${p.number}`}
+                    >
+                      ลบ
+                    </button>
+                  )}
+
                   <div style={styles.pinCardGrid}>
                     <div style={styles.pinMetaBox}>
                       <div style={styles.pinMetaLabel}>number</div>

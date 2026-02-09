@@ -59,6 +59,15 @@ const TH_POINTS = [
   { id: "sri", name: "สงขลา", x: 132, y: 382, value: 61 },
 ];
 
+const PLOT_OPTIONS = [
+  { id: "1", name: "แปลง 1" },
+  { id: "2", name: "แปลง 2" },
+  { id: "3", name: "แปลง 3" },
+];
+
+// palette สำหรับ compare plot
+const PLOT_COLORS = ["#2563eb", "#16a34a", "#f97316", "#a855f7", "#ef4444"];
+
 function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n));
 }
@@ -69,8 +78,56 @@ function blue(v) {
   return `rgba(37,99,235,${alpha})`;
 }
 
+// deterministic pseudo random (stable)
+function hashTo01(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  // 0..1
+  return ((h >>> 0) % 100000) / 100000;
+}
+
+function formatDateLabel(iso) {
+  // "2025-09-01" -> "01 ก.ย."
+  const d = new Date(iso + "T00:00:00");
+  const thMonths = [
+    "ม.ค.",
+    "ก.พ.",
+    "มี.ค.",
+    "เม.ย.",
+    "พ.ค.",
+    "มิ.ย.",
+    "ก.ค.",
+    "ส.ค.",
+    "ก.ย.",
+    "ต.ค.",
+    "พ.ย.",
+    "ธ.ค.",
+  ];
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${dd} ${thMonths[d.getMonth()]}`;
+}
+
+function toCSV(rows) {
+  const esc = (v) => {
+    const s = String(v ?? "");
+    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  if (!rows.length) return "";
+  const headers = Object.keys(rows[0]);
+  const lines = [
+    headers.map(esc).join(","),
+    ...rows.map((r) => headers.map((h) => esc(r[h])).join(",")),
+  ];
+  return lines.join("\n");
+}
+
 export default function HistoryPage() {
-  const dropdownRef = useRef(null);
+  const sensorDropdownRef = useRef(null);
+  const plotDropdownRef = useRef(null);
 
   // responsive breakpoint
   const [vw, setVw] = useState(1280);
@@ -90,9 +147,15 @@ export default function HistoryPage() {
   const [sensorDropdownOpen, setSensorDropdownOpen] = useState(false);
   const [selectedSensors, setSelectedSensors] = useState(["soil"]);
 
+  const [plotDropdownOpen, setPlotDropdownOpen] = useState(false);
+
+  // ✅ เริ่มต้นเป็น "ทุกแปลง"
+  const [selectedPlots, setSelectedPlots] = useState(() =>
+    PLOT_OPTIONS.map((p) => p.id)
+  );
+
   const [startDate, setStartDate] = useState("2025-09-01");
   const [endDate, setEndDate] = useState("2025-09-30");
-  const [plot, setPlot] = useState("all");
 
   const toggleSensor = (key) => {
     setSelectedSensors((prev) => {
@@ -101,37 +164,31 @@ export default function HistoryPage() {
     });
   };
 
-  // ปิด dropdown เมื่อคลิกนอกกล่อง
-  const onRootClick = (e) => {
-    if (!sensorDropdownOpen) return;
-    if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-      setSensorDropdownOpen(false);
-    }
+  // ✅ ห้ามเหลือว่าง: ถ้ายกเลิกหมดจะกลับเป็นทุกแปลง
+  const togglePlot = (id) => {
+    setSelectedPlots((prev) => {
+      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
+      if (next.length === 0) return PLOT_OPTIONS.map((p) => p.id);
+      return next;
+    });
   };
 
-  // ข้อมูลตัวอย่างค่าความชื้นดินรายชั่วโมง
-  const soilSeries = [
-    { time: "08:00", value: 68 },
-    { time: "10:00", value: 72 },
-    { time: "12:00", value: 78 },
-    { time: "14:00", value: 81 },
-    { time: "16:00", value: 76 },
-    { time: "18:00", value: 70 },
-    { time: "20:00", value: 65 },
-  ];
-
-  const stats = useMemo(() => {
-    const values = soilSeries.map((p) => p.value);
-    const minVal = Math.min(...values);
-    const maxVal = Math.max(...values);
-    const avgVal =
-      Math.round((values.reduce((sum, v) => sum + v, 0) / values.length) * 10) /
-      10;
-    const lastPoint = soilSeries[soilSeries.length - 1];
-    const currentVal = lastPoint.value;
-
-    return { minVal, maxVal, avgVal, lastPoint, currentVal };
-  }, [soilSeries]);
+  // ปิด dropdown เมื่อคลิกนอกกล่อง
+  const onRootClick = (e) => {
+    if (sensorDropdownOpen) {
+      if (
+        sensorDropdownRef.current &&
+        !sensorDropdownRef.current.contains(e.target)
+      ) {
+        setSensorDropdownOpen(false);
+      }
+    }
+    if (plotDropdownOpen) {
+      if (plotDropdownRef.current && !plotDropdownRef.current.contains(e.target)) {
+        setPlotDropdownOpen(false);
+      }
+    }
+  };
 
   const selectedSensorNames = useMemo(() => {
     return selectedSensors
@@ -139,11 +196,25 @@ export default function HistoryPage() {
       .filter(Boolean);
   }, [selectedSensors]);
 
-  const dropdownLabel = useMemo(() => {
+  const sensorDropdownLabel = useMemo(() => {
     if (selectedSensorNames.length === 0) return "เลือกประเภทเซนเซอร์";
     if (selectedSensorNames.length === 1) return selectedSensorNames[0];
     return `${selectedSensorNames[0]} +${selectedSensorNames.length - 1}`;
   }, [selectedSensorNames]);
+
+  const selectedPlotNames = useMemo(() => {
+    return selectedPlots
+      .map((id) => PLOT_OPTIONS.find((p) => p.id === id)?.name)
+      .filter(Boolean);
+  }, [selectedPlots]);
+
+  // ✅ เลือกครบ = "ทุกแปลง" (ไม่ขึ้น แปลง 1 +1)
+  const plotDropdownLabel = useMemo(() => {
+    if (selectedPlots.length === PLOT_OPTIONS.length) return "ทุกแปลง";
+    if (selectedPlotNames.length === 0) return "ทุกแปลง";
+    if (selectedPlotNames.length === 1) return selectedPlotNames[0];
+    return `${selectedPlotNames[0]} +${selectedPlotNames.length - 1}`;
+  }, [selectedPlots, selectedPlotNames]);
 
   // responsive card padding
   const cardPad = isMobile ? 14 : isTablet ? 16 : 20;
@@ -158,19 +229,253 @@ export default function HistoryPage() {
 
   const grid2 = isMobile
     ? { display: "grid", gridTemplateColumns: "1fr", gap: 12 }
-    : { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 12 };
+    : {
+        display: "grid",
+        gridTemplateColumns: "repeat(2,minmax(0,1fr))",
+        gap: 12,
+      };
 
   const summaryGrid = useMemo(() => {
-    if (isMobile) return { display: "grid", gridTemplateColumns: "1fr", gap: 12, marginBottom: 16 };
-    if (isTablet) return { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 12, marginBottom: 16 };
-    return { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 12, marginBottom: 16 };
+    if (isMobile)
+      return {
+        display: "grid",
+        gridTemplateColumns: "1fr",
+        gap: 12,
+        marginBottom: 16,
+      };
+    if (isTablet)
+      return {
+        display: "grid",
+        gridTemplateColumns: "repeat(2,minmax(0,1fr))",
+        gap: 12,
+        marginBottom: 16,
+      };
+    return {
+      display: "grid",
+      gridTemplateColumns: "repeat(4,minmax(0,1fr))",
+      gap: 12,
+      marginBottom: 16,
+    };
   }, [isMobile, isTablet]);
 
   const heatGrid = useMemo(() => {
-    // ✅ มือถือ: map อยู่บน legend กันโดนบีบ
     if (isMobile) return { display: "grid", gridTemplateColumns: "1fr", gap: 12 };
     return { display: "grid", gridTemplateColumns: "1fr 260px", gap: 12 };
   }, [isMobile]);
+
+  // =========================
+  // MOCK SERIES (พร้อมเสียบ API)
+  // =========================
+  const baseTimes = useMemo(() => {
+    const days = [
+      "2025-09-21",
+      "2025-09-22",
+      "2025-09-23",
+      "2025-09-24",
+      "2025-09-25",
+      "2025-09-26",
+      "2025-09-27",
+      "2025-09-28",
+    ];
+    return days.map((d) => ({ ts: d + "T12:00:00", label: formatDateLabel(d) }));
+  }, []);
+
+  // สร้าง series ต่อ plot ต่อ sensor (deterministic)
+  const seriesByPlot = useMemo(() => {
+    const plots = selectedPlots.length ? selectedPlots : PLOT_OPTIONS.map((p) => p.id);
+    const sensors = selectedSensors.length ? selectedSensors : ["soil"];
+    const map = {};
+
+    for (const pid of plots) {
+      map[pid] = {};
+      for (const sk of sensors) {
+        const seed = hashTo01(`${pid}-${sk}-${startDate}-${endDate}-${quickRange}`);
+
+        const spec =
+          {
+            soil: { base: 62, amp: 22, min: 0, max: 100 },
+            temp: { base: 30, amp: 4, min: 0, max: 60 },
+            rh: { base: 72, amp: 18, min: 0, max: 100 },
+            npk: { base: 18, amp: 8, min: 0, max: 50 },
+            light: { base: 18000, amp: 9000, min: 0, max: 60000 },
+            rain: { base: 2.2, amp: 7, min: 0, max: 60 },
+            wind: { base: 1.8, amp: 1.6, min: 0, max: 20 },
+            water: { base: 90, amp: 60, min: 0, max: 500 },
+          }[sk] || { base: 50, amp: 20, min: 0, max: 100 };
+
+        const points = baseTimes.map((t, i) => {
+          const wave = Math.sin(
+            (i / Math.max(1, baseTimes.length - 1)) * Math.PI * 2 + seed * 6.28
+          );
+          const wobble = (hashTo01(`${pid}-${sk}-${i}`) - 0.5) * 0.35;
+          const v = spec.base + spec.amp * (0.55 * wave + wobble);
+          const val = Math.round(clamp(v, spec.min, spec.max) * 10) / 10;
+          return { ...t, value: val };
+        });
+
+        map[pid][sk] = points;
+      }
+    }
+    return map;
+  }, [selectedPlots, selectedSensors, startDate, endDate, quickRange, baseTimes]);
+
+  // แสดงกราฟ: โฟกัส sensor ตัวแรก (เลือกไว้) เพื่อเปรียบเทียบแปลงแบบชัด ๆ
+  const activeSensorKey = selectedSensors[0] || "soil";
+  const activeSensorMeta =
+    SENSOR_OPTIONS.find((s) => s.key === activeSensorKey) || SENSOR_OPTIONS[0];
+
+  const compareSeries = useMemo(() => {
+    const plots = selectedPlots.length ? selectedPlots : PLOT_OPTIONS.map((p) => p.id);
+    return plots
+      .map((pid, idx) => {
+        const pts = seriesByPlot?.[pid]?.[activeSensorKey] || [];
+        return {
+          plotId: pid,
+          plotName: PLOT_OPTIONS.find((p) => p.id === pid)?.name || `แปลง ${pid}`,
+          color: PLOT_COLORS[idx % PLOT_COLORS.length],
+          points: pts,
+        };
+      })
+      .filter((s) => s.points.length);
+  }, [selectedPlots, seriesByPlot, activeSensorKey]);
+
+  const stats = useMemo(() => {
+    const all = compareSeries.flatMap((s) => s.points.map((p) => p.value));
+    if (!all.length) {
+      return { minVal: 0, maxVal: 0, avgVal: 0, currentVal: 0, lastLabel: "-" };
+    }
+    const minVal = Math.min(...all);
+    const maxVal = Math.max(...all);
+    const avgVal =
+      Math.round((all.reduce((sum, v) => sum + v, 0) / all.length) * 10) / 10;
+
+    const lastLabel =
+      compareSeries[0]?.points?.[compareSeries[0].points.length - 1]?.label || "-";
+    const currentVal =
+      compareSeries[0]?.points?.[compareSeries[0].points.length - 1]?.value ?? 0;
+
+    return { minVal, maxVal, avgVal, currentVal, lastLabel };
+  }, [compareSeries]);
+
+  // =========================
+  // SVG chart helpers
+  // =========================
+  const chart = useMemo(() => {
+    const W = 100;
+    const H = 60;
+    const padL = 6;
+    const padR = 2;
+    const padT = 6;
+    const padB = 6;
+    const innerW = W - padL - padR;
+    const innerH = H - padT - padB;
+
+    const allVals = compareSeries.flatMap((s) => s.points.map((p) => p.value));
+    const yMin = allVals.length ? Math.min(...allVals) : 0;
+    const yMax = allVals.length ? Math.max(...allVals) : 100;
+    const span = Math.max(1e-6, yMax - yMin);
+
+    const xFor = (i, n) =>
+      padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+    const yFor = (v) => padT + (1 - (v - yMin) / span) * innerH;
+
+    const polylines = compareSeries.map((s) => {
+      const pts = s.points;
+      const n = pts.length;
+      const d = pts.map((p, i) => `${xFor(i, n)},${yFor(p.value)}`).join(" ");
+      return { plotId: s.plotId, plotName: s.plotName, color: s.color, d };
+    });
+
+    const ticks = 5;
+    const yTicks = Array.from({ length: ticks }, (_, i) => {
+      const t = i / (ticks - 1);
+      const v = yMax - t * span;
+      const y = yFor(v);
+      return { y, v: Math.round(v * 10) / 10 };
+    });
+
+    const xLabels = (compareSeries[0]?.points || []).map((p) => p.label);
+
+    return { yMin, yMax, yTicks, polylines, xLabels };
+  }, [compareSeries]);
+
+  // =========================
+  // EXPORT CSV (plots x sensors)
+  // =========================
+  const onExportCSV = () => {
+    const plots = selectedPlots.length ? selectedPlots : PLOT_OPTIONS.map((p) => p.id);
+    const sensors = selectedSensors.length ? selectedSensors : ["soil"];
+
+    const rows = [];
+    for (const pid of plots) {
+      const plotName = PLOT_OPTIONS.find((p) => p.id === pid)?.name || `แปลง ${pid}`;
+      for (const sk of sensors) {
+        const meta = SENSOR_OPTIONS.find((s) => s.key === sk);
+        const unit = meta?.unit ?? "";
+        const pts = seriesByPlot?.[pid]?.[sk] || [];
+        for (const p of pts) {
+          rows.push({
+            date_range_start: startDate,
+            date_range_end: endDate,
+            quick_range: quickRange,
+            plot_id: pid,
+            plot_name: plotName,
+            sensor_key: sk,
+            sensor_label: meta?.label ?? sk,
+            unit,
+            timestamp: p.ts,
+            label: p.label,
+            value: p.value,
+          });
+        }
+      }
+    }
+
+    const csv = toCSV(rows);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    const fileName = `history_compare_${startDate}_to_${endDate}.csv`;
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // =========================
+  // TABLE rows (ใช้ค่าจาก mock เฉลี่ย)
+  // =========================
+  const tableRows = useMemo(() => {
+    const plots = selectedPlots.length ? selectedPlots : PLOT_OPTIONS.map((p) => p.id);
+
+    const avgOf = (pid, sk) => {
+      const pts = seriesByPlot?.[pid]?.[sk] || [];
+      if (!pts.length) return "-";
+      const avg = pts.reduce((s, x) => s + Number(x.value || 0), 0) / pts.length;
+      const v = Math.round(avg * 10) / 10;
+      if (sk === "light") return Math.round(v).toLocaleString("en-US");
+      return v;
+    };
+
+    return plots.map((pid, i) => {
+      const plotName = PLOT_OPTIONS.find((p) => p.id === pid)?.name || `แปลง ${pid}`;
+      return {
+        plot: plotName,
+        soil: avgOf(pid, "soil"),
+        temp: avgOf(pid, "temp"),
+        rh: avgOf(pid, "rh"),
+        npk: avgOf(pid, "npk"),
+        light: avgOf(pid, "light"),
+        rain: avgOf(pid, "rain"),
+        wind: avgOf(pid, "wind"),
+        water: avgOf(pid, "water"),
+        bg: i % 2 === 0 ? "#f9fafb" : "#eef2ff",
+      };
+    });
+  }, [selectedPlots, seriesByPlot]);
 
   return (
     <div style={pageStyle} onClick={onRootClick}>
@@ -206,7 +511,11 @@ export default function HistoryPage() {
             >
               <div
                 className="du-card-title"
-                style={{ color: "#fff", fontSize: isMobile ? 16 : 18, fontWeight: 700 }}
+                style={{
+                  color: "#fff",
+                  fontSize: isMobile ? 16 : 18,
+                  fontWeight: 700,
+                }}
               >
                 ฟิลเตอร์ข้อมูลย้อนหลัง
               </div>
@@ -216,7 +525,15 @@ export default function HistoryPage() {
             </div>
 
             {/* quick chips */}
-            <div style={{ marginBottom: 10, fontSize: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>
+            <div
+              style={{
+                marginBottom: 10,
+                fontSize: 12,
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 6,
+              }}
+            >
               <span style={{ marginRight: 2 }}>ช่วงเวลาเร็ว:</span>
               {["วันนี้", "7 วันล่าสุด", "30 วันล่าสุด"].map((l) => {
                 const active = quickRange === l;
@@ -258,7 +575,7 @@ export default function HistoryPage() {
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                   style={{
-                    width: "100%",              // ✅ สำคัญ
+                    width: "100%",
                     maxWidth: "100%",
                     borderRadius: 14,
                     border: "none",
@@ -278,7 +595,7 @@ export default function HistoryPage() {
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
                   style={{
-                    width: "100%",              // ✅ สำคัญ
+                    width: "100%",
                     maxWidth: "100%",
                     borderRadius: 14,
                     border: "none",
@@ -290,7 +607,7 @@ export default function HistoryPage() {
               </div>
             </div>
 
-            {/* sensor dropdown + plot */}
+            {/* sensor dropdown + plot checkbox dropdown */}
             <div style={grid2}>
               {/* sensor */}
               <div className="du-field" style={{ fontSize: 13, minWidth: 0 }}>
@@ -298,7 +615,7 @@ export default function HistoryPage() {
                   ประเภทเซนเซอร์
                 </label>
 
-                <div ref={dropdownRef} style={{ position: "relative", minWidth: 0 }}>
+                <div ref={sensorDropdownRef} style={{ position: "relative", minWidth: 0 }}>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -329,7 +646,7 @@ export default function HistoryPage() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {dropdownLabel}
+                      {sensorDropdownLabel}
                     </span>
                     <span style={{ color: "#64748b", fontSize: 12 }}>
                       {sensorDropdownOpen ? "▲" : "▼"}
@@ -341,7 +658,7 @@ export default function HistoryPage() {
                       onClick={(e) => e.stopPropagation()}
                       style={{
                         position: "absolute",
-                        zIndex: 50,
+                        zIndex: 60,
                         top: "calc(100% + 8px)",
                         left: 0,
                         right: 0,
@@ -361,7 +678,13 @@ export default function HistoryPage() {
                           gap: 10,
                         }}
                       >
-                        <div style={{ fontSize: 12, fontWeight: 900, color: "#0f172a" }}>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 900,
+                            color: "#0f172a",
+                          }}
+                        >
                           เลือกได้หลายตัว
                         </div>
                         <button
@@ -424,7 +747,13 @@ export default function HistoryPage() {
                               >
                                 {s.label}
                               </span>
-                              <span style={{ fontSize: 11, color: "#64748b", marginLeft: "auto" }}>
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  color: "#64748b",
+                                  marginLeft: "auto",
+                                }}
+                              >
                                 {s.unit}
                               </span>
                             </label>
@@ -455,33 +784,167 @@ export default function HistoryPage() {
                 </div>
 
                 <div style={{ marginTop: 6, fontSize: 11, opacity: 0.95 }}>
-                  เลือกแล้ว:{" "}
-                  {selectedSensorNames.length ? selectedSensorNames.join(", ") : "—"}
+                  เลือกแล้ว: {selectedSensorNames.length ? selectedSensorNames.join(", ") : "—"}
                 </div>
               </div>
 
-              {/* plot */}
+              {/* plot (checkbox multi-select) */}
               <div className="du-field" style={{ fontSize: 13, minWidth: 0 }}>
                 <label style={{ display: "block", marginBottom: 4, color: "#fff" }}>
-                  แปลง
+                  แปลง (เลือกได้หลายแปลง)
                 </label>
-                <select
-                  value={plot}
-                  onChange={(e) => setPlot(e.target.value)}
-                  style={{
-                    width: "100%",
-                    borderRadius: 14,
-                    border: "none",
-                    padding: "10px 10px",
-                    fontSize: 13,
-                    boxSizing: "border-box",
-                  }}
-                >
-                  <option value="all">ทั้งหมด</option>
-                  <option value="1">แปลง 1</option>
-                  <option value="2">แปลง 2</option>
-                  <option value="3">แปลง 3</option>
-                </select>
+
+                <div ref={plotDropdownRef} style={{ position: "relative", minWidth: 0 }}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPlotDropdownOpen((v) => !v);
+                    }}
+                    style={{
+                      width: "100%",
+                      borderRadius: 14,
+                      border: "none",
+                      padding: "10px 10px",
+                      fontSize: 13,
+                      background: "#fff",
+                      cursor: "pointer",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 10,
+                      minWidth: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: "#111827",
+                        fontWeight: 800,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {plotDropdownLabel}
+                    </span>
+                    <span style={{ color: "#64748b", fontSize: 12 }}>
+                      {plotDropdownOpen ? "▲" : "▼"}
+                    </span>
+                  </button>
+
+                  {plotDropdownOpen && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        position: "absolute",
+                        zIndex: 60,
+                        top: "calc(100% + 8px)",
+                        left: 0,
+                        right: 0,
+                        background: "#ffffff",
+                        borderRadius: 16,
+                        border: "1px solid rgba(15,23,42,0.12)",
+                        boxShadow: "0 18px 40px rgba(15,23,42,0.18)",
+                        padding: 10,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          marginBottom: 8,
+                          gap: 10,
+                        }}
+                      >
+                        <div style={{ fontSize: 12, fontWeight: 900, color: "#0f172a" }}>
+                          เลือกหลายแปลงเพื่อเทียบกราฟ
+                        </div>
+
+                        {/* ✅ เปลี่ยน "ล้าง" -> "เลือกทั้งหมด" */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPlots(PLOT_OPTIONS.map((p) => p.id))}
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            color: "#2563eb",
+                            fontWeight: 900,
+                            cursor: "pointer",
+                            fontSize: 12,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          เลือกทั้งหมด
+                        </button>
+                      </div>
+
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {PLOT_OPTIONS.map((p, idx) => {
+                          const checked = selectedPlots.includes(p.id);
+                          const c = PLOT_COLORS[idx % PLOT_COLORS.length];
+                          return (
+                            <label
+                              key={p.id}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 10,
+                                padding: "8px 10px",
+                                borderRadius: 12,
+                                cursor: "pointer",
+                                border: "1px solid rgba(15,23,42,0.08)",
+                                background: checked ? "#ecfeff" : "#fff",
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => togglePlot(p.id)}
+                              />
+                              <span
+                                style={{
+                                  width: 10,
+                                  height: 10,
+                                  borderRadius: 999,
+                                  background: c,
+                                  border: "1px solid rgba(15,23,42,0.18)",
+                                  flex: "0 0 auto",
+                                }}
+                              />
+                              <span style={{ fontSize: 12, fontWeight: 900, color: "#0f172a" }}>
+                                {p.name}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+                        <button
+                          type="button"
+                          onClick={() => setPlotDropdownOpen(false)}
+                          style={{
+                            borderRadius: 999,
+                            border: "none",
+                            padding: "8px 12px",
+                            background: "#0f172a",
+                            color: "#fff",
+                            fontWeight: 900,
+                            cursor: "pointer",
+                            fontSize: 12,
+                          }}
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ marginTop: 6, fontSize: 11, opacity: 0.95 }}>
+                  เลือกแล้ว: {selectedPlotNames.length ? selectedPlotNames.join(", ") : "ทุกแปลง"}
+                </div>
               </div>
             </div>
           </div>
@@ -490,33 +953,33 @@ export default function HistoryPage() {
           <section style={summaryGrid}>
             {[
               {
-                title: "ค่าปัจจุบัน",
-                value: `${stats.currentVal}%`,
-                sub: `อัปเดตล่าสุด ${stats.lastPoint.time}`,
+                title: "ค่าปัจจุบัน (แปลงแรกที่เลือก)",
+                value: `${stats.currentVal}${activeSensorMeta.unit}`,
+                sub: `อัปเดตล่าสุด ${stats.lastLabel}`,
                 bg: "linear-gradient(135deg,#dbeafe 0%,#eff6ff 45%,#ffffff 100%)",
                 titleColor: "#64748b",
                 valueColor: "#1d4ed8",
               },
               {
-                title: "ค่าเฉลี่ยช่วงที่เลือก",
-                value: `${stats.avgVal}%`,
-                sub: "ความชื้นเฉลี่ยของเซนเซอร์นี้",
+                title: "ค่าเฉลี่ย (รวมทุกแปลงที่เลือก)",
+                value: `${stats.avgVal}${activeSensorMeta.unit}`,
+                sub: `sensor: ${activeSensorMeta.label}`,
                 bg: "linear-gradient(135deg,#dcfce7 0%,#ecfdf5 45%,#ffffff 100%)",
                 titleColor: "#166534",
                 valueColor: "#16a34a",
               },
               {
                 title: "ค่าต่ำสุด",
-                value: `${stats.minVal}%`,
-                sub: "ช่วงที่ดินค่อนข้างแห้ง",
+                value: `${stats.minVal}${activeSensorMeta.unit}`,
+                sub: "ต่ำสุดของทุกแปลงที่เลือก",
                 bg: "linear-gradient(135deg,#fef9c3 0%,#fffbeb 45%,#ffffff 100%)",
                 titleColor: "#92400e",
                 valueColor: "#f97316",
               },
               {
                 title: "ค่าสูงสุด",
-                value: `${stats.maxVal}%`,
-                sub: "ถ้าเกิน 80% อาจต้องชะลอการให้น้ำ",
+                value: `${stats.maxVal}${activeSensorMeta.unit}`,
+                sub: "สูงสุดของทุกแปลงที่เลือก",
                 bg: "linear-gradient(135deg,#fee2e2 0%,#fef2f2 45%,#ffffff 100%)",
                 titleColor: "#b91c1c",
                 valueColor: "#dc2626",
@@ -544,7 +1007,13 @@ export default function HistoryPage() {
                 >
                   {b.title}
                 </div>
-                <div style={{ fontSize: isMobile ? 22 : 24, fontWeight: 900, color: b.valueColor }}>
+                <div
+                  style={{
+                    fontSize: isMobile ? 22 : 24,
+                    fontWeight: 900,
+                    color: b.valueColor,
+                  }}
+                >
                   {b.value}
                 </div>
                 <div
@@ -606,30 +1075,27 @@ export default function HistoryPage() {
             >
               <div style={heatGrid}>
                 {/* Map (Ventusky embed) */}
-<div
-  style={{
-    borderRadius: 16,
-    border: "1px solid rgba(15,23,42,0.08)",
-    background: "#f8fafc",
-    overflow: "hidden",
-    minWidth: 0,
-  }}
->
-  <div style={{ width: "100%", height: isMobile ? 360 : 540, position: "relative" }}>
-    <iframe
-      title="Ventusky"
-      src="https://embed.ventusky.com/"
-      width="100%"
-      height="100%"
-      style={{ border: "none" }}
-      loading="lazy"
-      allowFullScreen
-    />
-  </div>
-</div>
-
-
-
+                <div
+                  style={{
+                    borderRadius: 16,
+                    border: "1px solid rgba(15,23,42,0.08)",
+                    background: "#f8fafc",
+                    overflow: "hidden",
+                    minWidth: 0,
+                  }}
+                >
+                  <div style={{ width: "100%", height: isMobile ? 360 : 540, position: "relative" }}>
+                    <iframe
+                      title="Ventusky"
+                      src="https://embed.ventusky.com/"
+                      width="100%"
+                      height="100%"
+                      style={{ border: "none" }}
+                      loading="lazy"
+                      allowFullScreen
+                    />
+                  </div>
+                </div>
 
                 {/* Legend + list */}
                 <div
@@ -722,7 +1188,7 @@ export default function HistoryPage() {
             </div>
           </div>
 
-          {/* ===== GRAPH SECTION ===== */}
+          {/* ===== GRAPH SECTION (COMPARE PLOTS) ===== */}
           <div
             className="du-card"
             style={{
@@ -743,11 +1209,11 @@ export default function HistoryPage() {
             >
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 900 }}>
-                  กราฟแสดงค่าตามเวลา
+                  กราฟเปรียบเทียบแปลง
                 </div>
                 <p style={{ fontSize: 12, marginTop: 2, color: "#4b5563" }}>
-                  {selectedSensorNames.length ? selectedSensorNames.join(", ") : "—"} • แปลง{" "}
-                  {plot === "all" ? "ทั้งหมด" : plot}
+                  sensor: <b>{activeSensorMeta.label}</b> • แปลง:{" "}
+                  {selectedPlotNames.length ? selectedPlotNames.join(", ") : "ทุกแปลง"}
                 </p>
               </div>
 
@@ -763,10 +1229,42 @@ export default function HistoryPage() {
                   whiteSpace: "nowrap",
                   boxShadow: "0 6px 16px rgba(185,28,28,0.20)",
                 }}
-                onClick={() => alert("EXPORT CSV1 (ตัวอย่าง)")}
+                onClick={onExportCSV}
               >
-                EXPORT CSV1
+                EXPORT CSV
               </button>
+            </div>
+
+            {/* legend */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+              {compareSeries.map((s) => (
+                <div
+                  key={s.plotId}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "6px 10px",
+                    borderRadius: 999,
+                    background: "rgba(255,255,255,0.7)",
+                    border: "1px solid rgba(15,23,42,0.08)",
+                    fontSize: 12,
+                    fontWeight: 900,
+                    color: "#0f172a",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 999,
+                      background: s.color,
+                      border: "1px solid rgba(15,23,42,0.18)",
+                    }}
+                  />
+                  {s.plotName}
+                </div>
+              ))}
             </div>
 
             <div
@@ -778,55 +1276,51 @@ export default function HistoryPage() {
                 overflow: "hidden",
               }}
             >
-              <svg viewBox="0 0 100 60" preserveAspectRatio="none" style={{ width: "100%", height: 220 }}>
-                {[10, 20, 30, 40, 50].map((y) => (
-                  <line key={y} x1="6" x2="98" y1={y} y2={y} stroke="#e5edf7" strokeWidth="0.4" />
+              <svg
+                viewBox="0 0 100 60"
+                preserveAspectRatio="none"
+                style={{ width: "100%", height: 220 }}
+              >
+                {/* grid */}
+                {chart.yTicks.map((t, i) => (
+                  <line
+                    key={i}
+                    x1="6"
+                    x2="98"
+                    y1={t.y}
+                    y2={t.y}
+                    stroke="#e5edf7"
+                    strokeWidth="0.4"
+                  />
                 ))}
                 <line x1="6" x2="6" y1="6" y2="54" stroke="#cbd5e1" strokeWidth="0.6" />
-                {[
-                  { y: 50, t: "20" },
-                  { y: 40, t: "30" },
-                  { y: 30, t: "40" },
-                  { y: 20, t: "50" },
-                  { y: 10, t: "60" },
-                ].map((p) => (
-                  <text key={p.y} x="2" y={p.y + 1.5} fontSize="2" fill="#94a3b8">
-                    {p.t}
+
+                {/* y labels */}
+                {chart.yTicks.map((t, i) => (
+                  <text key={i} x="2" y={t.y + 1.5} fontSize="2" fill="#94a3b8">
+                    {t.v}
                   </text>
                 ))}
                 <text x="2" y="7" fontSize="3" fill="#94a3b8">
-                  %
+                  {activeSensorMeta.unit || ""}
                 </text>
 
-                <defs>
-                  <linearGradient id="moistBlue" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.45" />
-                    <stop offset="100%" stopColor="#60a5fa" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-
-                <polygon
-                  fill="url(#moistBlue)"
-                  points="
-                    6,32  12,20  18,23  24,21  30,24  36,22  42,19  48,24
-                    54,22 60,25  66,23  72,26  78,21  84,24  90,22 96,27
-                    96,54 6,54
-                  "
-                />
-
-                <polyline
-                  fill="none"
-                  stroke="#2563eb"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  points="
-                    6,32  12,20  18,23  24,21  30,24  36,22  42,19  48,24
-                    54,22 60,25  66,23  72,26  78,21  84,24  90,22 96,27
-                  "
-                />
+                {/* polylines */}
+                {chart.polylines.map((pl) => (
+                  <polyline
+                    key={pl.plotId}
+                    fill="none"
+                    stroke={pl.color}
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    points={pl.d}
+                    opacity="0.95"
+                  />
+                ))}
               </svg>
 
+              {/* x labels */}
               <div
                 style={{
                   display: "flex",
@@ -836,34 +1330,35 @@ export default function HistoryPage() {
                   gap: 6,
                 }}
               >
-                {["21 ส.ค.", "22 ส.ค.", "23 ส.ค.", "24 ส.ค.", "25 ส.ค.", "26 ส.ค.", "27 ส.ค.", "28 ส.ค."].map(
-                  (d) => (
-                    <span
-                      key={d}
-                      style={{
-                        fontSize: 10,
-                        color: "#94a3b8",
-                        transform: isMobile ? "rotate(-20deg)" : "rotate(-30deg)",
-                        transformOrigin: "left top",
-                        display: "inline-block",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {d}
-                    </span>
-                  )
-                )}
+                {(chart.xLabels || []).map((d) => (
+                  <span
+                    key={d}
+                    style={{
+                      fontSize: 10,
+                      color: "#94a3b8",
+                      transform: isMobile ? "rotate(-20deg)" : "rotate(-30deg)",
+                      transformOrigin: "left top",
+                      display: "inline-block",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {d}
+                  </span>
+                ))}
               </div>
+            </div>
+
+            <div style={{ marginTop: 8, fontSize: 11, color: "#64748b" }}>
+              * กราฟนี้เทียบ “แปลง” ด้วย sensor ตัวแรกที่เลือก (เพื่ออ่านง่าย) • แต่ CSV จะ export ทุก sensor ที่เลือก
             </div>
           </div>
 
           {/* ===== SUMMARY TABLE (WITH BORDER) ===== */}
           <div className="du-card" style={cardR}>
             <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 900, marginBottom: 10 }}>
-              สรุปการวัดข้อมูล
+              สรุปการวัดข้อมูล (เฉลี่ยช่วงที่เลือก)
             </div>
 
-            {/* ✅ ทำให้ “เลื่อนได้” */}
             <div
               style={{
                 borderRadius: 16,
@@ -878,7 +1373,7 @@ export default function HistoryPage() {
                 className="du-table"
                 style={{
                   width: "100%",
-                  minWidth: 980, // ✅ บังคับความกว้างให้มีอะไรให้เลื่อน
+                  minWidth: 980,
                   fontSize: 13,
                   borderCollapse: "collapse",
                 }}
@@ -915,44 +1410,7 @@ export default function HistoryPage() {
                 </thead>
 
                 <tbody>
-                  {[
-                    {
-                      plot: "แปลง 1",
-                      soil: 74,
-                      temp: 30.8,
-                      rh: 78,
-                      npk: 21.4,
-                      light: "18,200",
-                      rain: 6.2,
-                      wind: 2.3,
-                      water: 120,
-                      bg: "#f9fafb",
-                    },
-                    {
-                      plot: "แปลง 2",
-                      soil: 69,
-                      temp: 31.6,
-                      rh: 74,
-                      npk: 19.8,
-                      light: "21,450",
-                      rain: 2.8,
-                      wind: 1.7,
-                      water: 95,
-                      bg: "#eef2ff",
-                    },
-                    {
-                      plot: "แปลง 3",
-                      soil: 62,
-                      temp: 32.4,
-                      rh: 70,
-                      npk: 17.9,
-                      light: "24,100",
-                      rain: 0.0,
-                      wind: 3.1,
-                      water: 80,
-                      bg: "#fef9c3",
-                    },
-                  ].map((row) => (
+                  {tableRows.map((row) => (
                     <tr key={row.plot} style={{ background: row.bg }}>
                       {[
                         row.plot,
@@ -987,7 +1445,7 @@ export default function HistoryPage() {
             </div>
 
             <div style={{ marginTop: 8, fontSize: 11, color: "#64748b" }}>
-              * ค่าเป็น mockup ตัวอย่าง (สามารถเปลี่ยนเป็นค่าเฉลี่ยช่วงที่เลือกจาก API ได้)
+              * ค่าเป็น mockup ตัวอย่าง (ถ้าใช้ API จริง ให้แทน seriesByPlot ด้วยข้อมูลจาก backend ได้เลย)
             </div>
           </div>
         </main>
