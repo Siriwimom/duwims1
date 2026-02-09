@@ -1,64 +1,185 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 
 // --- dynamic import React-Leaflet & React-Leaflet-Draw ---
 const MapContainer = dynamic(
   () => import("react-leaflet").then((m) => m.MapContainer),
   { ssr: false }
 );
-const TileLayer = dynamic(
-  () => import("react-leaflet").then((m) => m.TileLayer),
-  { ssr: false }
-);
+const TileLayer = dynamic(() => import("react-leaflet").then((m) => m.TileLayer), {
+  ssr: false,
+});
 const FeatureGroup = dynamic(
   () => import("react-leaflet").then((m) => m.FeatureGroup),
   { ssr: false }
 );
-const Polygon = dynamic(
-  () => import("react-leaflet").then((m) => m.Polygon),
-  { ssr: false }
-);
+const Polygon = dynamic(() => import("react-leaflet").then((m) => m.Polygon), {
+  ssr: false,
+});
 const EditControl = dynamic(
   () => import("react-leaflet-draw").then((m) => m.EditControl),
   { ssr: false }
 );
 
-let polygonIdCounter = 1;
-
-// ===== simple note ids (NOT polygon) =====
-let noteIdCounter = 1;
-
 export default function AddPlantingPlotsPage() {
-  const [baseUrl, setBaseUrl] = useState("");
-  useEffect(() => {
-    if (typeof window !== "undefined") setBaseUrl(window.location.origin);
-  }, []);
-
-  // ✅ กัน Leaflet/Draw crash ใน Next dev (StrictMode/mount timing)
+  // ✅ กัน Leaflet/Draw crash ใน Next dev
   const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useEffect(() => setMounted(true), []);
 
-  // ====== (DO NOT TOUCH) polygon logic ======
-  const [polygons, setPolygons] = useState([]);
+  // ===== counters (กันรีเซ็ตตอน rerender) =====
+  const polygonIdRef = useRef(1);
+  const noteIdRef = useRef(1);
+
+  // =========================
+  // ✅ PLOTS (กด + เพิ่มแปลง -> เพิ่มแปลงใหม่ + เปลี่ยนหน้า/ข้อมูลทันที)
+  // =========================
+  const [plots, setPlots] = useState(() => [
+    {
+      id: "A",
+      label: "แปลง A – ทุเรียนล่าง",
+      plotName: "แปลง A",
+      caretaker: "สมหมาย ใจดี",
+      plantType: "ทุเรียนหมอนทอง",
+      plantedAt: "15/06/2568",
+    },
+    {
+      id: "B",
+      label: "แปลง B – ทุเรียนบน",
+      plotName: "แปลง B",
+      caretaker: "คุณสมชาย สวนทุเรียน",
+      plantType: "ทุเรียนหมอนทอง",
+      plantedAt: "11/02/2568",
+    },
+    {
+      id: "C",
+      label: "แปลง C",
+      plotName: "แปลง C",
+      caretaker: "-",
+      plantType: "-",
+      plantedAt: "-",
+    },
+  ]);
+
+  const [selectedPlotId, setSelectedPlotId] = useState("A");
+
+  // ✅ เก็บ polygon/notes แยกตาม plot
+  const [polygonsByPlot, setPolygonsByPlot] = useState(() => ({
+    A: [],
+    B: [],
+    C: [],
+  }));
+  const [notesByPlot, setNotesByPlot] = useState(() => ({
+    A: [{ id: 1, topic: "หัวข้อเรื่อง", content: "" }],
+    B: [{ id: 2, topic: "หัวข้อเรื่อง", content: "" }],
+    C: [{ id: 3, topic: "หัวข้อเรื่อง", content: "" }],
+  }));
+  useEffect(() => {
+    // ทำให้ noteId ไม่ชน ถ้าเริ่มจาก state ข้างบน
+    const maxNoteId =
+      Object.values(notesByPlot)
+        .flat()
+        .reduce((mx, n) => Math.max(mx, n.id), 0) || 0;
+    noteIdRef.current = Math.max(noteIdRef.current, maxNoteId + 1);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectedPlot = useMemo(
+    () => plots.find((p) => p.id === selectedPlotId) || plots[0],
+    [plots, selectedPlotId]
+  );
+
+  // ===== form fields (แสดงตาม plot ที่เลือก) =====
+  const [plotName, setPlotName] = useState("");
+  const [caretaker, setCaretaker] = useState("");
+  const [plantType, setPlantType] = useState("");
+  const [plantedAt, setPlantedAt] = useState("");
+
+  // sync เมื่อเปลี่ยน plot
+  useEffect(() => {
+    const p = selectedPlot;
+    if (!p) return;
+    setPlotName(p.plotName || `แปลง ${p.id}`);
+    setCaretaker(p.caretaker || "");
+    setPlantType(p.plantType || "");
+    setPlantedAt(p.plantedAt || "");
+  }, [selectedPlotId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ✅ กด + เพิ่มแปลง -> สร้าง plot ใหม่ (ตัวอักษรถัดไป) แล้วเลือกทันที + ใส่ข้อมูลตัวอย่าง
+  const addPlot = () => {
+    const ids = plots.map((p) => p.id);
+    const nextCharCode = Math.max(...ids.map((x) => x.charCodeAt(0))) + 1;
+    const nextId = String.fromCharCode(nextCharCode);
+
+    const newPlot = {
+      id: nextId,
+      label: `แปลง ${nextId}`,
+      plotName: `แปลง ${nextId}`,
+      caretaker: "สมใจ สวัสดิ์",
+      plantType: "ทุเรียน",
+      plantedAt: "11/02/2568",
+    };
+
+    setPlots((prev) => [...prev, newPlot]);
+    setPolygonsByPlot((prev) => ({ ...prev, [nextId]: [] }));
+    setNotesByPlot((prev) => ({
+      ...prev,
+      [nextId]: [{ id: noteIdRef.current++, topic: "หัวข้อเรื่อง", content: "" }],
+    }));
+
+    setSelectedPlotId(nextId);
+  };
+
+  // ✅ บันทึกข้อมูลพื้นฐานของแปลง (ชื่อผู้ดูแล/พืช/วันที่)
+  const savePlotInfo = () => {
+    setPlots((prev) =>
+      prev.map((p) =>
+        p.id === selectedPlotId
+          ? {
+              ...p,
+              plotName: plotName?.trim() || `แปลง ${selectedPlotId}`,
+              caretaker: caretaker?.trim() || "",
+              plantType: plantType?.trim() || "",
+              plantedAt: plantedAt?.trim() || "",
+              label:
+                selectedPlotId === "A"
+                  ? "แปลง A – ทุเรียนล่าง"
+                  : selectedPlotId === "B"
+                  ? "แปลง B – ทุเรียนบน"
+                  : plotName?.trim() || `แปลง ${selectedPlotId}`,
+            }
+          : p
+      )
+    );
+  };
+
+  // ====== polygon logic (DO NOT TOUCH) ======
   const [currentColor, setCurrentColor] = useState("#16a34a");
+
+  const polygons = polygonsByPlot[selectedPlotId] || [];
+  const setPolygons = (updater) => {
+    setPolygonsByPlot((prev) => {
+      const prevArr = prev[selectedPlotId] || [];
+      const nextArr = typeof updater === "function" ? updater(prevArr) : updater;
+      return { ...prev, [selectedPlotId]: nextArr };
+    });
+  };
 
   const handleCreated = (e) => {
     if (e.layerType === "polygon") {
       const layer = e.layer;
       const latlngs = layer.getLatLngs()[0] || [];
-      const coords = latlngs.map((p) => [p.lat, p.lng]);
+      const coords = latlngs.map((pt) => [pt.lat, pt.lng]);
 
       setPolygons((prev) => [
         ...prev,
-        { id: polygonIdCounter++, coords, color: currentColor },
+        { id: polygonIdRef.current++, coords, color: currentColor },
       ]);
 
+      // ✅ remove drawn layer from map (เราจะ render เองจาก state)
       layer.remove();
     }
   };
@@ -75,62 +196,44 @@ export default function AddPlantingPlotsPage() {
     { value: "#3b82f6", label: "น้ำเงิน" },
   ];
 
-  // ====== ✅ เพิ่มข้อมูล: แค่ 2 ช่อง (หัวข้อเรื่อง + เนื้อหา) ======
-  const [notes, setNotes] = useState([
-    { id: noteIdCounter++, topic: "หัวข้อเรื่อง", content: "" },
-  ]);
+  // ===== notes (หัวข้อเรื่อง + เนื้อหา) แยกตาม plot =====
+  const notes = notesByPlot[selectedPlotId] || [];
+  const setNotes = (updater) => {
+    setNotesByPlot((prev) => {
+      const prevArr = prev[selectedPlotId] || [];
+      const nextArr = typeof updater === "function" ? updater(prevArr) : updater;
+      return { ...prev, [selectedPlotId]: nextArr };
+    });
+  };
 
   const addNote = () => {
     setNotes((prev) => [
       ...prev,
-      { id: noteIdCounter++, topic: "หัวข้อเรื่อง", content: "" },
+      { id: noteIdRef.current++, topic: "หัวข้อเรื่อง", content: "" },
     ]);
   };
+  const removeNote = (id) => setNotes((prev) => prev.filter((n) => n.id !== id));
+  const updateNote = (id, patch) =>
+    setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)));
 
-  const removeNote = (id) => {
-    setNotes((prev) => prev.filter((n) => n.id !== id));
-  };
-
-  const updateNote = (id, patch) => {
-    setNotes((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, ...patch } : n))
-    );
-  };
-
-  // ====== ✅ ปุ่มบันทึกของ "ข้อมูลอื่นๆ" ======
-  const [noteSaveState, setNoteSaveState] = useState({
-    saving: false,
-    saved: false,
-  });
-
+  const [noteSaveState, setNoteSaveState] = useState({ saving: false, saved: false });
   const saveNotes = async () => {
-    const payload = { notes };
-
     try {
       setNoteSaveState({ saving: true, saved: false });
-      console.log("[SAVE NOTES payload]", payload);
-
-      // ถ้าคุณมี API จริง ให้เปิดใช้ส่วนนี้
-      // await fetch(`${baseUrl}/api/plots/notes`, {
-      //   method: "POST",
-      //   headers: { "Content-Type": "application/json" },
-      //   body: JSON.stringify(payload),
-      // });
-
-      // mock success
-      await new Promise((r) => setTimeout(r, 300));
-
+      // mock
+      await new Promise((r) => setTimeout(r, 250));
       setNoteSaveState({ saving: false, saved: true });
       setTimeout(() => setNoteSaveState((s) => ({ ...s, saved: false })), 1200);
-    } catch (err) {
-      console.error(err);
+    } catch {
       setNoteSaveState({ saving: false, saved: false });
       alert("บันทึกไม่สำเร็จ");
     }
   };
 
-  // ตัวอย่าง payload ใหญ่ (หน้า SAVE ด้านล่าง)
+  // ===== SAVE รวม (polygon + notes + plot info) =====
   const buildPayload = () => ({
+    plotId: selectedPlotId,
+    plotInfo: { plotName, caretaker, plantType, plantedAt },
     polygons,
     notes,
   });
@@ -142,7 +245,9 @@ export default function AddPlantingPlotsPage() {
         <section className="pui-hero">
           <div className="pui-hero-top">
             <div className="pui-hero-title">การจัดการ Polygons</div>
-            <button className="pui-hero-btn" type="button">
+
+            {/* ✅ กดแล้วเพิ่มแปลงใหม่ + เปลี่ยนข้อมูลหน้าใหม่ทันที */}
+            <button className="pui-hero-btn" type="button" onClick={addPlot}>
               + เพิ่มแปลง
             </button>
           </div>
@@ -150,10 +255,16 @@ export default function AddPlantingPlotsPage() {
           <div className="pui-hero-grid">
             <div className="pui-field">
               <div className="pui-label">แปลง</div>
-              <select className="pui-select" defaultValue="1">
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
+              <select
+                className="pui-select"
+                value={selectedPlotId}
+                onChange={(e) => setSelectedPlotId(e.target.value)}
+              >
+                {plots.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.id}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -175,7 +286,9 @@ export default function AddPlantingPlotsPage() {
                 <div className="pui-label-dark">ข้อมูลแปลงปลูก แปลง A</div>
                 <input
                   className="pui-input pui-input-short"
-                  defaultValue="แปลง D"
+                  value={plotName}
+                  onChange={(e) => setPlotName(e.target.value)}
+                  placeholder={`แปลง ${selectedPlotId}`}
                 />
               </div>
 
@@ -183,7 +296,9 @@ export default function AddPlantingPlotsPage() {
                 <div className="pui-label-dark">ชื่อผู้ดูแล</div>
                 <input
                   className="pui-input pui-input-short"
-                  defaultValue="สมใจ สวัสดิ์"
+                  value={caretaker}
+                  onChange={(e) => setCaretaker(e.target.value)}
+                  placeholder="ชื่อผู้ดูแล"
                 />
               </div>
 
@@ -191,7 +306,9 @@ export default function AddPlantingPlotsPage() {
                 <div className="pui-label-dark">ประเภทพืช</div>
                 <input
                   className="pui-input pui-input-short"
-                  defaultValue="ทุเรียน"
+                  value={plantType}
+                  onChange={(e) => setPlantType(e.target.value)}
+                  placeholder="ประเภทพืช"
                 />
               </div>
 
@@ -199,25 +316,20 @@ export default function AddPlantingPlotsPage() {
                 <div className="pui-label-dark">วันที่เริ่มปลูก</div>
                 <input
                   className="pui-input pui-input-short"
-                  defaultValue="11/02/2568"
+                  value={plantedAt}
+                  onChange={(e) => setPlantedAt(e.target.value)}
+                  placeholder="11/02/2568"
                 />
               </div>
             </div>
 
-            {/* ===== ✅ เพิ่มข้อมูล (2 ช่อง + ปุ่มบันทึก) ===== */}
+            {/* ✅ เพิ่มข้อมูล (หัวข้อเรื่อง + เนื้อหา) + ปุ่ม + และ บันทึก */}
             <div className="pui-notes">
               <div className="pui-notes-head">
-                <div className="pui-notes-title">
-                  เพิ่มข้อมูล (หัวข้อเรื่อง + เนื้อหา)
-                </div>
+                <div className="pui-notes-title">เพิ่มข้อมูล (หัวข้อเรื่อง + เนื้อหา)</div>
 
                 <div className="pui-notes-actions">
-                  <button
-                    className="pui-plus"
-                    type="button"
-                    onClick={addNote}
-                    title="เพิ่มรายการ"
-                  >
+                  <button className="pui-plus" type="button" onClick={addNote} title="เพิ่มรายการ">
                     +
                   </button>
 
@@ -246,10 +358,8 @@ export default function AddPlantingPlotsPage() {
                         <input
                           className="pui-input"
                           value={n.topic}
-                          onChange={(e) =>
-                            updateNote(n.id, { topic: e.target.value })
-                          }
-                          placeholder="เช่น โซนเนินสูง"
+                          onChange={(e) => updateNote(n.id, { topic: e.target.value })}
+                          placeholder="หัวข้อเรื่อง"
                         />
                       </div>
 
@@ -269,9 +379,7 @@ export default function AddPlantingPlotsPage() {
                         className="pui-textarea"
                         rows={2}
                         value={n.content}
-                        onChange={(e) =>
-                          updateNote(n.id, { content: e.target.value })
-                        }
+                        onChange={(e) => updateNote(n.id, { content: e.target.value })}
                         placeholder="พิมพ์รายละเอียด..."
                       />
                     </div>
@@ -290,9 +398,7 @@ export default function AddPlantingPlotsPage() {
                 <button
                   key={c.value}
                   onClick={() => setCurrentColor(c.value)}
-                  className={
-                    currentColor === c.value ? "pui-color active" : "pui-color"
-                  }
+                  className={currentColor === c.value ? "pui-color active" : "pui-color"}
                   style={{ background: c.value }}
                   title={c.label}
                   type="button"
@@ -305,6 +411,8 @@ export default function AddPlantingPlotsPage() {
                 <div className="pui-map-loading">Loading map...</div>
               ) : (
                 <MapContainer
+                  // ✅ remount เวลาสลับแปลง กัน error ใน dev
+                  key={`map-${selectedPlotId}`}
                   center={[13.3, 101.0]}
                   zoom={16}
                   style={{ width: "100%", height: "100%" }}
@@ -354,10 +462,7 @@ export default function AddPlantingPlotsPage() {
                 {polygons.map((poly) => (
                   <div className="pui-polyrow" key={poly.id}>
                     <span className="pui-polynum"># {poly.id}</span>
-                    <span
-                      className="pui-polychip"
-                      style={{ background: poly.color }}
-                    />
+                    <span className="pui-polychip" style={{ background: poly.color }} />
                     <button
                       className="pui-danger small"
                       type="button"
@@ -377,6 +482,8 @@ export default function AddPlantingPlotsPage() {
               className="pui-save"
               type="button"
               onClick={() => {
+                // ✅ บันทึกข้อมูลฟอร์มก่อน
+                savePlotInfo();
                 const payload = buildPayload();
                 console.log("[SAVE payload]", payload);
               }}
@@ -392,8 +499,8 @@ export default function AddPlantingPlotsPage() {
         body {
           margin: 0;
           background: #ffffff;
-          font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI,
-            Roboto, Arial, "Noto Sans Thai", "Noto Sans", sans-serif;
+          font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial,
+            "Noto Sans Thai", "Noto Sans", sans-serif;
         }
 
         .pui-wrap {
@@ -498,21 +605,26 @@ export default function AddPlantingPlotsPage() {
           font-size: 11px;
           font-weight: 900;
           color: rgba(0, 0, 0, 0.6);
-          margin: 0 0 6px 6px;
+          margin: 0 0 6px 4px; /* ✅ ปรับให้บาลานซ์ */
         }
 
         .pui-select,
         .pui-input {
           width: 100%;
-          border: 1px solid rgba(0, 0, 0, 0.1);
-          border-radius: 10px;
-          padding: 10px 12px;
+          border: 1px solid rgba(0, 0, 0, 0.12);
+          border-radius: 12px;
+          padding: 11px 12px; /* ✅ บาลานซ์กับขอบ */
           font-size: 12px;
           outline: none;
-          background: rgba(255, 255, 255, 0.9);
+          background: rgba(255, 255, 255, 0.95);
         }
 
-        /* ✅ make these 4 inputs shorter */
+        .pui-input:focus,
+        .pui-textarea:focus {
+          border-color: rgba(76, 99, 255, 0.55);
+          box-shadow: 0 0 0 3px rgba(76, 99, 255, 0.14);
+        }
+
         .pui-input-short {
           width: 260px;
           max-width: 100%;
@@ -520,32 +632,35 @@ export default function AddPlantingPlotsPage() {
 
         .pui-textarea {
           width: 100%;
-          border: 1px solid rgba(0, 0, 0, 0.1);
-          border-radius: 10px;
-          padding: 10px 12px;
+          border: 1px solid rgba(0, 0, 0, 0.12);
+          border-radius: 12px;
+          padding: 11px 12px; /* ✅ บาลานซ์กับขอบ */
           font-size: 12px;
           outline: none;
-          background: rgba(255, 255, 255, 0.9);
+          background: rgba(255, 255, 255, 0.95); /* ✅ แก้บั๊กเดิม rgba(..., 0.) */
           resize: vertical;
+          min-height: 84px; /* ✅ ไม่อึดอัด */
+          line-height: 1.45;
         }
 
         /* ===== NOTES ===== */
         .pui-notes {
-          margin-top: 12px;
-          padding-top: 12px;
-          border-top: 1px dashed rgba(0, 0, 0, 0.18);
+          margin-top: 14px;
+          padding-top: 14px;
+          border-top: 1px dashed rgba(0, 0, 0, 0.12);
         }
         .pui-notes-head {
           display: flex;
           justify-content: space-between;
-          align-items: center;
-          gap: 10px;
-          margin-bottom: 10px;
+          align-items: flex-start; /* ✅ บาลานซ์หัวข้อกับปุ่ม */
+          gap: 12px;
+          margin-bottom: 12px;
         }
         .pui-notes-title {
           font-weight: 1000;
           font-size: 12px;
           color: rgba(0, 0, 0, 0.7);
+          line-height: 1.2;
         }
         .pui-notes-actions {
           display: inline-flex;
@@ -553,9 +668,9 @@ export default function AddPlantingPlotsPage() {
           gap: 8px;
         }
         .pui-plus {
-          width: 34px;
-          height: 34px;
-          border-radius: 10px;
+          width: 38px; /* ✅ */
+          height: 38px; /* ✅ */
+          border-radius: 12px; /* ✅ */
           border: 1px solid rgba(0, 0, 0, 0.1);
           background: rgba(255, 255, 255, 0.85);
           font-weight: 1000;
@@ -563,14 +678,17 @@ export default function AddPlantingPlotsPage() {
         }
         .pui-save-mini {
           border: none;
-          border-radius: 10px;
-          padding: 9px 12px;
+          border-radius: 12px; /* ✅ */
+          height: 38px; /* ✅ ให้สูงใกล้กัน */
+          padding: 0 14px;
           font-weight: 1000;
           font-size: 12px;
           cursor: pointer;
           color: #fff;
           background: linear-gradient(180deg, #5b7cff, #4c63ff);
           box-shadow: 0 10px 18px rgba(76, 99, 255, 0.22);
+          display: inline-flex;
+          align-items: center;
         }
         .pui-save-mini:disabled {
           opacity: 0.7;
@@ -582,10 +700,10 @@ export default function AddPlantingPlotsPage() {
           gap: 10px;
         }
         .pui-note {
-          background: rgba(255, 255, 255, 0.55);
-          border: 1px solid rgba(0, 0, 0, 0.06);
-          border-radius: 12px;
-          padding: 10px;
+          background: rgba(255, 255, 255, 0.62);
+          border: 1px solid rgba(0, 0, 0, 0.07);
+          border-radius: 14px;
+          padding: 12px;
         }
         .pui-note-row {
           display: grid;
@@ -687,7 +805,12 @@ export default function AddPlantingPlotsPage() {
           font-size: 12px;
         }
         .pui-danger.small {
-          padding: 6px 10px;
+          height: 40px; /* ✅ สูงบาลานซ์กับ input */
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 14px;
+          border-radius: 12px;
         }
 
         /* ===== SAVE ===== */
@@ -708,7 +831,6 @@ export default function AddPlantingPlotsPage() {
           cursor: pointer;
         }
 
-        /* responsive */
         @media (max-width: 860px) {
           .pui-hero-grid {
             grid-template-columns: 1fr;
@@ -718,6 +840,22 @@ export default function AddPlantingPlotsPage() {
           }
           .pui-input-short {
             width: 100%;
+          }
+        }
+
+        /* ✅ มือถือเล็ก: ไม่ให้ปุ่ม "ลบ" เบียด input */
+        @media (max-width: 520px) {
+          .pui-note-row {
+            grid-template-columns: 1fr;
+            align-items: stretch;
+          }
+          .pui-danger.small {
+            width: 100%;
+            height: 38px;
+          }
+          .pui-notes-actions {
+            width: 100%;
+            justify-content: flex-end;
           }
         }
       `}</style>
