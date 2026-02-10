@@ -125,6 +125,26 @@ function toCSV(rows) {
   return lines.join("\n");
 }
 
+// ✅ y tick formatter: ทำเลขยาวให้สั้น อ่านง่าย
+function formatTick(v, sensorKey) {
+  if (!isFinite(v)) return "-";
+
+  const compactK = (num) => {
+    const n = Math.round(num);
+    if (Math.abs(n) >= 10000) return `${Math.round(n / 1000)}k`; // 18000 -> 18k
+    return n.toLocaleString("en-US");
+  };
+
+  if (sensorKey === "light") return compactK(v);
+  if (sensorKey === "water") return compactK(v);
+
+  if (sensorKey === "rain") return (Math.round(v * 10) / 10).toFixed(1);
+  if (sensorKey === "wind") return (Math.round(v * 10) / 10).toFixed(1);
+
+  const vv = Math.round(v * 10) / 10;
+  return Number.isInteger(vv) ? String(vv) : vv.toFixed(1);
+}
+
 export default function HistoryPage() {
   const sensorDropdownRef = useRef(null);
   const plotDropdownRef = useRef(null);
@@ -167,7 +187,9 @@ export default function HistoryPage() {
   // ✅ ห้ามเหลือว่าง: ถ้ายกเลิกหมดจะกลับเป็นทุกแปลง
   const togglePlot = (id) => {
     setSelectedPlots((prev) => {
-      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
+      const next = prev.includes(id)
+        ? prev.filter((p) => p !== id)
+        : [...prev, id];
       if (next.length === 0) return PLOT_OPTIONS.map((p) => p.id);
       return next;
     });
@@ -184,7 +206,10 @@ export default function HistoryPage() {
       }
     }
     if (plotDropdownOpen) {
-      if (plotDropdownRef.current && !plotDropdownRef.current.contains(e.target)) {
+      if (
+        plotDropdownRef.current &&
+        !plotDropdownRef.current.contains(e.target)
+      ) {
         setPlotDropdownOpen(false);
       }
     }
@@ -208,7 +233,7 @@ export default function HistoryPage() {
       .filter(Boolean);
   }, [selectedPlots]);
 
-  // ✅ เลือกครบ = "ทุกแปลง" (ไม่ขึ้น แปลง 1 +1)
+  // ✅ เลือกครบ = "ทุกแปลง"
   const plotDropdownLabel = useMemo(() => {
     if (selectedPlots.length === PLOT_OPTIONS.length) return "ทุกแปลง";
     if (selectedPlotNames.length === 0) return "ทุกแปลง";
@@ -259,7 +284,8 @@ export default function HistoryPage() {
   }, [isMobile, isTablet]);
 
   const heatGrid = useMemo(() => {
-    if (isMobile) return { display: "grid", gridTemplateColumns: "1fr", gap: 12 };
+    if (isMobile)
+      return { display: "grid", gridTemplateColumns: "1fr", gap: 12 };
     return { display: "grid", gridTemplateColumns: "1fr 260px", gap: 12 };
   }, [isMobile]);
 
@@ -282,14 +308,18 @@ export default function HistoryPage() {
 
   // สร้าง series ต่อ plot ต่อ sensor (deterministic)
   const seriesByPlot = useMemo(() => {
-    const plots = selectedPlots.length ? selectedPlots : PLOT_OPTIONS.map((p) => p.id);
+    const plots = selectedPlots.length
+      ? selectedPlots
+      : PLOT_OPTIONS.map((p) => p.id);
     const sensors = selectedSensors.length ? selectedSensors : ["soil"];
     const map = {};
 
     for (const pid of plots) {
       map[pid] = {};
       for (const sk of sensors) {
-        const seed = hashTo01(`${pid}-${sk}-${startDate}-${endDate}-${quickRange}`);
+        const seed = hashTo01(
+          `${pid}-${sk}-${startDate}-${endDate}-${quickRange}`
+        );
 
         const spec =
           {
@@ -325,13 +355,16 @@ export default function HistoryPage() {
     SENSOR_OPTIONS.find((s) => s.key === activeSensorKey) || SENSOR_OPTIONS[0];
 
   const compareSeries = useMemo(() => {
-    const plots = selectedPlots.length ? selectedPlots : PLOT_OPTIONS.map((p) => p.id);
+    const plots = selectedPlots.length
+      ? selectedPlots
+      : PLOT_OPTIONS.map((p) => p.id);
     return plots
       .map((pid, idx) => {
         const pts = seriesByPlot?.[pid]?.[activeSensorKey] || [];
         return {
           plotId: pid,
-          plotName: PLOT_OPTIONS.find((p) => p.id === pid)?.name || `แปลง ${pid}`,
+          plotName:
+            PLOT_OPTIONS.find((p) => p.id === pid)?.name || `แปลง ${pid}`,
           color: PLOT_COLORS[idx % PLOT_COLORS.length],
           points: pts,
         };
@@ -350,7 +383,8 @@ export default function HistoryPage() {
       Math.round((all.reduce((sum, v) => sum + v, 0) / all.length) * 10) / 10;
 
     const lastLabel =
-      compareSeries[0]?.points?.[compareSeries[0].points.length - 1]?.label || "-";
+      compareSeries[0]?.points?.[compareSeries[0].points.length - 1]?.label ||
+      "-";
     const currentVal =
       compareSeries[0]?.points?.[compareSeries[0].points.length - 1]?.value ?? 0;
 
@@ -363,10 +397,13 @@ export default function HistoryPage() {
   const chart = useMemo(() => {
     const W = 100;
     const H = 60;
-    const padL = 6;
+
+    // ✅ ปรับให้ชิดซ้ายขึ้น
+    const padL = 9;
     const padR = 2;
-    const padT = 6;
-    const padB = 6;
+    const padT = 5;
+    const padB = 10;
+
     const innerW = W - padL - padR;
     const innerH = H - padT - padB;
 
@@ -396,19 +433,22 @@ export default function HistoryPage() {
 
     const xLabels = (compareSeries[0]?.points || []).map((p) => p.label);
 
-    return { yMin, yMax, yTicks, polylines, xLabels };
+    return { yMin, yMax, yTicks, polylines, xLabels, padL, padR, padT, padB };
   }, [compareSeries]);
 
   // =========================
   // EXPORT CSV (plots x sensors)
   // =========================
   const onExportCSV = () => {
-    const plots = selectedPlots.length ? selectedPlots : PLOT_OPTIONS.map((p) => p.id);
+    const plots = selectedPlots.length
+      ? selectedPlots
+      : PLOT_OPTIONS.map((p) => p.id);
     const sensors = selectedSensors.length ? selectedSensors : ["soil"];
 
     const rows = [];
     for (const pid of plots) {
-      const plotName = PLOT_OPTIONS.find((p) => p.id === pid)?.name || `แปลง ${pid}`;
+      const plotName =
+        PLOT_OPTIONS.find((p) => p.id === pid)?.name || `แปลง ${pid}`;
       for (const sk of sensors) {
         const meta = SENSOR_OPTIONS.find((s) => s.key === sk);
         const unit = meta?.unit ?? "";
@@ -449,7 +489,9 @@ export default function HistoryPage() {
   // TABLE rows (ใช้ค่าจาก mock เฉลี่ย)
   // =========================
   const tableRows = useMemo(() => {
-    const plots = selectedPlots.length ? selectedPlots : PLOT_OPTIONS.map((p) => p.id);
+    const plots = selectedPlots.length
+      ? selectedPlots
+      : PLOT_OPTIONS.map((p) => p.id);
 
     const avgOf = (pid, sk) => {
       const pts = seriesByPlot?.[pid]?.[sk] || [];
@@ -461,7 +503,8 @@ export default function HistoryPage() {
     };
 
     return plots.map((pid, i) => {
-      const plotName = PLOT_OPTIONS.find((p) => p.id === pid)?.name || `แปลง ${pid}`;
+      const plotName =
+        PLOT_OPTIONS.find((p) => p.id === pid)?.name || `แปลง ${pid}`;
       return {
         plot: plotName,
         soil: avgOf(pid, "soil"),
@@ -678,13 +721,7 @@ export default function HistoryPage() {
                           gap: 10,
                         }}
                       >
-                        <div
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 900,
-                            color: "#0f172a",
-                          }}
-                        >
+                        <div style={{ fontSize: 12, fontWeight: 900, color: "#0f172a" }}>
                           เลือกได้หลายตัว
                         </div>
                         <button
@@ -784,7 +821,8 @@ export default function HistoryPage() {
                 </div>
 
                 <div style={{ marginTop: 6, fontSize: 11, opacity: 0.95 }}>
-                  เลือกแล้ว: {selectedSensorNames.length ? selectedSensorNames.join(", ") : "—"}
+                  เลือกแล้ว:{" "}
+                  {selectedSensorNames.length ? selectedSensorNames.join(", ") : "—"}
                 </div>
               </div>
 
@@ -861,7 +899,6 @@ export default function HistoryPage() {
                           เลือกหลายแปลงเพื่อเทียบกราฟ
                         </div>
 
-                        {/* ✅ เปลี่ยน "ล้าง" -> "เลือกทั้งหมด" */}
                         <button
                           type="button"
                           onClick={() => setSelectedPlots(PLOT_OPTIONS.map((p) => p.id))}
@@ -943,7 +980,8 @@ export default function HistoryPage() {
                 </div>
 
                 <div style={{ marginTop: 6, fontSize: 11, opacity: 0.95 }}>
-                  เลือกแล้ว: {selectedPlotNames.length ? selectedPlotNames.join(", ") : "ทุกแปลง"}
+                  เลือกแล้ว:{" "}
+                  {selectedPlotNames.length ? selectedPlotNames.join(", ") : "ทุกแปลง"}
                 </div>
               </div>
             </div>
@@ -1074,7 +1112,6 @@ export default function HistoryPage() {
               }}
             >
               <div style={heatGrid}>
-                {/* Map (Ventusky embed) */}
                 <div
                   style={{
                     borderRadius: 16,
@@ -1097,7 +1134,6 @@ export default function HistoryPage() {
                   </div>
                 </div>
 
-                {/* Legend + list */}
                 <div
                   style={{
                     borderRadius: 16,
@@ -1235,7 +1271,6 @@ export default function HistoryPage() {
               </button>
             </div>
 
-            {/* legend */}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
               {compareSeries.map((s) => (
                 <div
@@ -1276,32 +1311,63 @@ export default function HistoryPage() {
                 overflow: "hidden",
               }}
             >
-              <svg
-                viewBox="0 0 100 60"
-                preserveAspectRatio="none"
-                style={{ width: "100%", height: 220 }}
-              >
+              <svg viewBox="0 0 100 60" preserveAspectRatio="none" style={{ width: "100%", height: 220 }}>
                 {/* grid */}
                 {chart.yTicks.map((t, i) => (
                   <line
                     key={i}
-                    x1="6"
+                    x1={chart.padL}
                     x2="98"
                     y1={t.y}
                     y2={t.y}
                     stroke="#e5edf7"
-                    strokeWidth="0.4"
+                    strokeWidth="0.5"
                   />
                 ))}
-                <line x1="6" x2="6" y1="6" y2="54" stroke="#cbd5e1" strokeWidth="0.6" />
 
-                {/* y labels */}
+                {/* y axis */}
+                <line
+                  x1={chart.padL}
+                  x2={chart.padL}
+                  y1={chart.padT}
+                  y2={60 - chart.padB}
+                  stroke="#cbd5e1"
+                  strokeWidth="0.8"
+                />
+
+                {/* y tick labels (ชิดซ้ายขึ้น) */}
                 {chart.yTicks.map((t, i) => (
-                  <text key={i} x="2" y={t.y + 1.5} fontSize="2" fill="#94a3b8">
-                    {t.v}
-                  </text>
+                  <g key={i}>
+                    <line
+                      x1={chart.padL}
+                      x2={chart.padL - 1.0}
+                      y1={t.y}
+                      y2={t.y}
+                      stroke="#cbd5e1"
+                      strokeWidth="0.6"
+                    />
+                    <text
+                      x="1.4"
+                      y={t.y + 1.2}
+                      fontSize="3.2"
+                      fontWeight="900"
+                      fill="#64748b"
+                      textAnchor="start"
+                    >
+                      {formatTick(t.v, activeSensorKey)}
+                    </text>
+                  </g>
                 ))}
-                <text x="2" y="7" fontSize="3" fill="#94a3b8">
+
+                {/* unit */}
+                <text
+                  x="1.4"
+                  y={chart.padT + 2.2}
+                  fontSize="2.8"
+                  fontWeight="900"
+                  fill="#94a3b8"
+                  textAnchor="start"
+                >
                   {activeSensorMeta.unit || ""}
                 </text>
 
@@ -1320,7 +1386,6 @@ export default function HistoryPage() {
                 ))}
               </svg>
 
-              {/* x labels */}
               <div
                 style={{
                   display: "flex",

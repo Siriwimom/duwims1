@@ -165,30 +165,29 @@ export default function AddSensor() {
     { value: "soil", label: "Node ดิน" },
   ];
 
-  const sensorOptions = useMemo(() => {
-    const air = [
+  // ✅ ให้ครบตามที่สั่ง:
+  // อุณหภูมิและความชื้น/วัดความเร็วลม/ความเข้มแสง/ปริมาณน้ำฝน/ความเข้้มข้นธาตุอาหาร (N,P,K)
+  // การให้น้ำ / ความพร้อมใช้น้ำ/ความชื้ื้นในดิน
+  const sensorOptions = useMemo(
+    () => [
       { value: "temp_rh", label: "อุณหภูมิและความชื้น" },
       { value: "wind", label: "วัดความเร็วลม" },
       { value: "ppfd", label: "ความเข้มแสง" },
       { value: "rain", label: "ปริมาณน้ำฝน" },
       { value: "npk", label: "ความเข้้มข้นธาตุอาหาร (N,P,K)" },
-    ];
-    const soil = [
       { value: "irrigation", label: "การให้น้ำ / ความพร้อมใช้น้ำ" },
       { value: "soil_moisture", label: "ความชื้ื้นในดิน" },
-      { value: "esp32_lora", label: "อ่านค่า sensor ส่งข้อมูล" },
-    ];
-    if (selectedNode === "air") return air;
-    if (selectedNode === "soil") return soil;
-    return [...air, ...soil];
-  }, [selectedNode]);
+    ],
+    []
+  );
 
+  // ✅ คุมค่า selectedSensorType ให้ถูกต้องเสมอ
   useEffect(() => {
     if (!sensorOptions.length) return;
     const ok = sensorOptions.some((s) => s.value === selectedSensorType);
     if (!ok) setSelectedSensorType(sensorOptions[0].value);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNode, sensorOptions]);
+  }, [sensorOptions]);
 
   // =========================
   // ✅ SENSOR CRUD (เพิ่ม/แก้ไข inline)
@@ -206,15 +205,15 @@ export default function AddSensor() {
       id: "temp",
       title: "เซนเซอร์ อุณหภูมิ",
       items: [
-        { id: "temp-1", name: "เซนเซอร์ อุณหภูมิ #1", value: "NPK - 45 ppm" },
-        { id: "temp-2", name: "เซนเซอร์ อุณหภูมิ #2", value: "NPK - 45 ppm" },
-        { id: "temp-3", name: "เซนเซอร์ อุณหภูมิ #3", value: "NPK - 45 ppm" },
+        { id: "temp-1", name: "เซนเซอร์ อุณหภูมิ #1", value: "อุณหภูมิ ~ 30°C" },
+        { id: "temp-2", name: "เซนเซอร์ อุณหภูมิ #2", value: "อุณหภูมิ ~ 29°C" },
+        { id: "temp-3", name: "เซนเซอร์ อุณหภูมิ #3", value: "อุณหภูมิ ~ 31°C" },
       ],
     },
     {
       id: "irrigation",
       title: "เซนเซอร์การให้น้ำ",
-      items: [{ id: "irrig-1", name: "เซนเซอร์การให้น้ำ#1", value: "การให้น้ำ 20 kPa" }],
+      items: [{ id: "irrig-1", name: "เซนเซอร์การให้น้ำ #1", value: "การให้น้ำ 20 kPa" }],
     },
     {
       id: "rh",
@@ -223,7 +222,7 @@ export default function AddSensor() {
         {
           id: "rh-1",
           name: "เซนเซอร์ความชื้นสัมพัทธ์ #1",
-          value: "ความชื้นสัมพัทธ์ - 78 %",
+          value: "ความชื้นสัมพัทธ์ ~ 78 %",
         },
       ],
     },
@@ -231,9 +230,24 @@ export default function AddSensor() {
       id: "npk",
       title: "เซนเซอร์ NPK",
       items: [
-        { id: "npk-1", name: "เซนเซอร์ NPK#1", value: "ความเข้มข้น - 35 mS/cm" },
-        { id: "npk-2", name: "เซนเซอร์ NPK#2", value: "ความเข้มข้น - 35 mS/cm" },
+        { id: "npk-1", name: "เซนเซอร์ NPK #1", value: "NPK ~ 45 ppm" },
+        { id: "npk-2", name: "เซนเซอร์ NPK #2", value: "NPK ~ 52 ppm" },
       ],
+    },
+    {
+      id: "wind",
+      title: "เซนเซอร์วัดความเร็วลม",
+      items: [{ id: "wind-1", name: "เซนเซอร์วัดความเร็วลม #1", value: "ลม ~ 2.3 m/s" }],
+    },
+    {
+      id: "ppfd",
+      title: "เซนเซอร์ความเข้มแสง",
+      items: [{ id: "ppfd-1", name: "เซนเซอร์ความเข้มแสง #1", value: "แสง ~ 620 lux" }],
+    },
+    {
+      id: "rain",
+      title: "เซนเซอร์ปริมาณน้ำฝน",
+      items: [{ id: "rain-1", name: "เซนเซอร์ปริมาณน้ำฝน #1", value: "ฝน ~ 1.2 mm" }],
     },
   ]);
 
@@ -498,67 +512,113 @@ export default function AddSensor() {
       pinPanel: {
         borderRadius: 26,
         background: "#ffd9f1",
-        padding: "16px 16px 18px",
+        padding: isMobile ? "16px 12px 18px" : "18px 16px 20px",
         boxShadow: "0 14px 32px rgba(244,114,182,0.25)",
         marginBottom: 16,
       },
       pinHeaderRow: {
         display: "flex",
-        flexDirection: isMobile ? "column" : "row",
-        justifyContent: "space-between",
-        alignItems: isMobile ? "flex-start" : "center",
-        gap: 10,
-        marginBottom: 10,
-      },
-      pinTitle: { fontSize: 14, fontWeight: 700 },
-
-      groupRowTop: {
-        display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
         gap: 10,
         marginBottom: 12,
-        flexWrap: "wrap",
       },
-      groupPick: {
-        borderRadius: 12,
-        border: "1px solid rgba(15,23,42,0.08)",
-        background: "#fff",
-        padding: "8px 10px",
-        fontSize: 12,
-        minWidth: 200,
+      pinTitle: { fontSize: 14, fontWeight: 900 },
+
+      // ✅ ทำให้ระยะห่าง “เท่ากันทุกบล็อก” ใน pinPanel
+      pinStack: {
+        display: "grid",
+        rowGap: 12,
       },
 
-      addRow: {
+      pinFormGrid: {
         display: "grid",
-        gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr auto",
+        gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+        gap: 12,
+        alignItems: "start",
+      },
+      pinField: { display: "grid", gap: 6 },
+      pinFieldLabel: { fontSize: 11, fontWeight: 900, color: "#475569" },
+
+      // ✅ เอา marginTop ออก ให้ stack คุม spacing แทน
+      pinHint: {
+        borderRadius: 14,
+        background: "rgba(255,255,255,0.72)",
+        border: "1px solid rgba(15,23,42,0.10)",
+        padding: "10px 12px",
+        fontSize: 12,
+        fontWeight: 800,
+        color: "#334155",
+        lineHeight: 1.35,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+      },
+      hintDot: {
+        width: 10,
+        height: 10,
+        borderRadius: 3,
+        background: "#22c55e",
+        boxShadow: "0 0 0 3px rgba(34,197,94,0.20)",
+        flex: "0 0 auto",
+      },
+
+      // ✅ เอา marginBottom ออก ให้ stack คุม spacing แทน
+      groupRowTop: {
+        display: "grid",
+        gridTemplateColumns: isMobile ? "1fr" : "minmax(220px, 360px) auto",
         gap: 10,
         alignItems: "center",
-        marginBottom: 14,
+      },
+      groupPick: {
+        width: "100%",
+        height: 44,
+        borderRadius: 14,
+        border: "1px solid rgba(15,23,42,0.12)",
+        background: "#fff",
+        padding: "0 12px",
+        fontSize: 12,
+        outline: "none",
+      },
+
+      // ✅ เอา marginTop ออก ให้ stack คุม spacing แทน
+      addRow: {
+        display: "grid",
+        gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 44px",
+        gap: 10,
+        alignItems: "stretch",
       },
       inputField: {
         width: "100%",
+        height: 44,
+        boxSizing: "border-box",
         outline: "none",
         fontSize: 12,
-        padding: "10px 12px",
+        padding: "0 12px",
         borderRadius: 14,
         background: "#fff",
-        border: "1px solid rgba(15,23,42,0.10)",
+        border: "1px solid rgba(15,23,42,0.12)",
+        boxShadow: "0 6px 14px rgba(15,23,42,0.05)",
       },
 
       actionBtn: {
         borderRadius: 999,
         border: "none",
-        padding: "10px 14px",
+        height: 44,
+        padding: "0 16px",
         fontSize: 12,
-        fontWeight: 800,
+        fontWeight: 900,
         cursor: "pointer",
         boxShadow: "0 10px 18px rgba(15,23,42,0.10)",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
       },
       addBtn: { background: "#a7f3d0", color: "#064e3b" },
       saveEditBtn: { background: "#fde68a", color: "#78350f" },
       cancelBtn: { background: "#e2e8f0", color: "#0f172a" },
 
+      // ✅ เอา marginTop ออก ให้ stack คุม spacing แทน
       groupList: { display: "grid", gap: 12 },
       groupCard: {
         borderRadius: 16,
@@ -890,173 +950,171 @@ export default function AddSensor() {
             <div style={styles.pinTitle}>Pin number #{activePin?.number ?? 1}</div>
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
-              gap: 10,
-              marginBottom: 12,
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b", marginBottom: 6 }}>
-                ละติจูด (Latitude)
+          {/* ✅ wrapper คุมระยะห่างให้เท่ากันทุกบล็อก */}
+          <div style={styles.pinStack}>
+            <div style={styles.pinFormGrid}>
+              <div style={styles.pinField}>
+                <div style={styles.pinFieldLabel}>ละติจูด (Latitude)</div>
+                <input
+                  style={styles.inputField}
+                  type="number"
+                  step="0.000001"
+                  value={Number.isFinite(activePin?.lat) ? activePin.lat : ""}
+                  onChange={(e) => setActiveLat(Number(e.target.value))}
+                />
               </div>
-              <input
-                style={styles.inputField}
-                type="number"
-                step="0.000001"
-                value={Number.isFinite(activePin?.lat) ? activePin.lat : ""}
-                onChange={(e) => setActiveLat(Number(e.target.value))}
-              />
+
+              <div style={styles.pinField}>
+                <div style={styles.pinFieldLabel}>ลองจิจูด (Longitude)</div>
+                <input
+                  style={styles.inputField}
+                  type="number"
+                  step="0.000001"
+                  value={Number.isFinite(activePin?.lng) ? activePin.lng : ""}
+                  onChange={(e) => setActiveLng(Number(e.target.value))}
+                />
+              </div>
             </div>
 
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b", marginBottom: 6 }}>
-                ลองจิจูด (Longitude)
-              </div>
+            <div style={styles.pinHint}>
+              <span style={styles.hintDot} />
+              <span>
+                ✅ ตอนนี้กำลังแก้ไข: <b>Pin #{activePin?.number ?? 1}</b> — คลิกบนแผนที่เพื่อย้ายหมุดของ
+                Pin นี้
+              </span>
+            </div>
+
+            {/* เพิ่มเซนเซอร์ */}
+            <div style={styles.groupRowTop}>
+              <select
+                style={styles.groupPick}
+                value={selectedGroupId}
+                onChange={(e) => setSelectedGroupId(e.target.value)}
+              >
+                {groupChoices.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.title}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                style={{ ...styles.actionBtn, ...styles.addBtn }}
+                onClick={onAddSensor}
+              >
+                เพิ่มรายการ
+              </button>
+            </div>
+
+            <div style={styles.addRow}>
               <input
                 style={styles.inputField}
-                type="number"
-                step="0.000001"
-                value={Number.isFinite(activePin?.lng) ? activePin.lng : ""}
-                onChange={(e) => setActiveLng(Number(e.target.value))}
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                placeholder="ชื่อเซนเซอร์ (เช่น เซนเซอร์ความชื้นดิน #1)"
               />
+              <input
+                style={styles.inputField}
+                value={addValue}
+                onChange={(e) => setAddValue(e.target.value)}
+                placeholder="ค่า/คำอธิบาย (เช่น ความชื้นดิน ~ 32 %)"
+              />
+              <button
+                type="button"
+                style={{ ...styles.actionBtn, ...styles.addBtn, width: 44, padding: 0 }}
+                onClick={onAddSensor}
+                aria-label="เพิ่มรายการ"
+                title="เพิ่มรายการ"
+              >
+                +
+              </button>
             </div>
-          </div>
 
-          <div style={{ fontSize: 12, color: "#475569", fontWeight: 700, marginBottom: 12 }}>
-            ✅ ตอนนี้กำลังแก้ไข: Pin #{activePin?.number ?? 1} — คลิกบนแผนที่เพื่อย้ายหมุดของ Pin นี้
-          </div>
+            {/* กลุ่มเซนเซอร์ */}
+            <div style={styles.groupList}>
+              {sensorGroups.map((g) => (
+                <div key={g.id} style={styles.groupCard}>
+                  <div style={styles.groupTitle}>{g.title}</div>
 
-          {/* เพิ่มเซนเซอร์ */}
-          <div style={styles.groupRowTop}>
-            <select
-              style={styles.groupPick}
-              value={selectedGroupId}
-              onChange={(e) => setSelectedGroupId(e.target.value)}
-            >
-              {groupChoices.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.title}
-                </option>
-              ))}
-            </select>
+                  <div style={styles.itemsGrid}>
+                    {g.items.map((it) => {
+                      const isEditing =
+                        editingItem?.groupId === g.id && editingItem?.itemId === it.id;
 
-            <button
-              type="button"
-              style={{ ...styles.actionBtn, ...styles.addBtn }}
-              onClick={onAddSensor}
-            >
-              เพิ่มรายการ
-            </button>
-          </div>
+                      return (
+                        <div key={it.id} style={styles.itemCard}>
+                          <div style={styles.itemTitle}>{it.name}</div>
+                          <div style={styles.itemSub}>{it.value}</div>
 
-          <div style={styles.addRow}>
-            <input
-              style={styles.inputField}
-              value={addName}
-              onChange={(e) => setAddName(e.target.value)}
-              placeholder="ชื่อเซนเซอร์ (เช่น เซนเซอร์ความชื้นดิน #1)"
-            />
-            <input
-              style={styles.inputField}
-              value={addValue}
-              onChange={(e) => setAddValue(e.target.value)}
-              placeholder="ค่า/คำอธิบาย (เช่น ความชื้นดิน ~ 32 %)"
-            />
-            <button
-              type="button"
-              style={{ ...styles.actionBtn, ...styles.addBtn }}
-              onClick={onAddSensor}
-            >
-              +
-            </button>
-          </div>
+                          <div style={styles.itemActions}>
+                            {!isEditing ? (
+                              <>
+                                <button
+                                  type="button"
+                                  style={styles.smallBtn}
+                                  onClick={() => onStartInlineEdit(g.id, it.id)}
+                                >
+                                  แก้ไข
+                                </button>
+                                <button
+                                  type="button"
+                                  style={{ ...styles.smallBtn, ...styles.delBtn }}
+                                  onClick={() => onDeleteItem(g.id, it.id)}
+                                >
+                                  ลบ
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  style={{ ...styles.smallBtn, ...styles.saveEditBtn }}
+                                  onClick={onSaveInlineEdit}
+                                >
+                                  บันทึก
+                                </button>
+                                <button
+                                  type="button"
+                                  style={{ ...styles.smallBtn, ...styles.cancelBtn }}
+                                  onClick={onCancelInlineEdit}
+                                >
+                                  ยกเลิก
+                                </button>
+                              </>
+                            )}
+                          </div>
 
-          {/* กลุ่มเซนเซอร์ */}
-          <div style={styles.groupList}>
-            {sensorGroups.map((g) => (
-              <div key={g.id} style={styles.groupCard}>
-                <div style={styles.groupTitle}>{g.title}</div>
-
-                <div style={styles.itemsGrid}>
-                  {g.items.map((it) => {
-                    const isEditing =
-                      editingItem?.groupId === g.id && editingItem?.itemId === it.id;
-
-                    return (
-                      <div key={it.id} style={styles.itemCard}>
-                        <div style={styles.itemTitle}>{it.name}</div>
-                        <div style={styles.itemSub}>{it.value}</div>
-
-                        <div style={styles.itemActions}>
-                          {!isEditing ? (
-                            <>
-                              <button
-                                type="button"
-                                style={styles.smallBtn}
-                                onClick={() => onStartInlineEdit(g.id, it.id)}
-                              >
-                                แก้ไข
-                              </button>
-                              <button
-                                type="button"
-                                style={{ ...styles.smallBtn, ...styles.delBtn }}
-                                onClick={() => onDeleteItem(g.id, it.id)}
-                              >
-                                ลบ
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                style={{ ...styles.smallBtn, ...styles.saveEditBtn }}
-                                onClick={onSaveInlineEdit}
-                              >
-                                บันทึก
-                              </button>
-                              <button
-                                type="button"
-                                style={{ ...styles.smallBtn, ...styles.cancelBtn }}
-                                onClick={onCancelInlineEdit}
-                              >
-                                ยกเลิก
-                              </button>
-                            </>
+                          {isEditing && (
+                            <div style={styles.inlineEditBox}>
+                              <div style={styles.inlineRow}>
+                                <input
+                                  style={styles.inputField}
+                                  value={editName}
+                                  onChange={(e) => setEditName(e.target.value)}
+                                  placeholder="แก้ชื่อเซนเซอร์"
+                                />
+                                <input
+                                  style={styles.inputField}
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  placeholder="แก้ค่า/คำอธิบาย"
+                                />
+                              </div>
+                            </div>
                           )}
                         </div>
-
-                        {isEditing && (
-                          <div style={styles.inlineEditBox}>
-                            <div style={styles.inlineRow}>
-                              <input
-                                style={styles.inputField}
-                                value={editName}
-                                onChange={(e) => setEditName(e.target.value)}
-                                placeholder="แก้ชื่อเซนเซอร์"
-                              />
-                              <input
-                                style={styles.inputField}
-                                value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                placeholder="แก้ค่า/คำอธิบาย"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
 
-          <button style={styles.saveBtn} type="button" onClick={onSaveAll}>
-            SAVE
-          </button>
+            <button style={styles.saveBtn} type="button" onClick={onSaveAll}>
+              SAVE
+            </button>
+          </div>
         </section>
       </div>
     </div>

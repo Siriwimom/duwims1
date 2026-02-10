@@ -1,5 +1,9 @@
 "use client";
 
+// ตามคำสั่ง: เพิ่ม "ทุกแปลง" / "ทุก Node" / "ทุกเซนเซอร์" + รายการเซนเซอร์ให้ครบ
+// และให้หน้าบนเป็น: การจัดการ PIN และ Sensor + ปุ่ม + เพิ่ม PIN และ Sensor
+// ห้ามแก้ส่วนอื่น -> โค้ดเดิมทั้งหมดคงไว้ เปลี่ยนเฉพาะส่วน filter/topbar + state ที่เกี่ยวข้อง
+
 import "leaflet/dist/leaflet.css";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -236,7 +240,14 @@ const styles = {
   },
 };
 
-const sensors = ["เซนเซอร์ #1", "เซนเซอร์ #2", "เซนเซอร์ #3", "เซนเซอร์ #4", "เซนเซอร์ #5", "เซนเซอร์ #6"];
+const sensors = [
+  "เซนเซอร์ #1",
+  "เซนเซอร์ #2",
+  "เซนเซอร์ #3",
+  "เซนเซอร์ #4",
+  "เซนเซอร์ #5",
+  "เซนเซอร์ #6",
+];
 
 export default function ManagementPage() {
   const [pinIcon, setPinIcon] = useState(null);
@@ -292,8 +303,19 @@ export default function ManagementPage() {
     };
   }, []);
 
+  // ✅ plots: เพิ่ม "ทุกแปลง" (all) ให้ขึ้นบนสุด
   const plots = useMemo(
     () => [
+      {
+        value: "all",
+        label: "ทุกแปลง",
+        meta: {
+          farmer: "-",
+          plant: "-",
+          plantedAt: "-",
+          sensorCount: "-",
+        },
+      },
       {
         value: "A",
         label: "แปลง A – ทุเรียนล่าง",
@@ -328,33 +350,35 @@ export default function ManagementPage() {
     []
   );
 
-  // ✅ ลบ “เลือก Node” ออกทั้งชุด -> ไม่ต้องมี selectedNode แล้ว
-  const [selectedPlot, setSelectedPlot] = useState("A");
-  const [nodeCategory, setNodeCategory] = useState("air"); // air | soil
-  const [selectedSensorType, setSelectedSensorType] = useState("rh"); // default ความชื้นสัมพัทธ์
+  // ✅ FILTER: ค่าเริ่มต้นตามที่สั่ง
+  // แปลง: ทุกแปลง
+  // Node: ทุก Node
+  // ชนิดเซนเซอร์: ความชื้ื้นในดิน
+  const [selectedPlot, setSelectedPlot] = useState("all");
+  const [nodeCategory, setNodeCategory] = useState("all"); // all | air | soil
+  const [selectedSensorType, setSelectedSensorType] = useState("soil_moisture");
   const [fetchMode, setFetchMode] = useState("pin");
 
-  const sensorOptions = useMemo(() => {
-    if (nodeCategory === "air") {
-      return [
-        { value: "temp_rh", label: "อุณหภูมิและความชื้น" },
-        { value: "wind", label: "วัดความเร็วลม" },
-        { value: "ppfd", label: "ความเข้มแสง" },
-        { value: "rain", label: "ปริมาณน้ำฝน" },
-        { value: "npk", label: "ความเข้้มข้นธาตุอาหาร (N,P,K)" },
-        { value: "rh", label: "ความชื้นสัมพัทธ์" }, // เผื่ออยากเก็บไว้ในอากาศด้วย
-      ];
-    }
-    return [
+  // ✅ ชนิดเซนเซอร์: มี "ทุกเซนเซอร์" + รายการครบตามคำสั่ง
+  // หมายเหตุ: ไม่ผูกกับ nodeCategory แล้ว เพื่อให้ "ปรับให้มีครบ" จริง
+  const sensorOptions = useMemo(
+    () => [
+      { value: "all", label: "ทุกเซนเซอร์" },
+      { value: "temp_rh", label: "อุณหภูมิและความชื้น" },
+      { value: "wind", label: "วัดความเร็วลม" },
+      { value: "ppfd", label: "ความเข้มแสง" },
+      { value: "rain", label: "ปริมาณน้ำฝน" },
+      { value: "npk", label: "ความเข้้มข้นธาตุอาหาร (N,P,K)" },
       { value: "irrigation", label: "การให้น้ำ / ความพร้อมใช้น้ำ" },
       { value: "soil_moisture", label: "ความชื้ื้นในดิน" },
-      { value: "uplink", label: "อ่านค่า sensor ส่งข้อมูล" },
-    ];
-  }, [nodeCategory]);
+    ],
+    []
+  );
 
+  // ✅ กันค่าหลุด
   useEffect(() => {
     const ok = sensorOptions.some((x) => x.value === selectedSensorType);
-    if (!ok) setSelectedSensorType(sensorOptions[0]?.value ?? "");
+    if (!ok) setSelectedSensorType("soil_moisture");
   }, [sensorOptions, selectedSensorType]);
 
   const selectedPlotObj = useMemo(
@@ -392,14 +416,12 @@ export default function ManagementPage() {
         return "ปริมาณน้ำฝน: 0.0 mm";
       case "npk":
         return "N: 12 • P: 8 • K: 10";
-      case "rh":
-        return "ความชื้นสัมพัทธ์: 65%";
       case "irrigation":
         return "การให้น้ำ: ทำงาน";
       case "soil_moisture":
         return "ความชื้นในดิน: 32%";
-      case "uplink":
-        return "สถานะ: ส่งข้อมูลล่าสุด 2 นาทีที่แล้ว";
+      case "all":
+        return "รวมทุกเซนเซอร์";
       default:
         return "-";
     }
@@ -418,7 +440,8 @@ export default function ManagementPage() {
       >
         <section style={styles.mainPanel}>
           <div style={styles.headerBar}>
-            <div style={styles.headerTitle}>ตัวกรองและเครื่องมือ</div>
+            {/* ✅ เปลี่ยนเป็นตามที่สั่ง */}
+            <div style={styles.headerTitle}>การจัดการ PIN และ Sensor</div>
 
             <div style={styles.headerButtons}>
               <a href="./addplantingplots">
@@ -426,11 +449,14 @@ export default function ManagementPage() {
                   + เพิ่มแปลง
                 </button>
               </a>
+
+              {/* ✅ ปุ่มตามที่สั่ง: + เพิ่ม PIN และ Sensor */}
               <a href="./AddSensor">
                 <button style={{ ...styles.headerBtn, ...styles.btnOrange }}>
                   + เพิ่ม PIN และ Sensor
                 </button>
               </a>
+
               <a href="./EditandDelete">
                 <button style={{ ...styles.headerBtn, ...styles.btnYellow }}>
                   ลบ / แก้ไข
@@ -439,7 +465,6 @@ export default function ManagementPage() {
             </div>
           </div>
 
-          {/* ✅ ลบ “เลือก Node” ออกทั้งก้อนแล้ว */}
           <div style={styles.topGrid}>
             <div style={styles.dropdownCard}>
               <label style={styles.fieldLabel}>แปลง</label>
@@ -457,12 +482,13 @@ export default function ManagementPage() {
             </div>
 
             <div style={styles.dropdownCard}>
-              <label style={styles.fieldLabel}>Node ประเภท</label>
+              <label style={styles.fieldLabel}>เลือก Node</label>
               <select
                 value={nodeCategory}
                 onChange={(e) => setNodeCategory(e.target.value)}
                 style={styles.fieldSelect}
               >
+                <option value="all">ทุก Node</option>
                 <option value="air">Node อากาศ</option>
                 <option value="soil">Node ดิน</option>
               </select>
@@ -538,7 +564,12 @@ export default function ManagementPage() {
               ข้อมูลแปลง: {selectedPlotObj?.label || `แปลง ${selectedPlot}`}
             </div>
             <button style={styles.chipBtn} type="button">
-              ประเภท Node: {nodeCategory === "air" ? "อากาศ" : "ดิน"}
+              Node:{" "}
+              {nodeCategory === "all"
+                ? "ทุก Node"
+                : nodeCategory === "air"
+                ? "อากาศ"
+                : "ดิน"}
             </button>
           </div>
 

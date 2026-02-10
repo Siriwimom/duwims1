@@ -5,89 +5,91 @@ import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
 
 // ✅ import react-leaflet แบบก้อนเดียว (ลด race จาก dynamic หลายตัว)
-const LeafletClient = dynamic(async () => {
-  const RL = await import("react-leaflet");
-  const L = await import("leaflet");
+const LeafletClient = dynamic(
+  async () => {
+    const RL = await import("react-leaflet");
+    const L = await import("leaflet");
 
-  // ✅ Fix default icon path for Next (กัน marker icon หาย/undefined)
-  // (สำคัญมากใน Next เพราะ webpack ไม่รู้ path รูป default ของ Leaflet)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const anyL = L;
-  if (anyL?.Icon?.Default) {
-    anyL.Icon.Default.mergeOptions({
-      iconUrl:
-        "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-      iconRetinaUrl:
-        "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-      shadowUrl:
-        "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-    });
-  }
+    // ✅ Fix default icon path for Next (กัน marker icon หาย/undefined)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyL = L;
+    if (anyL?.Icon?.Default) {
+      anyL.Icon.Default.mergeOptions({
+        iconUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+        iconRetinaUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
+        shadowUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+      });
+    }
 
-  // ✅ component สำหรับ render map (อยู่ใน client แน่นอน)
-  function LeafletMaps({ fieldPolygon, pinPositions }) {
-    const { MapContainer, TileLayer, Polygon, Marker, Popup } = RL;
+    // ✅ component สำหรับ render map (อยู่ใน client แน่นอน)
+    function LeafletMaps({ fieldPolygon, pinPositions, styles }) {
+      const { MapContainer, TileLayer, Polygon, Marker, Popup } = RL;
 
-    return (
-      <>
-        {/* Polygon แปลง */}
-        <div style={styles.mapCard}>
-          <div style={styles.mapTitle}>Polygon แปลง</div>
-          <MapContainer
-            center={[13.3, 101.1]}
-            zoom={11}
-            scrollWheelZoom
-            style={{ height: 230, width: "100%" }}
-          >
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-            <Polygon
-              positions={fieldPolygon}
-              pathOptions={{
-                color: "#16a34a",
-                fillColor: "#86efac",
-                fillOpacity: 0.4,
-              }}
-            />
-          </MapContainer>
-        </div>
+      return (
+        <>
+          {/* Polygon แปลง */}
+          <div style={styles.mapCard}>
+            <div style={styles.mapTitle}>Polygon แปลง</div>
+            <MapContainer
+              center={[13.3, 101.1]}
+              zoom={11}
+              scrollWheelZoom
+              style={{ height: 230, width: "100%" }}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <Polygon
+                positions={fieldPolygon}
+                pathOptions={{
+                  color: "#16a34a",
+                  fillColor: "#86efac",
+                  fillOpacity: 0.4,
+                }}
+              />
+            </MapContainer>
+          </div>
 
-        {/* Pin เซนเซอร์ */}
-        <div style={styles.mapCard}>
-          <div style={styles.mapTitle}>Pin เซนเซอร์</div>
-          <MapContainer
-            center={[13.3, 101.1]}
-            zoom={11}
-            scrollWheelZoom
-            style={{ height: 230, width: "100%" }}
-          >
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-            <Polygon
-              positions={fieldPolygon}
-              pathOptions={{
-                color: "#16a34a",
-                fillColor: "#86efac",
-                fillOpacity: 0.35,
-              }}
-            />
-            {pinPositions.map((pos, i) => (
-              <Marker key={i} position={pos}>
-                <Popup>PIN #{i + 1}</Popup>
-              </Marker>
-            ))}
-          </MapContainer>
-        </div>
-      </>
-    );
-  }
+          {/* Pin เซนเซอร์ */}
+          <div style={styles.mapCard}>
+            <div style={styles.mapTitle}>Pin เซนเซอร์</div>
+            <MapContainer
+              center={[13.3, 101.1]}
+              zoom={11}
+              scrollWheelZoom
+              style={{ height: 230, width: "100%" }}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <Polygon
+                positions={fieldPolygon}
+                pathOptions={{
+                  color: "#16a34a",
+                  fillColor: "#86efac",
+                  fillOpacity: 0.35,
+                }}
+              />
+              {pinPositions.map((pos, i) => (
+                <Marker key={i} position={pos}>
+                  <Popup>PIN #{i + 1}</Popup>
+                </Marker>
+              ))}
+            </MapContainer>
+          </div>
+        </>
+      );
+    }
 
-  return LeafletMaps;
-}, { ssr: false });
+    return LeafletMaps;
+  },
+  { ssr: false }
+);
 
 const pageStyle = {
   fontFamily:
@@ -131,7 +133,7 @@ const styles = {
     gap: 8,
     marginBottom: 10,
   },
-  headerTitle: { fontSize: 16, fontWeight: 700, color: "#000" },
+  headerTitle: { fontSize: 16, fontWeight: 800, color: "#000" },
 
   topGrid: {
     display: "grid",
@@ -150,7 +152,7 @@ const styles = {
   },
   fieldLabel: {
     fontSize: 11,
-    fontWeight: 700,
+    fontWeight: 800,
     marginBottom: 4,
     display: "block",
     color: "#000",
@@ -309,32 +311,54 @@ export default function EditAndDelete() {
   const isTablet = width > 640 && width <= 1024;
 
   // =========================
-  // ✅ FILTER STATES
+  // ✅ FILTER STATES (ตามคำสั่ง)
+  // - แปลง: มี "ทุกแปลง"
+  // - Node ประเภท: มี "ทุก Node"
+  // - ชนิดเซนเซอร์: มี "ทุกเซนเซอร์" + รายการครบ
+  // - ค่าเริ่มต้น: ทุกแปลง / ทุก Node / ความชื้ื้นในดิน
   // =========================
-  const [selectedPlot, setSelectedPlot] = useState("A"); // แปลง
-  const [nodeCategory, setNodeCategory] = useState("air"); // air | soil
-  const [selectedSensorType, setSelectedSensorType] = useState("temp_rh");
+  const [selectedPlot, setSelectedPlot] = useState("all");
+  const [nodeCategory, setNodeCategory] = useState("all");
+  const [selectedSensorType, setSelectedSensorType] = useState("soil_moisture");
 
-  const sensorOptions = useMemo(() => {
-    if (nodeCategory === "air") {
-      return [
-        { value: "temp_rh", label: "อุณหภูมิและความชื้น" },
-        { value: "wind", label: "วัดความเร็วลม" },
-        { value: "ppfd", label: "ความเข้มแสง" },
-        { value: "rain", label: "ปริมาณน้ำฝน" },
-        { value: "npk", label: "ความเข้้มข้นธาตุอาหาร (N,P,K)" },
-      ];
-    }
-    return [
+  const plotOptions = useMemo(
+    () => [
+      { value: "all", label: "ทุกแปลง" },
+      { value: "A", label: "แปลง A" },
+      { value: "B", label: "แปลง B" },
+      { value: "C", label: "แปลง C" },
+    ],
+    []
+  );
+
+  const nodeOptions = useMemo(
+    () => [
+      { value: "all", label: "ทุก Node" },
+      { value: "air", label: "อากาศ" },
+      { value: "soil", label: "ดิน" },
+    ],
+    []
+  );
+
+  // ✅ ชนิดเซนเซอร์: ทุกเซนเซอร์ + ครบตามที่สั่ง
+  const sensorOptions = useMemo(
+    () => [
+      { value: "all", label: "ทุกเซนเซอร์" },
+      { value: "temp_rh", label: "อุณหภูมิและความชื้น" },
+      { value: "wind", label: "วัดความเร็วลม" },
+      { value: "ppfd", label: "ความเข้มแสง" },
+      { value: "rain", label: "ปริมาณน้ำฝน" },
+      { value: "npk", label: "ความเข้้มข้นธาตุอาหาร (N,P,K)" },
       { value: "irrigation", label: "การให้น้ำ / ความพร้อมใช้น้ำ" },
       { value: "soil_moisture", label: "ความชื้ื้นในดิน" },
-      { value: "uplink", label: "อ่านค่า sensor ส่งข้อมูล" },
-    ];
-  }, [nodeCategory]);
+    ],
+    []
+  );
 
+  // ✅ ให้ค่าชนิดเซนเซอร์ยัง valid เสมอ
   useEffect(() => {
     const ok = sensorOptions.some((x) => x.value === selectedSensorType);
-    if (!ok) setSelectedSensorType(sensorOptions[0]?.value ?? "");
+    if (!ok) setSelectedSensorType("soil_moisture");
   }, [sensorOptions, selectedSensorType]);
 
   // ✅ ปรับ grid ตามจอ (ไม่ไปยุ่งกับ map init)
@@ -391,8 +415,25 @@ export default function EditAndDelete() {
       <main style={bodyStyle} className="du-edit-delete">
         {/* HEADER + FILTERS */}
         <section style={{ ...styles.headerPanel, color: "#000" }}>
+          {/* ✅ เปลี่ยนหัวข้อเป็น "การจัดการ PIN และ Sensor" + ปุ่ม "+ เพิ่ม PIN และ Sensor" */}
           <div style={styles.headerRow}>
-            <div style={styles.headerTitle}>ตัวกรอง</div>
+            <div style={styles.headerTitle}>การจัดการ PIN และ Sensor</div>
+            <button
+              type="button"
+              style={{
+                borderRadius: 999,
+                border: "none",
+                padding: "8px 16px",
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: "pointer",
+                background: "#ffffff",
+                color: "#111827",
+                boxShadow: "0 10px 18px rgba(15,23,42,0.18)",
+              }}
+            >
+              + เพิ่ม PIN และ Sensor
+            </button>
           </div>
 
           <div style={topGridStyle}>
@@ -404,22 +445,27 @@ export default function EditAndDelete() {
                 onChange={(e) => setSelectedPlot(e.target.value)}
                 style={styles.fieldSelect}
               >
-                <option value="A">แปลง A</option>
-                <option value="B">แปลง B</option>
-                <option value="C">แปลง C</option>
+                {plotOptions.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
               </select>
             </div>
 
-            {/* Node ประเภท */}
+            {/* เลือก Node */}
             <div style={styles.fieldCard}>
-              <label style={styles.fieldLabel}>Node ประเภท</label>
+              <label style={styles.fieldLabel}>เลือก Node</label>
               <select
                 value={nodeCategory}
                 onChange={(e) => setNodeCategory(e.target.value)}
                 style={styles.fieldSelect}
               >
-                <option value="air">อากาศ</option>
-                <option value="soil">ดิน</option>
+                {nodeOptions.map((n) => (
+                  <option key={n.value} value={n.value}>
+                    {n.label}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -445,23 +491,19 @@ export default function EditAndDelete() {
         <section style={styles.bottomPanel}>
           <div style={styles.bottomHeaderRow}>
             <div style={styles.bottomTitle}>ข้อมูลแปลง</div>
-            <button
-              style={styles.deleteAllBtn}
-              type="button"
-              onClick={() => setPins([])}
-            >
+            <button style={styles.deleteAllBtn} type="button" onClick={() => setPins([])}>
               ลบทั้งหมด
             </button>
           </div>
 
-          <div style={styles.bottomSub}>
-            ปรับแก้ Polygon และลบ / เพิ่มตำแหน่ง PIN ของแปลงนี้
-          </div>
+          <div style={styles.bottomSub}>ปรับแก้ Polygon และลบ / เพิ่มตำแหน่ง PIN ของแปลงนี้</div>
 
           <div style={infoGridStyle}>
             <div>
               <div style={styles.infoLabel}>ชื่อแปลง</div>
-              <div style={styles.infoBox}>แปลง {selectedPlot}</div>
+              <div style={styles.infoBox}>
+                {selectedPlot === "all" ? "ทุกแปลง" : `แปลง ${selectedPlot}`}
+              </div>
             </div>
             <div>
               <div style={styles.infoLabel}>ผู้ดูแล</div>
@@ -490,7 +532,11 @@ export default function EditAndDelete() {
               </div>
             </>
           ) : (
-            <LeafletClient fieldPolygon={fieldPolygon} pinPositions={pinPositions} />
+            <LeafletClient
+              fieldPolygon={fieldPolygon}
+              pinPositions={pinPositions}
+              styles={styles}
+            />
           )}
 
           {/* รายการ PIN ด้านล่าง */}
