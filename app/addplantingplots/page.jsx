@@ -6,23 +6,64 @@ import "leaflet-draw/dist/leaflet.draw.css";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 
-// --- dynamic import React-Leaflet & React-Leaflet-Draw ---
-const MapContainer = dynamic(
-  () => import("react-leaflet").then((m) => m.MapContainer),
-  { ssr: false }
-);
-const TileLayer = dynamic(() => import("react-leaflet").then((m) => m.TileLayer), {
-  ssr: false,
-});
-const FeatureGroup = dynamic(() => import("react-leaflet").then((m) => m.FeatureGroup), {
-  ssr: false,
-});
-const Polygon = dynamic(() => import("react-leaflet").then((m) => m.Polygon), {
-  ssr: false,
-});
-const EditControl = dynamic(() => import("react-leaflet-draw").then((m) => m.EditControl), {
-  ssr: false,
-});
+// --- dynamic import React-Leaflet & React-Leaflet-Draw (client only) ---
+const MapContainer = dynamic(() => import("react-leaflet").then((m) => m.MapContainer), { ssr: false });
+const TileLayer = dynamic(() => import("react-leaflet").then((m) => m.TileLayer), { ssr: false });
+const FeatureGroup = dynamic(() => import("react-leaflet").then((m) => m.FeatureGroup), { ssr: false });
+const Polygon = dynamic(() => import("react-leaflet").then((m) => m.Polygon), { ssr: false });
+const EditControl = dynamic(() => import("react-leaflet-draw").then((m) => m.EditControl), { ssr: false });
+
+/**
+ * Multi-polygons CRUD endpoints (via Next rewrites or direct base URL):
+ * - GET    /api/plots
+ * - POST   /api/plots
+ * - PATCH  /api/plots/:plotId
+ * - DELETE /api/plots/:plotId
+ *
+ * - GET    /api/plots/:plotId/polygons
+ * - POST   /api/plots/:plotId/polygons          (create NEW polygon)
+ * - PATCH  /api/polygons/:polygonId             (update ONE polygon)
+ * - DELETE /api/polygons/:polygonId             (delete ONE polygon)
+ * - DELETE /api/plots/:plotId/polygons          (delete ALL polygons of plot) [optional]
+ *
+ * - GET    /api/plots/:plotId/notes
+ * - POST   /api/plots/:plotId/notes
+ * - PATCH  /api/notes/:noteId
+ * - DELETE /api/notes/:noteId
+ */
+
+// Use same-origin by default (recommended when you have rewrites)
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
+
+// IMPORTANT: your login saves token under AUTH_TOKEN_V1
+function getToken() {
+  return (
+    localStorage.getItem("AUTH_TOKEN_V1") || // ✅ เพิ่มบรรทัดนี้
+    localStorage.getItem("token") ||
+    localStorage.getItem("pmtool_token") ||
+    localStorage.getItem("duwims_token") ||
+    ""
+  );
+}
+
+async function apiFetch(path, { method = "GET", body } = {}) {
+  const token = typeof window !== "undefined" ? getToken() : "";
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data?.error ? `${data.message || "Error"}: ${data.error}` : (data?.message || `HTTP ${res.status}`);
+    throw new Error(msg);
+  }
+  return data;
+}
 
 function isoToThai(iso) {
   if (!iso) return "";
@@ -32,76 +73,43 @@ function isoToThai(iso) {
   return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${yy + 543}`;
 }
 
-export default function AddPlantingPlotsPage() {
+function PolyLayer({ poly, onReady }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current && onReady) onReady(ref.current, poly.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poly?.id]);
+
+  return (
+    <Polygon
+      ref={ref}
+      positions={poly.coords}
+      pathOptions={{ color: poly.color || "#2563eb" }}
+    />
+  );
+}
+
+export default function AddPlantingPlotsPageMultiPolygons() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const polygonIdRef = useRef(1);
-  const noteIdRef = useRef(1);
+  const fgRef = useRef(null);
+  const layerIdToPolyIdRef = useRef(new Map()); // leafletLayerId -> polygonDbId
 
-  const [plots, setPlots] = useState(() => [
-    {
-      id: "A",
-      alias: "แปลง A",
-      label: "แปลง A – ทุเรียนล่าง",
-      plotName: "แปลง A",
-      caretaker: "สมหมาย ใจดี",
-      plantType: "ทุเรียนหมอนทอง",
-      plantedAt: "2025-06-15",
-    },
-    {
-      id: "B",
-      alias: "แปลง B",
-      label: "แปลง B – ทุเรียนบน",
-      plotName: "แปลง B",
-      caretaker: "คุณสมชาย สวนทุเรียน",
-      plantType: "ทุเรียนหมอนทอง",
-      plantedAt: "2025-02-11",
-    },
-    {
-      id: "C",
-      alias: "แปลง C",
-      label: "แปลง C",
-      plotName: "แปลง C",
-      caretaker: "",
-      plantType: "",
-      plantedAt: "",
-    },
-  ]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
-  const [selectedPlotId, setSelectedPlotId] = useState("A");
+  const [plots, setPlots] = useState([]);
+  const [selectedPlotId, setSelectedPlotId] = useState("");
   const [editMode, setEditMode] = useState(false);
 
-  const isReadOnly = !editMode;
+  const [polygonsByPlot, setPolygonsByPlot] = useState({});
+  const [notesByPlot, setNotesByPlot] = useState({});
 
-  const [polygonsByPlot, setPolygonsByPlot] = useState(() => ({
-    A: [],
-    B: [],
-    C: [],
-  }));
-
-  const [notesByPlot, setNotesByPlot] = useState(() => ({
-    A: [{ id: 1, topic: "หัวข้อเรื่อง", content: "" }],
-    B: [{ id: 2, topic: "หัวข้อเรื่อง", content: "" }],
-    C: [],
-  }));
-
-  const [savedNotesByPlot, setSavedNotesByPlot] = useState(() => ({
-    A: [],
-    B: [],
-    C: [],
-  }));
-
-  useEffect(() => {
-    const maxNoteId =
-      Object.values(notesByPlot)
-        .flat()
-        .reduce((mx, n) => Math.max(mx, n.id), 0) || 0;
-    noteIdRef.current = Math.max(noteIdRef.current, maxNoteId + 1);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
+  // plot form
   const selectedPlot = useMemo(
-    () => plots.find((p) => p.id === selectedPlotId) || plots[0],
+    () => plots.find((p) => String(p.id) === String(selectedPlotId)) || null,
     [plots, selectedPlotId]
   );
 
@@ -111,944 +119,550 @@ export default function AddPlantingPlotsPage() {
   const [plantType, setPlantType] = useState("");
   const [plantedAt, setPlantedAt] = useState("");
 
+  const isReadOnly = !editMode;
+  const plotPolygons = polygonsByPlot[selectedPlotId] || [];
+  const plotNotes = notesByPlot[selectedPlotId] || [];
+
+  async function loadPlots() {
+    const r = await apiFetch("/api/plots");
+    const items = (r?.items || []).map((p) => ({ ...p, id: String(p.id || p._id) }));
+    setPlots(items);
+    const firstId = items?.[0]?.id || "";
+    setSelectedPlotId((prev) => prev || firstId);
+    return firstId || selectedPlotId || "";
+  }
+
+  async function loadPolygons(plotId) {
+    const r = await apiFetch(`/api/plots/${plotId}/polygons`);
+    const items = (r?.items || []).map((x) => ({
+      id: String(x.id || x._id),
+      polygonId: x.polygonId,
+      color: x.color || "#2563eb",
+      coords: x.coords || x.coordinates || [],
+      createdAt: x.createdAt,
+      updatedAt: x.updatedAt,
+    }));
+    setPolygonsByPlot((prev) => ({ ...prev, [plotId]: items }));
+  }
+
+  async function loadNotes(plotId) {
+    const r = await apiFetch(`/api/plots/${plotId}/notes`);
+    const items = (r?.items || []).map((n) => ({ ...n, id: String(n.id || n._id) }));
+    setNotesByPlot((prev) => ({ ...prev, [plotId]: items }));
+  }
+
+  async function loadAll() {
+    setErr("");
+    setLoading(true);
+    try {
+      const first = await loadPlots();
+      const pid = first || selectedPlotId;
+      if (pid) await Promise.all([loadPolygons(pid), loadNotes(pid)]);
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    const p = selectedPlot;
-    if (!p) return;
+    if (!mounted) return;
+    loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted]);
 
+  useEffect(() => {
+    if (!selectedPlotId) return;
     setEditMode(false);
+    layerIdToPolyIdRef.current = new Map(); // reset mapping for new plot
+    Promise.all([loadPolygons(selectedPlotId), loadNotes(selectedPlotId)]).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPlotId]);
 
-    setPlotAlias(p.alias || p.plotName || `แปลง ${p.id}`);
-    setPlotName(p.plotName || `แปลง ${p.id}`);
-    setCaretaker(p.caretaker || "");
-    setPlantType(p.plantType || "");
-    setPlantedAt(p.plantedAt || "");
-  }, [selectedPlotId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!selectedPlot) return;
+    setPlotAlias(selectedPlot.alias || selectedPlot.plotName || selectedPlot.name || "");
+    setPlotName(selectedPlot.plotName || selectedPlot.name || "");
+    setCaretaker(selectedPlot.caretaker || selectedPlot.ownerName || "");
+    setPlantType(selectedPlot.plantType || selectedPlot.cropType || "");
+    setPlantedAt(selectedPlot.plantedAt || "");
+  }, [selectedPlot]);
+
+  // ============ Plot CRUD ============
+  async function addPlot() {
+    setErr("");
+    setBusy(true);
+    try {
+      const baseName = `แปลงใหม่ ${new Date().toISOString().slice(0, 10)}`;
+      const r = await apiFetch("/api/plots", {
+        method: "POST",
+        body: { plotName: baseName, alias: baseName, caretaker: "", plantType: "", plantedAt: "" },
+      });
+      const created = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
+      if (created) {
+        setPlots((prev) => [created, ...prev]);
+        setSelectedPlotId(created.id);
+        setPolygonsByPlot((prev) => ({ ...prev, [created.id]: [] }));
+        setNotesByPlot((prev) => ({ ...prev, [created.id]: [] }));
+      }
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function savePlotInfo() {
+    if (!selectedPlotId) return;
+    setErr("");
+    setBusy(true);
+    try {
+      const r = await apiFetch(`/api/plots/${selectedPlotId}`, {
+        method: "PATCH",
+        body: { alias: plotAlias, plotName, caretaker, plantType, plantedAt },
+      });
+      const updated = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
+      if (updated) setPlots((prev) => prev.map((p) => (String(p.id) === String(updated.id) ? updated : p)));
+      setEditMode(false);
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deletePlot() {
+    if (!selectedPlotId) return;
+    if (!confirm("ลบแปลงนี้ทั้งหมด?")) return;
+    setErr("");
+    setBusy(true);
+    try {
+      await apiFetch(`/api/plots/${selectedPlotId}`, { method: "DELETE" });
+      const remaining = plots.filter((p) => String(p.id) !== String(selectedPlotId));
+      setPlots(remaining);
+      setSelectedPlotId(remaining?.[0]?.id || "");
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ============ Polygon CRUD (MULTI) ============
+  async function createPolygon(coords, color = "#2563eb") {
+    if (!selectedPlotId) return;
+    setErr("");
+    setBusy(true);
+    try {
+      // (optional) close ring
+      const ring =
+        coords.length >= 3 && (coords[0][0] !== coords.at(-1)[0] || coords[0][1] !== coords.at(-1)[1])
+          ? [...coords, coords[0]]
+          : coords;
+
+      await apiFetch(`/api/plots/${selectedPlotId}/polygons`, {
+        method: "POST",
+        body: { coords: ring, coordinates: ring, color },
+      });
+
+      await loadPolygons(selectedPlotId); // refresh to get DB ids
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updatePolygon(polygonDbId, coords, color) {
+    setErr("");
+    setBusy(true);
+    try {
+      const ring =
+        coords.length >= 3 && (coords[0][0] !== coords.at(-1)[0] || coords[0][1] !== coords.at(-1)[1])
+          ? [...coords, coords[0]]
+          : coords;
+
+      await apiFetch(`/api/polygons/${polygonDbId}`, {
+        method: "PATCH",
+        body: { coords: ring, coordinates: ring, ...(color ? { color } : {}) },
+      });
+      await loadPolygons(selectedPlotId);
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deletePolygon(polygonDbId) {
+    if (!confirm("ลบ polygon นี้?")) return;
+    setErr("");
+    setBusy(true);
+    try {
+      await apiFetch(`/api/polygons/${polygonDbId}`, { method: "DELETE" });
+      await loadPolygons(selectedPlotId);
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteAllPolygonsOfPlot() {
+    if (!selectedPlotId) return;
+    if (!confirm("ลบ polygons ทั้งหมดของแปลงนี้?")) return;
+    setErr("");
+    setBusy(true);
+    try {
+      await apiFetch(`/api/plots/${selectedPlotId}/polygons`, { method: "DELETE" });
+      await loadPolygons(selectedPlotId);
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Leaflet-draw handlers
+  const onCreated = async (e) => {
+    const layer = e?.layer;
+    if (!layer) return;
+
+    const latlngs = layer.getLatLngs?.();
+    const pts = Array.isArray(latlngs) ? latlngs[0] : [];
+    const coords = (pts || []).map((p) => [Number(p.lat), Number(p.lng)]);
+    if (coords.length >= 3) {
+      await createPolygon(coords, "#2563eb");
+    }
+  };
+
+  const onEdited = async (e) => {
+    const layers = e?.layers;
+    if (!layers) return;
+
+    const jobs = [];
+    layers.eachLayer((layer) => {
+      const lid = layer?._leaflet_id;
+      const polyDbId = layerIdToPolyIdRef.current.get(lid);
+      if (!polyDbId) return;
+
+      const latlngs = layer.getLatLngs?.();
+      const pts = Array.isArray(latlngs) ? latlngs[0] : [];
+      const coords = (pts || []).map((p) => [Number(p.lat), Number(p.lng)]);
+      if (coords.length >= 3) {
+        jobs.push(updatePolygon(polyDbId, coords));
+      }
+    });
+
+    if (jobs.length) await Promise.all(jobs);
+  };
+
+  const onDeleted = async (e) => {
+    const layers = e?.layers;
+    if (!layers) return;
+
+    const jobs = [];
+    layers.eachLayer((layer) => {
+      const lid = layer?._leaflet_id;
+      const polyDbId = layerIdToPolyIdRef.current.get(lid);
+      if (polyDbId) jobs.push(apiFetch(`/api/polygons/${polyDbId}`, { method: "DELETE" }));
+    });
+
+    if (!jobs.length) return;
+
+    setErr("");
+    setBusy(true);
+    try {
+      await Promise.all(jobs);
+      await loadPolygons(selectedPlotId);
+    } catch (e2) {
+      setErr(e2.message || String(e2));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePolyLayerReady = (layer, polygonDbId) => {
+    // Called when react-leaflet Polygon layer ref is available
+    const lid = layer?._leaflet_id;
+    if (!lid) return;
+    layerIdToPolyIdRef.current.set(lid, polygonDbId);
+  };
+
+  // ============ Notes CRUD ============
+  async function addNote() {
+    if (!selectedPlotId) return;
+    setErr("");
+    setBusy(true);
+    try {
+      const r = await apiFetch(`/api/plots/${selectedPlotId}/notes`, { method: "POST", body: { topic: "หัวข้อเรื่อง", content: "" } });
+      const item = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
+      if (item) {
+        setNotesByPlot((prev) => ({ ...prev, [selectedPlotId]: [item, ...(prev[selectedPlotId] || [])] }));
+      }
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveNote(noteId, patch) {
+    setErr("");
+    setBusy(true);
+    try {
+      const r = await apiFetch(`/api/notes/${noteId}`, { method: "PATCH", body: patch });
+      const item = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
+      if (item) {
+        setNotesByPlot((prev) => ({
+          ...prev,
+          [selectedPlotId]: (prev[selectedPlotId] || []).map((n) => (String(n.id) === String(item.id) ? item : n)),
+        }));
+      }
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteNote(noteId) {
+    if (!confirm("ลบโน้ตนี้?")) return;
+    setErr("");
+    setBusy(true);
+    try {
+      await apiFetch(`/api/notes/${noteId}`, { method: "DELETE" });
+      setNotesByPlot((prev) => ({
+        ...prev,
+        [selectedPlotId]: (prev[selectedPlotId] || []).filter((n) => String(n.id) !== String(noteId)),
+      }));
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const getPlotDisplayName = (p) => {
-    return (p.alias || p.plotName || `แปลง ${p.id}`).trim() || `แปลง ${p.id}`;
+    const t = (p?.alias || p?.plotName || p?.name || "").trim();
+    return t || "แปลง";
   };
 
-  const addPlot = () => {
-    const ids = plots.map((p) => p.id);
-    const nextCharCode = Math.max(...ids.map((x) => x.charCodeAt(0))) + 1;
-    const nextId = String.fromCharCode(nextCharCode);
-
-    const newPlot = {
-      id: nextId,
-      alias: `แปลง ${nextId}`,
-      label: `แปลง ${nextId}`,
-      plotName: `แปลง ${nextId}`,
-      caretaker: "",
-      plantType: "",
-      plantedAt: "",
-    };
-
-    setPlots((prev) => [...prev, newPlot]);
-    setPolygonsByPlot((prev) => ({ ...prev, [nextId]: [] }));
-    setNotesByPlot((prev) => ({ ...prev, [nextId]: [] }));
-    setSavedNotesByPlot((prev) => ({ ...prev, [nextId]: [] }));
-
-    setSelectedPlotId(nextId);
-    setEditMode(false);
-  };
-
-  const savePlotInfo = () => {
-    if (!editMode) return;
-
-    setPlots((prev) =>
-      prev.map((p) =>
-        p.id === selectedPlotId
-          ? {
-              ...p,
-              alias: plotAlias?.trim() || p.alias || p.plotName || `แปลง ${selectedPlotId}`,
-              plotName: plotName?.trim() || `แปลง ${selectedPlotId}`,
-              caretaker: caretaker?.trim() || "",
-              plantType: plantType?.trim() || "",
-              plantedAt: plantedAt || "",
-              label:
-                selectedPlotId === "A"
-                  ? "แปลง A – ทุเรียนล่าง"
-                  : selectedPlotId === "B"
-                  ? "แปลง B – ทุเรียนบน"
-                  : plotName?.trim() || `แปลง ${selectedPlotId}`,
-            }
-          : p
-      )
-    );
-  };
-
-  // ===== polygon logic =====
-  const [currentColor, setCurrentColor] = useState("#16a34a");
-
-  const polygons = polygonsByPlot[selectedPlotId] || [];
-  const setPolygons = (updater) => {
-    setPolygonsByPlot((prev) => {
-      const prevArr = prev[selectedPlotId] || [];
-      const nextArr = typeof updater === "function" ? updater(prevArr) : updater;
-      return { ...prev, [selectedPlotId]: nextArr };
-    });
-  };
-
-  const handleCreated = (e) => {
-    if (!editMode) {
-      try {
-        e.layer?.remove?.();
-      } catch {}
-      return;
-    }
-    if (e.layerType === "polygon") {
-      const layer = e.layer;
-      const latlngs = layer.getLatLngs()[0] || [];
-      const coords = latlngs.map((pt) => [pt.lat, pt.lng]);
-      setPolygons((prev) => [...prev, { id: polygonIdRef.current++, coords, color: currentColor }]);
-      layer.remove();
-    }
-  };
-
-  const handleDeletePolygon = (id) => {
-    if (!editMode) return;
-    setPolygons((prev) => prev.filter((p) => p.id !== id));
-  };
-
-  const colorOptions = [
-    { value: "#16a34a", label: "เขียว" },
-    { value: "#22c55e", label: "เขียวอ่อน" },
-    { value: "#f97316", label: "ส้ม" },
-    { value: "#ef4444", label: "แดง" },
-    { value: "#3b82f6", label: "น้ำเงิน" },
-  ];
-
-  // ===== notes =====
-  const notes = notesByPlot[selectedPlotId] || [];
-  const setNotes = (updater) => {
-    setNotesByPlot((prev) => {
-      const prevArr = prev[selectedPlotId] || [];
-      const nextArr = typeof updater === "function" ? updater(prevArr) : updater;
-      return { ...prev, [selectedPlotId]: nextArr };
-    });
-  };
-
-  const addNote = () => {
-    if (!editMode) return;
-    setNotes((prev) => [...prev, { id: noteIdRef.current++, topic: "หัวข้อเรื่อง", content: "" }]);
-  };
-
-  const removeNote = (id) => {
-    if (!editMode) return;
-    setNotes((prev) => prev.filter((n) => n.id !== id));
-  };
-
-  const updateNote = (id, patch) => {
-    if (!editMode) return;
-    setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)));
-  };
-
-  const [noteSaveState, setNoteSaveState] = useState({ saving: false, saved: false });
-
-  const saveNotes = async () => {
-    if (!editMode) return;
-
-    try {
-      setNoteSaveState({ saving: true, saved: false });
-      await new Promise((r) => setTimeout(r, 250));
-
-      setSavedNotesByPlot((prev) => ({
-        ...prev,
-        [selectedPlotId]: notes.map((n) => ({ id: n.id, topic: n.topic, content: n.content })),
-      }));
-
-      setNoteSaveState({ saving: false, saved: true });
-      setTimeout(() => setNoteSaveState((s) => ({ ...s, saved: false })), 1200);
-    } catch {
-      setNoteSaveState({ saving: false, saved: false });
-      alert("บันทึกไม่สำเร็จ");
-    }
-  };
-
-  const savedNotes = savedNotesByPlot[selectedPlotId] || [];
-
-  const pageTitlePlot = useMemo(() => {
-    const pn = (plotName || selectedPlot?.plotName || `แปลง ${selectedPlotId}`).trim();
-    return pn || `แปลง ${selectedPlotId}`;
-  }, [plotName, selectedPlot, selectedPlotId]);
+  if (!mounted) return null;
 
   return (
-    <div className="pui">
-      <main className="pui-wrap">
-        {/* ===== HERO ===== */}
-        <section className="pui-hero">
-          <div className="pui-hero-top">
-            <div className="pui-hero-title">การจัดการ Polygons</div>
-            <button className="pui-hero-btn" type="button" onClick={addPlot}>
-              + เพิ่มแปลง
-            </button>
+    <div style={{ maxWidth: 1280, margin: "16px auto", padding: 16 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <h2 style={{ margin: 0 }}>การจัดการ Polygons (Multi)</h2>
+
+        <button disabled={busy} onClick={addPlot} style={{ padding: "8px 12px" }}>
+          + เพิ่มแปลง
+        </button>
+
+        <select
+          value={selectedPlotId}
+          onChange={(e) => setSelectedPlotId(e.target.value)}
+          disabled={busy || loading || !plots.length}
+          style={{ padding: "8px 10px", minWidth: 220 }}
+        >
+          {plots.map((p) => (
+            <option key={p.id} value={p.id}>
+              {getPlotDisplayName(p)}
+            </option>
+          ))}
+        </select>
+
+        <button disabled={busy || !selectedPlotId} onClick={() => setEditMode((v) => !v)} style={{ padding: "8px 12px" }}>
+          {editMode ? "ยกเลิกแก้ไข" : "แก้ไข"}
+        </button>
+
+        <button disabled={busy || !editMode || !selectedPlotId} onClick={savePlotInfo} style={{ padding: "8px 12px" }}>
+          บันทึกข้อมูลแปลง
+        </button>
+
+        <button disabled={busy || !selectedPlotId} onClick={deletePlot} style={{ padding: "8px 12px" }}>
+          ลบแปลง
+        </button>
+
+        <button disabled={busy || !selectedPlotId} onClick={deleteAllPolygonsOfPlot} style={{ padding: "8px 12px" }}>
+          ลบ Polygons ทั้งหมด
+        </button>
+
+        {busy && <span>กำลังทำงาน...</span>}
+      </div>
+
+      {err && (
+        <div style={{ marginTop: 10, padding: 10, background: "#ffe8e8", border: "1px solid #ffb3b3" }}>
+          {err}
+          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
+            * token ใช้ key: <b>AUTH_TOKEN_V1</b> (ตามหน้า login ของคุณ) หรือปรับ getToken()
           </div>
+        </div>
+      )}
 
-          <div className="pui-hero-grid">
-            <div className="pui-field">
-              <div className="pui-label">แปลง</div>
-              <select
-                className="pui-select"
-                value={selectedPlotId}
-                onChange={(e) => setSelectedPlotId(e.target.value)}
-              >
-                {plots.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {getPlotDisplayName(p)}
-                  </option>
-                ))}
-              </select>
+      {loading ? (
+        <div style={{ marginTop: 14 }}>Loading...</div>
+      ) : !plots.length ? (
+        <div style={{ marginTop: 14 }}>ยังไม่มีแปลง — กด “+ เพิ่มแปลง”</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "420px 1fr", gap: 14, marginTop: 14 }}>
+          {/* LEFT */}
+          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12 }}>
+            <h3 style={{ marginTop: 0 }}>ข้อมูลแปลงปลูกพืช</h3>
 
-              <div className="pui-subhint">
-                {editMode
-                  ? "โหมดแก้ไข: สามารถแก้ไข/ลบ/เพิ่มข้อมูลได้"
-                  : "โหมดดูข้อมูล: แก้ไขได้เมื่อกด “ลบ / แก้ไข”"}
-              </div>
-            </div>
-          </div>
-        </section>
+            <div style={{ display: "grid", gap: 10 }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <div>ชื่อแปลง (alias)</div>
+                <input value={plotAlias} onChange={(e) => setPlotAlias(e.target.value)} disabled={isReadOnly || busy} />
+              </label>
 
-        {/* ===== MAIN CARD ===== */}
-        <section className="pui-card">
-          <div className="pui-card-top">
-            <div className="pui-card-title">กรอกการจัดการข้อมูลแปลงปลูกพืช</div>
+              <label style={{ display: "grid", gap: 6 }}>
+                <div>ชื่อเต็มแปลง (plotName)</div>
+                <input value={plotName} onChange={(e) => setPlotName(e.target.value)} disabled={isReadOnly || busy} />
+              </label>
 
-            {!editMode ? (
-              <button className="pui-pill" type="button" onClick={() => setEditMode(true)}>
-                ลบ / แก้ไข
-              </button>
-            ) : (
-              <button
-                className="pui-pill done"
-                type="button"
-                onClick={() => {
-                  savePlotInfo();
-                  setEditMode(false);
-                }}
-              >
-                เสร็จสิ้น
-              </button>
-            )}
-          </div>
+              <label style={{ display: "grid", gap: 6 }}>
+                <div>ชื่อผู้ดูแล</div>
+                <input value={caretaker} onChange={(e) => setCaretaker(e.target.value)} disabled={isReadOnly || busy} />
+              </label>
 
-          {/* ===== FORMBOX ===== */}
-          <div className="pui-formbox">
-            <div className="pui-form-grid">
-              <div className="pui-field">
-                <div className="pui-label-dark">ชื่อที่แสดงในรายการแปลง (Dropdown)</div>
-                <input
-                  className="pui-input pui-input-short"
-                  value={plotAlias}
-                  onChange={(e) => setPlotAlias(e.target.value)}
-                  placeholder={`แปลง ${selectedPlotId}`}
-                  readOnly={isReadOnly}
-                />
-              </div>
+              <label style={{ display: "grid", gap: 6 }}>
+                <div>ประเภทพืช</div>
+                <input value={plantType} onChange={(e) => setPlantType(e.target.value)} disabled={isReadOnly || busy} />
+              </label>
 
-              <div className="pui-field">
-                <div className="pui-label-dark">ข้อมูลแปลงปลูก {pageTitlePlot}</div>
-                <input
-                  className="pui-input pui-input-short"
-                  value={plotName}
-                  onChange={(e) => setPlotName(e.target.value)}
-                  placeholder={`แปลง ${selectedPlotId}`}
-                  readOnly={isReadOnly}
-                />
-              </div>
-
-              <div className="pui-field">
-                <div className="pui-label-dark">ชื่อผู้ดูแล</div>
-                <input
-                  className="pui-input pui-input-short"
-                  value={caretaker}
-                  onChange={(e) => setCaretaker(e.target.value)}
-                  placeholder="ชื่อผู้ดูแล"
-                  readOnly={isReadOnly}
-                />
-              </div>
-
-              <div className="pui-field">
-                <div className="pui-label-dark">ประเภทพืช</div>
-                <input
-                  className="pui-input pui-input-short"
-                  value={plantType}
-                  onChange={(e) => setPlantType(e.target.value)}
-                  placeholder="ประเภทพืช"
-                  readOnly={isReadOnly}
-                />
-              </div>
-
-              <div className="pui-field">
-                <div className="pui-label-dark">วันที่เริ่มปลูก</div>
-                <input
-                  className="pui-input pui-input-short"
-                  type="date"
-                  value={plantedAt}
-                  onChange={(e) => setPlantedAt(e.target.value)}
-                  readOnly={isReadOnly}
-                />
-                {plantedAt && <div className="pui-datehint">แสดงผล: {isoToThai(plantedAt)}</div>}
-              </div>
+              <label style={{ display: "grid", gap: 6 }}>
+                <div>วันที่เริ่มปลูก</div>
+                <input type="date" value={plantedAt || ""} onChange={(e) => setPlantedAt(e.target.value)} disabled={isReadOnly || busy} />
+                <div style={{ fontSize: 12, opacity: 0.75 }}>{plantedAt ? isoToThai(plantedAt) : ""}</div>
+              </label>
             </div>
 
-            {/* ✅✅ ย้าย "ข้อมูลที่บันทึกแล้ว" มาไว้ตรงนี้ (ก่อนส่วนเพิ่มข้อมูล) */}
-            <div className="pui-saved">
-              <div className="pui-saved-title">ข้อมูลที่บันทึกแล้ว</div>
+            <hr style={{ margin: "14px 0" }} />
 
-              {!savedNotes.length ? (
-                <div className="pui-empty">
-                  ยังไม่มีข้อมูลที่บันทึก — กด “บันทึก” ในส่วนเพิ่มข้อมูลเพื่อแสดงที่นี่
-                </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <h3 style={{ margin: 0 }}>Polygons ของแปลง</h3>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>ทั้งหมด: {plotPolygons.length}</div>
+            </div>
+
+            <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+              {plotPolygons.length === 0 ? (
+                <div style={{ opacity: 0.7 }}>ยังไม่มี polygon — เปิด “แก้ไข” แล้ววาดบนแผนที่</div>
               ) : (
-                <div className="pui-saved-list">
-                  {savedNotes.map((n) => (
-                    <div className="pui-saved-item" key={n.id}>
-                      <div className="pui-saved-topic">{n.topic || "—"}</div>
-                      <div className="pui-saved-content">{n.content || "—"}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* ✅✅ แล้วค่อยตามด้วย "เพิ่มข้อมูล" (ตามที่คุณต้องการ) */}
-            <div className="pui-notes-add">
-              <div className="pui-notes-head">
-                <div className="pui-notes-title">เพิ่มข้อมูล (หัวข้อเรื่อง + เนื้อหา)</div>
-
-                <div className="pui-notes-actions">
-                  <button className="pui-plus" type="button" onClick={addNote} disabled={!editMode}>
-                    +
-                  </button>
-
-                  <button
-                    className="pui-save-mini"
-                    type="button"
-                    onClick={saveNotes}
-                    disabled={noteSaveState.saving || !editMode}
-                  >
-                    {noteSaveState.saving ? "กำลังบันทึก..." : noteSaveState.saved ? "บันทึกแล้ว" : "บันทึก"}
-                  </button>
-                </div>
-              </div>
-
-              {!notes.length ? (
-                <div className="pui-empty">
-                  {editMode ? "ยังไม่มีรายการ — กด + เพื่อเพิ่มหัวข้อเรื่อง/เนื้อหา" : "ยังไม่มีรายการ"}
-                </div>
-              ) : (
-                <div className="pui-notes-list">
-                  {notes.map((n) => (
-                    <div className="pui-note" key={n.id}>
-                      <div className="pui-note-row">
-                        <div className="pui-note-col">
-                          <div className="pui-label-dark">หัวข้อเรื่อง</div>
-                          <input
-                            className="pui-input"
-                            value={n.topic}
-                            onChange={(e) => updateNote(n.id, { topic: e.target.value })}
-                            placeholder="หัวข้อเรื่อง"
-                            readOnly={!editMode}
-                          />
-                        </div>
-
-                        <button
-                          className="pui-danger small"
-                          type="button"
-                          onClick={() => removeNote(n.id)}
-                          disabled={!editMode}
-                        >
-                          ลบ
-                        </button>
+                plotPolygons.map((p) => (
+                  <div key={p.id} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 10, background: "#fafafa" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ fontSize: 13, opacity: 0.85 }}>
+                        <b>Polygon</b> #{p.id.slice(-6)}
+                        <div style={{ fontSize: 12, opacity: 0.7 }}>{p.coords?.length || 0} จุด</div>
                       </div>
-
-                      <div className="pui-note-col">
-                        <div className="pui-label-dark">เนื้อหา</div>
-                        <textarea
-                          className="pui-textarea"
-                          rows={2}
-                          value={n.content}
-                          onChange={(e) => updateNote(n.id, { content: e.target.value })}
-                          placeholder="พิมพ์รายละเอียด..."
-                          readOnly={!editMode}
-                        />
-                      </div>
+                      <button disabled={busy} onClick={() => deletePolygon(p.id)} style={{ padding: "6px 10px" }}>
+                        ลบ
+                      </button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ===== MAP ===== */}
-          <div className="pui-mapbox">
-            <div className="pui-map-title">Draw Polygons on a Map</div>
-
-            <div className="pui-palette">
-              {colorOptions.map((c) => (
-                <button
-                  key={c.value}
-                  onClick={() => setCurrentColor(c.value)}
-                  className={currentColor === c.value ? "pui-color active" : "pui-color"}
-                  style={{ background: c.value }}
-                  title={c.label}
-                  type="button"
-                  disabled={!editMode}
-                />
-              ))}
-            </div>
-
-            <div className="pui-map">
-              {!mounted ? (
-                <div className="pui-map-loading">Loading map...</div>
-              ) : (
-                <MapContainer
-                  key={`map-${selectedPlotId}`}
-                  center={[13.3, 101.0]}
-                  zoom={16}
-                  style={{ width: "100%", height: "100%" }}
-                >
-                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-                  <FeatureGroup>
-                    {polygons.map((poly) => (
-                      <Polygon
-                        key={poly.id}
-                        positions={poly.coords}
-                        pathOptions={{
-                          color: poly.color,
-                          fillColor: poly.color,
-                          fillOpacity: 0.35,
-                        }}
-                      />
-                    ))}
-
-                    <EditControl
-                      position="topright"
-                      onCreated={handleCreated}
-                      draw={{
-                        polygon: editMode
-                          ? {
-                              allowIntersection: false,
-                              shapeOptions: {
-                                color: currentColor,
-                                fillColor: currentColor,
-                                fillOpacity: 0.25,
-                              },
-                            }
-                          : false,
-                        rectangle: false,
-                        circle: false,
-                        polyline: false,
-                        marker: false,
-                        circlemarker: false,
-                      }}
-                      edit={{ edit: false, remove: false }}
-                    />
-                  </FeatureGroup>
-                </MapContainer>
-              )}
-            </div>
-
-            {polygons.length > 0 && (
-              <div className="pui-polylist">
-                {polygons.map((poly) => (
-                  <div className="pui-polyrow" key={poly.id}>
-                    <span className="pui-polynum"># {poly.id}</span>
-                    <span className="pui-polychip" style={{ background: poly.color }} />
-                    <button
-                      className="pui-danger small"
-                      type="button"
-                      onClick={() => handleDeletePolygon(poly.id)}
-                      disabled={!editMode}
-                    >
-                      ลบ
-                    </button>
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
 
-            {!editMode && <div className="pui-lockhint">* ต้องกด “ลบ / แก้ไข” ก่อนถึงจะวาด/ลบ polygon ได้</div>}
+            <hr style={{ margin: "14px 0" }} />
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <h3 style={{ margin: 0 }}>บันทึก (Notes)</h3>
+              <button disabled={busy || !selectedPlotId} onClick={addNote} style={{ padding: "8px 12px" }}>
+                + เพิ่มโน้ต
+              </button>
+            </div>
+
+            <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+              {plotNotes.length === 0 ? (
+                <div style={{ opacity: 0.7 }}>ยังไม่มีโน้ต</div>
+              ) : (
+                plotNotes.map((n) => (
+                  <div key={n.id} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 10, background: "#fafafa" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input
+                        value={n.topic || ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setNotesByPlot((prev) => ({
+                            ...prev,
+                            [selectedPlotId]: (prev[selectedPlotId] || []).map((x) => (String(x.id) === String(n.id) ? { ...x, topic: v } : x)),
+                          }));
+                        }}
+                        disabled={busy}
+                        placeholder="หัวข้อเรื่อง"
+                        style={{ flex: 1 }}
+                      />
+                      <button disabled={busy} onClick={() => saveNote(n.id, { topic: n.topic, content: n.content })}>
+                        บันทึก
+                      </button>
+                      <button disabled={busy} onClick={() => deleteNote(n.id)}>
+                        ลบ
+                      </button>
+                    </div>
+
+                    <textarea
+                      value={n.content || ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setNotesByPlot((prev) => ({
+                          ...prev,
+                          [selectedPlotId]: (prev[selectedPlotId] || []).map((x) => (String(x.id) === String(n.id) ? { ...x, content: v } : x)),
+                        }));
+                      }}
+                      disabled={busy}
+                      placeholder="พิมพ์รายละเอียด..."
+                      rows={4}
+                      style={{ width: "100%", marginTop: 8, resize: "vertical" }}
+                    />
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
-          {/* ===== SAVE (รวม) ===== */}
-          <div className="pui-savewrap">
-            <button
-              className="pui-save"
-              type="button"
-              disabled={!editMode}
-              onClick={() => {
-                savePlotInfo();
-                const payload = {
-                  plotId: selectedPlotId,
-                  plotInfo: { plotAlias, plotName, caretaker, plantType, plantedAt },
-                  polygons,
-                  notes,
-                  savedNotes: savedNotesByPlot[selectedPlotId] || [],
-                };
-                console.log("[SAVE payload]", payload);
-              }}
-              title={!editMode ? "กด “ลบ / แก้ไข” ก่อน" : "บันทึกทั้งหมด"}
-            >
-              SAVE
-            </button>
+          {/* RIGHT: map */}
+          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+              <h3 style={{ margin: 0 }}>Draw Polygons on a Map</h3>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>* เปิด “แก้ไข” ก่อนถึงจะวาด/แก้/ลบ ได้</div>
+            </div>
+
+            <div style={{ marginTop: 10, height: 560, borderRadius: 12, overflow: "hidden" }}>
+              <MapContainer center={[13.7563, 100.5018]} zoom={13} style={{ height: "100%", width: "100%" }}>
+                <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+
+                <FeatureGroup ref={fgRef}>
+                  {/* Put polygons INSIDE FeatureGroup so EditControl can edit them */}
+                  {plotPolygons.map((poly) => (
+                    <PolyLayer key={poly.id} poly={poly} onReady={handlePolyLayerReady} />
+                  ))}
+
+                  <EditControl
+                    position="topright"
+                    onCreated={onCreated}
+                    onEdited={onEdited}
+                    onDeleted={onDeleted}
+                    draw={{
+                      rectangle: false,
+                      circle: false,
+                      circlemarker: false,
+                      marker: false,
+                      polyline: false,
+                      polygon: !isReadOnly,
+                    }}
+                    edit={{
+                      edit: !isReadOnly,
+                      remove: !isReadOnly,
+                    }}
+                  />
+                </FeatureGroup>
+              </MapContainer>
+            </div>
           </div>
-        </section>
-      </main>
-
-      <style jsx global>{`
-        html,
-        body {
-          margin: 0;
-          background: #ffffff;
-          font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial,
-            "Noto Sans Thai", "Noto Sans", sans-serif;
-        }
-
-        .pui-wrap {
-          max-width: 860px;
-          margin: 14px auto 44px;
-          padding: 0 14px;
-        }
-
-        .pui-hero {
-          border-radius: 14px;
-          padding: 14px;
-          background: linear-gradient(135deg, #40b596, #676fc7);
-          box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12);
-          margin-bottom: 14px;
-        }
-        .pui-hero-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 10px;
-          margin-bottom: 10px;
-        }
-        .pui-hero-title {
-          color: #fff;
-          font-weight: 900;
-          font-size: 13px;
-        }
-        .pui-hero-btn {
-          border: none;
-          background: rgba(255, 255, 255, 0.9);
-          color: rgba(0, 0, 0, 0.75);
-          font-weight: 900;
-          padding: 8px 12px;
-          border-radius: 999px;
-          font-size: 12px;
-          cursor: pointer;
-        }
-        .pui-hero-grid {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 10px;
-        }
-
-        .pui-card {
-          background: #dff6ef;
-          border-radius: 18px;
-          padding: 14px;
-          box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12);
-          border: 1px solid rgba(0, 0, 0, 0.06);
-        }
-        .pui-card-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 10px;
-          margin-bottom: 10px;
-        }
-        .pui-card-title {
-          font-weight: 900;
-          font-size: 12px;
-          color: rgba(0, 0, 0, 0.7);
-        }
-        .pui-pill {
-          border: none;
-          background: rgba(255, 255, 255, 0.75);
-          border: 1px solid rgba(0, 0, 0, 0.08);
-          border-radius: 999px;
-          padding: 6px 10px;
-          font-weight: 900;
-          font-size: 12px;
-          color: rgba(0, 0, 0, 0.7);
-          cursor: pointer;
-        }
-        .pui-pill.done {
-          background: rgba(16, 185, 129, 0.2);
-          border-color: rgba(16, 185, 129, 0.35);
-          color: rgba(0, 0, 0, 0.72);
-        }
-
-        .pui-subhint {
-          margin-top: 8px;
-          font-size: 11px;
-          color: rgba(255, 255, 255, 0.9);
-          opacity: 0.95;
-          padding-left: 6px;
-        }
-
-        .pui-formbox {
-          background: #fff1d8;
-          border-radius: 14px;
-          padding: 12px;
-          border: 1px solid rgba(0, 0, 0, 0.06);
-          margin-bottom: 12px;
-        }
-        .pui-form-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 10px;
-        }
-
-        .pui-field {
-          min-width: 0;
-        }
-
-        .pui-label {
-          font-size: 11px;
-          font-weight: 800;
-          color: rgba(255, 255, 255, 0.9);
-          margin: 0 0 6px 6px;
-        }
-        .pui-label-dark {
-          font-size: 11px;
-          font-weight: 900;
-          color: rgba(0, 0, 0, 0.6);
-          margin: 0 0 6px 4px;
-        }
-
-        .pui-select,
-        .pui-input {
-          width: 100%;
-          border: 1px solid rgba(0, 0, 0, 0.12);
-          border-radius: 12px;
-          padding: 11px 12px;
-          font-size: 12px;
-          outline: none;
-          background: rgba(255, 255, 255, 0.95);
-          box-sizing: border-box;
-        }
-
-        .pui-input[readonly],
-        .pui-textarea[readonly] {
-          opacity: 0.9;
-          background: rgba(255, 255, 255, 0.75);
-        }
-
-        .pui-input:focus,
-        .pui-textarea:focus {
-          border-color: rgba(76, 99, 255, 0.55);
-          box-shadow: 0 0 0 3px rgba(76, 99, 255, 0.14);
-        }
-
-        .pui-input-short {
-          width: 260px;
-          max-width: 100%;
-        }
-
-        .pui-datehint {
-          font-size: 11px;
-          color: rgba(0, 0, 0, 0.55);
-          margin: 6px 0 0 6px;
-        }
-
-        .pui-textarea {
-          width: 100%;
-          border: 1px solid rgba(0, 0, 0, 0.12);
-          border-radius: 12px;
-          padding: 11px 12px;
-          font-size: 12px;
-          outline: none;
-          background: rgba(255, 255, 255, 0.95);
-          resize: vertical;
-          min-height: 84px;
-          line-height: 1.45;
-          box-sizing: border-box;
-        }
-
-        .pui-notes-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 12px;
-          margin-bottom: 12px;
-        }
-        .pui-notes-title {
-          font-weight: 1000;
-          font-size: 12px;
-          color: rgba(0, 0, 0, 0.7);
-          line-height: 1.2;
-        }
-        .pui-notes-actions {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .pui-plus {
-          width: 38px;
-          height: 38px;
-          border-radius: 12px;
-          border: 1px solid rgba(0, 0, 0, 0.1);
-          background: rgba(255, 255, 255, 0.85);
-          font-weight: 1000;
-          cursor: pointer;
-        }
-        .pui-plus:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-        .pui-save-mini {
-          border: none;
-          border-radius: 12px;
-          height: 38px;
-          padding: 0 14px;
-          font-weight: 1000;
-          font-size: 12px;
-          cursor: pointer;
-          color: #fff;
-          background: linear-gradient(180deg, #5b7cff, #4c63ff);
-          box-shadow: 0 10px 18px rgba(76, 99, 255, 0.22);
-          display: inline-flex;
-          align-items: center;
-        }
-        .pui-save-mini:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        .pui-notes-list {
-          display: grid;
-          gap: 10px;
-        }
-        .pui-note {
-          background: rgba(255, 255, 255, 0.62);
-          border: 1px solid rgba(0, 0, 0, 0.07);
-          border-radius: 14px;
-          padding: 12px;
-        }
-        .pui-note-row {
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 10px;
-          align-items: end;
-          margin-bottom: 10px;
-        }
-        .pui-note-col {
-          min-width: 0;
-        }
-
-        .pui-empty {
-          font-size: 12px;
-          color: rgba(0, 0, 0, 0.55);
-          background: rgba(255, 255, 255, 0.55);
-          border: 1px dashed rgba(0, 0, 0, 0.12);
-          border-radius: 12px;
-          padding: 10px 12px;
-        }
-
-        /* ✅ "ข้อมูลที่บันทึกแล้ว" อยู่ก่อน "เพิ่มข้อมูล" */
-        .pui-saved {
-          margin-top: 14px;
-          padding-top: 14px;
-          border-top: 1px dashed rgba(0, 0, 0, 0.12);
-        }
-        .pui-saved-title {
-          font-weight: 1000;
-          font-size: 12px;
-          color: rgba(0, 0, 0, 0.7);
-          margin-bottom: 10px;
-        }
-        .pui-saved-list {
-          display: grid;
-          gap: 10px;
-        }
-        .pui-saved-item {
-          background: rgba(255, 255, 255, 0.65);
-          border: 1px solid rgba(0, 0, 0, 0.07);
-          border-radius: 14px;
-          padding: 10px 12px;
-        }
-        .pui-saved-topic {
-          font-weight: 1000;
-          font-size: 12px;
-          color: rgba(0, 0, 0, 0.75);
-          margin-bottom: 6px;
-        }
-        .pui-saved-content {
-          font-size: 12px;
-          color: rgba(0, 0, 0, 0.62);
-          white-space: pre-wrap;
-          line-height: 1.45;
-        }
-
-        .pui-notes-add {
-          margin-top: 14px;
-          padding-top: 14px;
-          border-top: 1px dashed rgba(0, 0, 0, 0.12);
-        }
-
-        .pui-mapbox {
-          background: rgba(255, 255, 255, 0.55);
-          border: 1px solid rgba(0, 0, 0, 0.06);
-          border-radius: 14px;
-          padding: 12px;
-        }
-        .pui-map-title {
-          font-weight: 900;
-          font-size: 12px;
-          color: rgba(0, 0, 0, 0.7);
-          margin-bottom: 8px;
-        }
-        .pui-palette {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-          margin-bottom: 10px;
-        }
-        .pui-color {
-          width: 22px;
-          height: 22px;
-          border-radius: 999px;
-          border: 2px solid rgba(255, 255, 255, 0.9);
-          box-shadow: 0 10px 18px rgba(0, 0, 0, 0.12);
-          cursor: pointer;
-        }
-        .pui-color:disabled {
-          opacity: 0.55;
-          cursor: not-allowed;
-        }
-        .pui-color.active {
-          outline: 3px solid rgba(17, 24, 39, 0.75);
-          outline-offset: 1px;
-        }
-        .pui-map {
-          height: 210px;
-          border-radius: 12px;
-          overflow: hidden;
-          border: 1px solid rgba(0, 0, 0, 0.1);
-          background: rgba(255, 255, 255, 0.8);
-          position: relative;
-        }
-        .pui-map-loading {
-          height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 12px;
-          color: rgba(0, 0, 0, 0.6);
-        }
-
-        .pui-polylist {
-          margin-top: 10px;
-          border-top: 1px dashed rgba(0, 0, 0, 0.18);
-          padding-top: 10px;
-          display: grid;
-          gap: 8px;
-        }
-        .pui-polyrow {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          background: rgba(255, 255, 255, 0.7);
-          border: 1px solid rgba(0, 0, 0, 0.06);
-          border-radius: 12px;
-          padding: 8px 10px;
-        }
-        .pui-polynum {
-          font-weight: 900;
-          color: rgba(0, 0, 0, 0.72);
-          font-size: 12px;
-        }
-        .pui-polychip {
-          width: 14px;
-          height: 14px;
-          border-radius: 999px;
-          border: 2px solid rgba(255, 255, 255, 0.95);
-          box-shadow: 0 8px 14px rgba(0, 0, 0, 0.12);
-        }
-
-        .pui-danger {
-          border: none;
-          background: rgba(239, 68, 68, 0.14);
-          color: #b91c1c;
-          font-weight: 1000;
-          padding: 8px 10px;
-          border-radius: 999px;
-          cursor: pointer;
-          font-size: 12px;
-        }
-        .pui-danger:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-        .pui-danger.small {
-          height: 40px;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: 0 14px;
-          border-radius: 12px;
-        }
-
-        .pui-lockhint {
-          margin-top: 8px;
-          font-size: 11px;
-          color: rgba(0, 0, 0, 0.55);
-        }
-
-        .pui-savewrap {
-          display: flex;
-          justify-content: center;
-          margin-top: 12px;
-        }
-        .pui-save {
-          width: 160px;
-          border: none;
-          border-radius: 8px;
-          padding: 10px 12px;
-          font-weight: 1000;
-          color: #fff;
-          background: linear-gradient(180deg, #5b7cff, #4c63ff);
-          box-shadow: 0 14px 26px rgba(76, 99, 255, 0.25);
-          cursor: pointer;
-        }
-        .pui-save:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        @media (max-width: 860px) {
-          .pui-hero-grid {
-            grid-template-columns: 1fr;
-          }
-          .pui-form-grid {
-            grid-template-columns: 1fr;
-          }
-          .pui-input-short {
-            width: 100%;
-          }
-        }
-
-        @media (max-width: 520px) {
-          .pui-note-row {
-            grid-template-columns: 1fr;
-            align-items: stretch;
-          }
-          .pui-danger.small {
-            width: 100%;
-            height: 38px;
-          }
-          .pui-notes-actions {
-            width: 100%;
-            justify-content: flex-end;
-          }
-        }
-      `}</style>
+        </div>
+      )}
     </div>
   );
 }

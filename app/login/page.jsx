@@ -23,7 +23,7 @@ export default function App() {
   const LS_TOKEN = "AUTH_TOKEN_V1";
 
   // ✅ backend base (Express ที่รันอยู่ เช่น http://localhost:3000)
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3000";
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3001";
 
   // session (ถ้าเคย login แล้ว)
   const [sessionUser, setSessionUser] = useState(null);
@@ -79,9 +79,14 @@ export default function App() {
       body: body ? JSON.stringify(body) : undefined,
     });
 
+    
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
-    return data;
+if (!res.ok) {
+  const msg = data?.error ? `${data.message || "Error"}: ${data.error}` : (data?.message || `HTTP ${res.status}`);
+  throw new Error(msg);
+}
+return data;
+
   }
 
   // ---------- Actions ----------
@@ -107,7 +112,7 @@ export default function App() {
       setSessionUser(data.user);
 
       // ✅ redirect to dashboard
-      window.location.href = "http://localhost:3001";
+      window.location.href = "http://localhost:3000";
 });
   }
 
