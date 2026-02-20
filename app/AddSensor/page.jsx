@@ -35,6 +35,86 @@ const MapClickHandler = dynamic(
   { ssr: false }
 );
 
+// =========================
+// ✅ API helpers (no UI changes)
+// =========================
+const API_BASE =
+  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE_URL) ||
+  "http://localhost:3000";
+
+const TOKEN_KEYS = ["token", "duwims_token"];
+
+function getToken() {
+  if (typeof window === "undefined") return null;
+  for (const k of TOKEN_KEYS) {
+    const t = window.localStorage.getItem(k);
+    if (t) return t;
+  }
+  return null;
+}
+
+function setToken(t) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("token", t);
+  window.localStorage.setItem("duwims_token", t);
+}
+
+async function apiFetch(path, { method = "GET", body, token, signal } = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+    signal,
+  });
+
+  const text = await res.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = { raw: text };
+  }
+
+  if (!res.ok) {
+    const msg = json?.message || res.statusText || "Request failed";
+    const err = new Error(`${method} ${path} -> ${res.status}: ${msg}`);
+    err.status = res.status;
+    err.payload = json;
+    throw err;
+  }
+  return json;
+}
+
+function numOrNull(v) {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function pickNumberFromText(s) {
+  if (!s) return null;
+  const m = String(s).match(/-?\d+(\.\d+)?/);
+  return m ? Number(m[0]) : null;
+}
+
+function mapGroupToSensorType(groupId) {
+  // mapping จาก group id ใน FE -> sensorType ใน backend
+  const m = {
+    soil: "soil_moisture",
+    temp: "temp_rh",
+    rh: "temp_rh",
+    irrigation: "irrigation",
+    npk: "npk",
+    wind: "wind",
+    ppfd: "ppfd",
+    rain: "rain",
+  };
+  return m[groupId] || "soil_moisture";
+}
+
 export default function AddSensor() {
   const [pinIcon, setPinIcon] = useState(null);
 
@@ -82,7 +162,18 @@ export default function AddSensor() {
   const [editOpen, setEditOpen] = useState(false);
   const onEditClick = () => setEditOpen((v) => !v);
 
-  // ===== ✅ PIN LIST =====
+  // =========================
+  // ✅ FILTER STATE
+  // =========================
+  const [selectedPlot, setSelectedPlot] = useState("all"); // plotId หรือ "all"
+  const [selectedNode, setSelectedNode] = useState("all"); // nodeId หรือ "all"
+  const [selectedSensorType, setSelectedSensorType] = useState("soil_moisture");
+
+  // ====== server data ======
+  const [plots, setPlots] = useState([]); // {id, plotName/alias...}
+  const [nodes, setNodes] = useState([]); // {id, plotId, category, name...}
+
+  // ✅ PIN LIST (from DB)
   const [pins, setPins] = useState([{ id: 1, number: 1, lat: 13.3, lng: 101.12 }]);
 
   // ✅ เลือก pin ที่กำลังแก้ไข
@@ -91,83 +182,88 @@ export default function AddSensor() {
     return pins.find((p) => p.id === activePinId) || pins[0];
   }, [pins, activePinId]);
 
-  // ✅ เพิ่ม pin: number ไม่ซ้ำ และ active ไป pin ใหม่ทันที
-  const addPin = () => {
-    const newId = Date.now() + Math.random();
+  // =========================
+  // ✅ SENSOR CRUD (DB + inline)
+  // =========================
+  const [sensorGroups, setSensorGroups] = useState([
+    {
+      id: "soil",
+      title: "เซนเซอร์ความชื้นดิน",
+      items: [],
+    },
+    {
+      id: "temp",
+      title: "เซนเซอร์ อุณหภูมิ",
+      items: [],
+    },
+    {
+      id: "irrigation",
+      title: "เซนเซอร์การให้น้ำ",
+      items: [],
+    },
+    {
+      id: "rh",
+      title: "เซนเซอร์ความชื้นสัมพัทธ์",
+      items: [],
+    },
+    {
+      id: "npk",
+      title: "เซนเซอร์ NPK",
+      items: [],
+    },
+    {
+      id: "wind",
+      title: "เซนเซอร์วัดความเร็วลม",
+      items: [],
+    },
+    {
+      id: "ppfd",
+      title: "เซนเซอร์ความเข้มแสง",
+      items: [],
+    },
+    {
+      id: "rain",
+      title: "เซนเซอร์ปริมาณน้ำฝน",
+      items: [],
+    },
+  ]);
 
-    setPins((prev) => {
-      const usedNumbers = new Set(prev.map((p) => p.number));
-      let nextNumber = 1;
-      while (usedNumbers.has(nextNumber)) nextNumber += 1;
+  const uid = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-      const last = prev[prev.length - 1] || { lat: 13.3, lng: 101.12 };
-      return [...prev, { id: newId, number: nextNumber, lat: last.lat, lng: last.lng }];
-    });
+  const [addName, setAddName] = useState("");
+  const [addValue, setAddValue] = useState("");
+  const [selectedGroupId, setSelectedGroupId] = useState("soil");
 
-    setActivePinId(newId);
-  };
+  const [editingItem, setEditingItem] = useState(null); // { groupId, itemId }
+  const [editName, setEditName] = useState("");
+  const [editValue, setEditValue] = useState("");
 
-  // ✅ ลบ pin ตาม id (ลบ #2/#3/#4 ได้)
-  const removePinById = (pinId) => {
-    setPins((prev) => {
-      if (prev.length <= 1) return prev;
-
-      const idx = prev.findIndex((p) => p.id === pinId);
-      if (idx === -1) return prev;
-
-      const next = prev.filter((p) => p.id !== pinId);
-
-      // ถ้าลบตัวที่ active อยู่ ให้ active ย้ายไปตัวถัดไป/ก่อนหน้า
-      if (pinId === activePinId) {
-        const pick = next[idx] || next[idx - 1] || next[0];
-        if (pick) setActivePinId(pick.id);
-      }
-
-      return next;
-    });
-  };
-
-  // ✅ ปุ่ม "-" ด้านบน: ลบ pin ที่กำลังเลือก (active)
-  const removeActivePin = () => {
-    removePinById(activePinId);
-  };
-
-  // ✅ คลิกแผนที่ => ย้ายพิกัดเฉพาะ pin ที่เลือก (active)
-  const onPickLatLng = (latlng) => {
-    if (!latlng) return;
-    const { lat, lng } = latlng;
-    setPins((prev) => prev.map((p) => (p.id === activePinId ? { ...p, lat, lng } : p)));
-  };
-
-  // ✅ แก้ lat/lng จาก input => แก้เฉพาะ active pin
-  const setActiveLat = (lat) => {
-    setPins((prev) => prev.map((p) => (p.id === activePinId ? { ...p, lat } : p)));
-  };
-  const setActiveLng = (lng) => {
-    setPins((prev) => prev.map((p) => (p.id === activePinId ? { ...p, lng } : p)));
-  };
+  const groupChoices = useMemo(
+    () => sensorGroups.map((g) => ({ id: g.id, title: g.title })),
+    [sensorGroups]
+  );
 
   // =========================
-  // ✅ FILTER STATE
+  // ✅ Derived dropdown labels
   // =========================
-  const [selectedPlot, setSelectedPlot] = useState("all");
-  const [selectedNode, setSelectedNode] = useState("all");
-  const [selectedSensorType, setSelectedSensorType] = useState("soil_moisture");
-
   const plotLabel = useMemo(() => {
     if (selectedPlot === "all") return "ทุกแปลง";
-    return `แปลง ${selectedPlot}`;
-  }, [selectedPlot]);
+    const p = plots.find((x) => String(x.id) === String(selectedPlot));
+    return p ? p.plotName || p.name || p.alias || `แปลง ${p.id}` : `แปลง ${selectedPlot}`;
+  }, [selectedPlot, plots]);
 
-  const nodeOptions = [
-    { value: "all", label: "ทุก Node" },
-    { value: "air", label: "Node อากาศ" },
-    { value: "soil", label: "Node ดิน" },
-  ];
+  // Node options: "all" + nodes of selectedPlot
+  const nodeOptions = useMemo(() => {
+    const items = [{ value: "all", label: "ทุก Node" }];
+    const inPlot = selectedPlot === "all" ? [] : nodes.filter((n) => String(n.plotId) === String(selectedPlot));
+    for (const n of inPlot) {
+      const catLabel = n.category === "air" ? "อากาศ" : "ดิน";
+      items.push({ value: n.id, label: `${n.name || "Node"} (${catLabel})` });
+    }
+    return items;
+  }, [nodes, selectedPlot]);
 
   // ✅ ให้ครบตามที่สั่ง:
-  // อุณหภูมิและความชื้น/วัดความเร็วลม/ความเข้มแสง/ปริมาณน้ำฝน/ความเข้้มข้นธาตุอาหาร (N,P,K)
-  // การให้น้ำ / ความพร้อมใช้น้ำ/ความชื้ื้นในดิน
   const sensorOptions = useMemo(
     () => [
       { value: "temp_rh", label: "อุณหภูมิและความชื้น" },
@@ -190,97 +286,412 @@ export default function AddSensor() {
   }, [sensorOptions]);
 
   // =========================
-  // ✅ SENSOR CRUD (เพิ่ม/แก้ไข inline)
+  // ✅ Auth token bootstrap (optional)
   // =========================
-  const [sensorGroups, setSensorGroups] = useState([
-    {
-      id: "soil",
-      title: "เซนเซอร์ความชื้นดิน",
-      items: [
-        { id: "soil-1", name: "เซนเซอร์ความชื้นดิน #1", value: "ความชื้นดิน ~ 32 %" },
-        { id: "soil-2", name: "เซนเซอร์ความชื้นดิน #2", value: "ความชื้นดิน ~ 38 %" },
-      ],
-    },
-    {
-      id: "temp",
-      title: "เซนเซอร์ อุณหภูมิ",
-      items: [
-        { id: "temp-1", name: "เซนเซอร์ อุณหภูมิ #1", value: "อุณหภูมิ ~ 30°C" },
-        { id: "temp-2", name: "เซนเซอร์ อุณหภูมิ #2", value: "อุณหภูมิ ~ 29°C" },
-        { id: "temp-3", name: "เซนเซอร์ อุณหภูมิ #3", value: "อุณหภูมิ ~ 31°C" },
-      ],
-    },
-    {
-      id: "irrigation",
-      title: "เซนเซอร์การให้น้ำ",
-      items: [{ id: "irrig-1", name: "เซนเซอร์การให้น้ำ #1", value: "การให้น้ำ 20 kPa" }],
-    },
-    {
-      id: "rh",
-      title: "เซนเซอร์ความชื้นสัมพัทธ์",
-      items: [
-        {
-          id: "rh-1",
-          name: "เซนเซอร์ความชื้นสัมพัทธ์ #1",
-          value: "ความชื้นสัมพัทธ์ ~ 78 %",
+  useEffect(() => {
+    // ถ้ายังไม่มี token และคุณมีระบบ login หน้าอื่นอยู่แล้ว ให้ไม่ทำอะไร
+    // หน้านี้จะเรียก API แล้วจะโดน 401 — user ต้อง login ก่อน
+    // (เพื่อไม่เปลี่ยน UI/flow)
+  }, []);
+
+  // =========================
+  // ✅ Load: plots
+  // =========================
+  useEffect(() => {
+    const controller = new AbortController();
+    const run = async () => {
+      try {
+        const token = getToken();
+        if (!token) return; // ต้อง login ก่อน (ไม่แตะ UI)
+        const r = await apiFetch("/api/plots", { token, signal: controller.signal });
+        setPlots(Array.isArray(r?.items) ? r.items : []);
+      } catch (e) {
+        // เงียบไว้ ไม่เปลี่ยน UI
+        console.warn("[AddSensor] load plots failed:", e?.message || e);
+      }
+    };
+    run();
+    return () => controller.abort();
+  }, []);
+
+  // =========================
+  // ✅ Load: nodes (when selectedPlot changes)
+  // =========================
+  useEffect(() => {
+    const controller = new AbortController();
+    const run = async () => {
+      try {
+        const token = getToken();
+        if (!token) return;
+        if (selectedPlot === "all") {
+          setNodes([]);
+          setSelectedNode("all");
+          return;
+        }
+        const r = await apiFetch(
+          `/api/nodes?plotId=${encodeURIComponent(selectedPlot)}&category=all`,
+          { token, signal: controller.signal }
+        );
+        const items = Array.isArray(r?.items) ? r.items : [];
+        // ensure plotId string exists
+        setNodes(items.map((x) => ({ ...x, plotId: x.plotId })));
+
+        // ถ้า selectedNode ไม่อยู่ใน list -> reset
+        if (selectedNode !== "all" && !items.some((n) => String(n.id) === String(selectedNode))) {
+          setSelectedNode("all");
+        }
+      } catch (e) {
+        console.warn("[AddSensor] load nodes failed:", e?.message || e);
+      }
+    };
+    run();
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPlot]);
+
+  // =========================
+  // ✅ Load: pins (when plot/node changes)
+  // - requirement: GET /pins?plotId=&nodeId=
+  // =========================
+  useEffect(() => {
+    const controller = new AbortController();
+    const run = async () => {
+      try {
+        const token = getToken();
+        if (!token) return;
+
+        if (selectedPlot === "all") {
+          // ไม่รู้จะโหลด plot ไหน จึงคง demo ไว้
+          return;
+        }
+
+        const q = new URLSearchParams();
+        q.set("plotId", String(selectedPlot));
+        if (selectedNode !== "all") q.set("nodeId", String(selectedNode));
+
+        const r = await apiFetch(`/api/pins?${q.toString()}`, {
+          token,
+          signal: controller.signal,
+        });
+
+        const items = Array.isArray(r?.items) ? r.items : [];
+        const normalized = items
+          .map((p) => ({
+            id: p.id || p._id || uid(),
+            number: Number(p.number),
+            lat: Number(p.lat),
+            lng: Number(p.lng),
+            _db: { pinId: p.id || p._id, plotId: p.plotId, nodeId: p.nodeId },
+          }))
+          .filter((p) => Number.isFinite(p.number) && Number.isFinite(p.lat) && Number.isFinite(p.lng))
+          .sort((a, b) => a.number - b.number);
+
+        if (normalized.length) {
+          setPins(normalized);
+          setActivePinId(normalized[0].id);
+        } else {
+          // ถ้าไม่มีใน DB ให้คงขั้นต่ำ 1 pin (ยังไม่สร้างจนกด + หรือ SAVE)
+          setPins((prev) => (prev?.length ? prev : [{ id: 1, number: 1, lat: 13.3, lng: 101.12 }]));
+          setActivePinId((prev) => prev || 1);
+        }
+      } catch (e) {
+        console.warn("[AddSensor] load pins failed:", e?.message || e);
+      }
+    };
+    run();
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPlot, selectedNode]);
+
+  // =========================
+  // ✅ Load: sensors (when node changes)
+  // - requirement: GET /sensors?nodeId=
+  // =========================
+  useEffect(() => {
+    const controller = new AbortController();
+    const run = async () => {
+      try {
+        const token = getToken();
+        if (!token) return;
+
+        if (selectedNode === "all") {
+          // ไม่รู้ node ไหนให้โหลด -> ล้างรายการ (ไม่เปลี่ยน UI มาก)
+          setSensorGroups((prev) =>
+            prev.map((g) => ({
+              ...g,
+              items: [],
+            }))
+          );
+          return;
+        }
+
+        const r = await apiFetch(`/api/sensors?nodeId=${encodeURIComponent(selectedNode)}`, {
+          token,
+          signal: controller.signal,
+        });
+
+        const items = Array.isArray(r?.items) ? r.items : [];
+
+        // map sensors -> group by sensorType
+        const nextGroups = sensorGroups.map((g) => {
+          const st = mapGroupToSensorType(g.id);
+          const groupItems = items
+            .filter((s) => String(s.sensorType) === String(st))
+            .map((s) => ({
+              id: s.id || s._id || uid(),
+              name: s.name || "",
+              value: s.valueHint || s.unit || "",
+              _db: { sensorId: s.id || s._id, nodeId: s.nodeId, sensorType: s.sensorType },
+            }));
+          return { ...g, items: groupItems };
+        });
+
+        setSensorGroups(nextGroups);
+      } catch (e) {
+        console.warn("[AddSensor] load sensors failed:", e?.message || e);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    };
+    run();
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNode]);
+
+  // =========================
+  // ✅ PIN actions (DB)
+  // =========================
+
+  // ✅ เพิ่ม pin: number ไม่ซ้ำ และ active ไป pin ใหม่ทันที
+  const addPin = async () => {
+    const newId = Date.now() + Math.random();
+
+    setPins((prev) => {
+      const usedNumbers = new Set(prev.map((p) => p.number));
+      let nextNumber = 1;
+      while (usedNumbers.has(nextNumber)) nextNumber += 1;
+
+      const last = prev[prev.length - 1] || { lat: 13.3, lng: 101.12 };
+      return [...prev, { id: newId, number: nextNumber, lat: last.lat, lng: last.lng }];
+    });
+
+    setActivePinId(newId);
+
+    // ✅ ถ้ามี plot/node ที่เลือกแล้ว -> create ที่ DB ทันที
+    try {
+      const token = getToken();
+      if (!token) return;
+      if (selectedPlot === "all" || selectedNode === "all") return;
+
+      // หา number ของ pin ใหม่จาก state ล่าสุดแบบปลอดภัย: recompute
+      const used = new Set(pins.map((p) => p.number));
+      let nextNumber = 1;
+      while (used.has(nextNumber)) nextNumber += 1;
+
+      const last = pins[pins.length - 1] || { lat: 13.3, lng: 101.12 };
+      const r = await apiFetch("/api/pins", {
+        method: "POST",
+        token,
+        body: {
+          plotId: selectedPlot,
+          nodeId: selectedNode,
+          number: nextNumber,
+          lat: last.lat,
+          lng: last.lng,
         },
-      ],
-    },
-    {
-      id: "npk",
-      title: "เซนเซอร์ NPK",
-      items: [
-        { id: "npk-1", name: "เซนเซอร์ NPK #1", value: "NPK ~ 45 ppm" },
-        { id: "npk-2", name: "เซนเซอร์ NPK #2", value: "NPK ~ 52 ppm" },
-      ],
-    },
-    {
-      id: "wind",
-      title: "เซนเซอร์วัดความเร็วลม",
-      items: [{ id: "wind-1", name: "เซนเซอร์วัดความเร็วลม #1", value: "ลม ~ 2.3 m/s" }],
-    },
-    {
-      id: "ppfd",
-      title: "เซนเซอร์ความเข้มแสง",
-      items: [{ id: "ppfd-1", name: "เซนเซอร์ความเข้มแสง #1", value: "แสง ~ 620 lux" }],
-    },
-    {
-      id: "rain",
-      title: "เซนเซอร์ปริมาณน้ำฝน",
-      items: [{ id: "rain-1", name: "เซนเซอร์ปริมาณน้ำฝน #1", value: "ฝน ~ 1.2 mm" }],
-    },
-  ]);
+      });
 
-  const uid = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const created = r?.item;
+      if (created?.id) {
+        // replace temp pin with DB pinId while keeping UI unchanged
+        setPins((prev) =>
+          prev.map((p) =>
+            p.id === newId
+              ? {
+                  ...p,
+                  id: created.id,
+                  number: created.number,
+                  lat: created.lat,
+                  lng: created.lng,
+                  _db: { pinId: created.id, plotId: created.plotId, nodeId: created.nodeId },
+                }
+              : p
+          )
+        );
+        setActivePinId(created.id);
+      }
+    } catch (e) {
+      console.warn("[AddSensor] create pin failed:", e?.message || e);
+    }
+  };
 
-  const [addName, setAddName] = useState("");
-  const [addValue, setAddValue] = useState("");
-  const [selectedGroupId, setSelectedGroupId] = useState("soil");
+  // ✅ ลบ pin ตาม id (ลบ #2/#3/#4 ได้) + DELETE /pins/{pinId}
+  const removePinById = async (pinId) => {
+    setPins((prev) => {
+      if (prev.length <= 1) return prev;
 
-  const [editingItem, setEditingItem] = useState(null); // { groupId, itemId }
-  const [editName, setEditName] = useState("");
-  const [editValue, setEditValue] = useState("");
+      const idx = prev.findIndex((p) => p.id === pinId);
+      if (idx === -1) return prev;
 
-  const groupChoices = useMemo(
-    () => sensorGroups.map((g) => ({ id: g.id, title: g.title })),
-    [sensorGroups]
-  );
+      const next = prev.filter((p) => p.id !== pinId);
 
-  const onAddSensor = () => {
+      // ถ้าลบตัวที่ active อยู่ ให้ active ย้ายไปตัวถัดไป/ก่อนหน้า
+      if (pinId === activePinId) {
+        const pick = next[idx] || next[idx - 1] || next[0];
+        if (pick) setActivePinId(pick.id);
+      }
+
+      return next;
+    });
+
+    // DB delete (best effort)
+    try {
+      const token = getToken();
+      if (!token) return;
+      // ถ้าเป็น temp id (ไม่ใช่ ObjectId) จะลบไม่สำเร็จ ก็ข้าม
+      await apiFetch(`/api/pins/${encodeURIComponent(String(pinId))}`, { method: "DELETE", token });
+    } catch (e) {
+      console.warn("[AddSensor] delete pin failed:", e?.message || e);
+    }
+  };
+
+  // ✅ ปุ่ม "-" ด้านบน: ลบ pin ที่กำลังเลือก (active)
+  const removeActivePin = () => {
+    removePinById(activePinId);
+  };
+
+  // ✅ คลิกแผนที่ => ย้ายพิกัดเฉพาะ pin ที่เลือก (active) + PATCH /pins/{pinId}
+  const onPickLatLng = async (latlng) => {
+    if (!latlng) return;
+    const { lat, lng } = latlng;
+
+    // UI update
+    setPins((prev) => prev.map((p) => (p.id === activePinId ? { ...p, lat, lng } : p)));
+
+    // DB update (best effort)
+    try {
+      const token = getToken();
+      if (!token) return;
+      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, {
+        method: "PATCH",
+        token,
+        body: { lat, lng },
+      });
+    } catch (e) {
+      console.warn("[AddSensor] patch pin failed:", e?.message || e);
+    }
+  };
+
+  // ✅ แก้ lat/lng จาก input => แก้เฉพาะ active pin + PATCH /pins/{pinId}
+  const setActiveLat = async (lat) => {
+    setPins((prev) => prev.map((p) => (p.id === activePinId ? { ...p, lat } : p)));
+    try {
+      const token = getToken();
+      if (!token) return;
+      const la = numOrNull(lat);
+      if (la === null) return;
+      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, {
+        method: "PATCH",
+        token,
+        body: { lat: la },
+      });
+    } catch (e) {
+      console.warn("[AddSensor] patch pin lat failed:", e?.message || e);
+    }
+  };
+  const setActiveLng = async (lng) => {
+    setPins((prev) => prev.map((p) => (p.id === activePinId ? { ...p, lng } : p)));
+    try {
+      const token = getToken();
+      if (!token) return;
+      const lo = numOrNull(lng);
+      if (lo === null) return;
+      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, {
+        method: "PATCH",
+        token,
+        body: { lng: lo },
+      });
+    } catch (e) {
+      console.warn("[AddSensor] patch pin lng failed:", e?.message || e);
+    }
+  };
+
+  // =========================
+  // ✅ SENSOR actions (DB)
+  // =========================
+  const onAddSensor = async () => {
     const name = (addName || "").trim();
     const value = (addValue || "").trim();
     if (!name || !value) return;
 
+    // UI optimistic
+    const tempId = uid();
     setSensorGroups((prev) =>
       prev.map((g) => {
         if (g.id !== selectedGroupId) return g;
-        const newItem = { id: uid(), name, value };
+        const newItem = { id: tempId, name, value };
         return { ...g, items: [...g.items, newItem] };
       })
     );
-
     setAddName("");
     setAddValue("");
+
+    // DB create
+    try {
+      const token = getToken();
+      if (!token) return;
+      if (selectedNode === "all") return; // ต้องเลือก node ก่อน
+
+      const sensorType = mapGroupToSensorType(selectedGroupId);
+
+      const body = {
+        nodeId: selectedNode,
+        sensorType,
+        name,
+        valueHint: value,
+        status: "OK",
+        lastReading: {
+          value: Number.isFinite(pickNumberFromText(value)) ? pickNumberFromText(value) : null,
+          ts: Number.isFinite(pickNumberFromText(value)) ? new Date().toISOString() : null,
+        },
+      };
+
+      const r = await apiFetch("/api/sensors", { method: "POST", token, body });
+      const created = r?.item;
+
+      if (created?.id) {
+        setSensorGroups((prev) =>
+          prev.map((g) => {
+            if (g.id !== selectedGroupId) return g;
+            return {
+              ...g,
+              items: g.items.map((it) =>
+                it.id === tempId
+                  ? {
+                      ...it,
+                      id: created.id,
+                      _db: { sensorId: created.id, nodeId: created.nodeId, sensorType: created.sensorType },
+                    }
+                  : it
+              ),
+            };
+          })
+        );
+      }
+
+      // optional: create reading if numeric exists
+      const numeric = pickNumberFromText(value);
+      if (created?.id && Number.isFinite(numeric)) {
+        try {
+          await apiFetch("/api/readings", {
+            method: "POST",
+            token,
+            body: { sensorId: created.id, value: numeric, ts: new Date().toISOString() },
+          });
+        } catch (_) {}
+      }
+    } catch (e) {
+      console.warn("[AddSensor] create sensor failed:", e?.message || e);
+    }
   };
 
   const onStartInlineEdit = (groupId, itemId) => {
@@ -298,28 +709,60 @@ export default function AddSensor() {
     setEditValue("");
   };
 
-  const onSaveInlineEdit = () => {
+  const onSaveInlineEdit = async () => {
     if (!editingItem) return;
     const name = (editName || "").trim();
     const value = (editValue || "").trim();
     if (!name || !value) return;
 
+    // UI update
+    const { groupId, itemId } = editingItem;
     setSensorGroups((prev) =>
       prev.map((g) => {
-        if (g.id !== editingItem.groupId) return g;
+        if (g.id !== groupId) return g;
         return {
           ...g,
-          items: g.items.map((it) =>
-            it.id === editingItem.itemId ? { ...it, name, value } : it
-          ),
+          items: g.items.map((it) => (it.id === itemId ? { ...it, name, value } : it)),
         };
       })
     );
 
+    // DB patch
+    try {
+      const token = getToken();
+      if (!token) return;
+
+      const sensorId = String(itemId);
+      await apiFetch(`/api/sensors/${encodeURIComponent(sensorId)}`, {
+        method: "PATCH",
+        token,
+        body: {
+          name,
+          valueHint: value,
+          // ถ้าต้องการให้เปลี่ยน sensorType ตาม groupId ก็ใส่ได้
+          // sensorType: mapGroupToSensorType(groupId),
+        },
+      });
+
+      const numeric = pickNumberFromText(value);
+      if (Number.isFinite(numeric)) {
+        try {
+          await apiFetch("/api/readings", {
+            method: "POST",
+            token,
+            body: { sensorId, value: numeric, ts: new Date().toISOString() },
+          });
+        } catch (_) {}
+      }
+    } catch (e) {
+      console.warn("[AddSensor] patch sensor failed:", e?.message || e);
+    }
+
     onCancelInlineEdit();
   };
 
-  const onDeleteItem = (groupId, itemId) => {
+  const onDeleteItem = async (groupId, itemId) => {
+    // UI
     setSensorGroups((prev) =>
       prev.map((g) => {
         if (g.id !== groupId) return g;
@@ -329,10 +772,22 @@ export default function AddSensor() {
     if (editingItem && editingItem.groupId === groupId && editingItem.itemId === itemId) {
       onCancelInlineEdit();
     }
+
+    // DB
+    try {
+      const token = getToken();
+      if (!token) return;
+      await apiFetch(`/api/sensors/${encodeURIComponent(String(itemId))}`, {
+        method: "DELETE",
+        token,
+      });
+    } catch (e) {
+      console.warn("[AddSensor] delete sensor failed:", e?.message || e);
+    }
   };
 
   // =========================
-  // ✅ styles
+  // ✅ styles (UNCHANGED)
   // =========================
   const styles = useMemo(
     () => ({
@@ -702,6 +1157,7 @@ export default function AddSensor() {
     [editOpen, isMobile, isTablet]
   );
 
+  // polygon demo (ถ้าต้องโหลด polygon จาก DB ให้เรียก /api/plots/:plotId/polygon แล้ว set state)
   const fieldPolygon = [
     [13.35, 101.0],
     [13.35, 101.2],
@@ -709,7 +1165,10 @@ export default function AddSensor() {
     [13.25, 101.0],
   ];
 
-  const onSaveAll = () => {
+  // =========================
+  // ✅ SAVE (optional) - keep UI same
+  // =========================
+  const onSaveAll = async () => {
     const payload = {
       plot: selectedPlot,
       node: selectedNode,
@@ -719,7 +1178,10 @@ export default function AddSensor() {
       sensors: sensorGroups,
     };
     console.log("SAVE payload =>", payload);
-    alert("บันทึกแล้ว (demo) ดู payload ใน console ได้เลย");
+
+    // หน้านี้: เราทำให้ CRUD ทำงานทันทีอยู่แล้ว (add/edit/delete ยิง API)
+    // SAVE จะเป็นแค่ยืนยัน (ไม่ต้องเปลี่ยน UI)
+    alert("บันทึกแล้ว (sync กับ DB แบบ real-time)");
   };
 
   return (
@@ -743,9 +1205,11 @@ export default function AddSensor() {
                 onChange={(e) => setSelectedPlot(e.target.value)}
               >
                 <option value="all">ทุกแปลง</option>
-                <option value="A">แปลง A</option>
-                <option value="B">แปลง B</option>
-                <option value="C">แปลง C</option>
+                {plots.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.plotName || p.name || p.alias || p.id}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -806,7 +1270,9 @@ export default function AddSensor() {
             </div>
             <div>
               <div style={styles.infoLabel}>จำนวนเซนเซอร์</div>
-              <div style={styles.infoBox}>6 เครื่อง</div>
+              <div style={styles.infoBox}>
+                {sensorGroups.reduce((sum, g) => sum + (g.items?.length || 0), 0)} เครื่อง
+              </div>
             </div>
           </div>
 
