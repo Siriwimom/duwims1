@@ -196,7 +196,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
       const baseName = `แปลงใหม่ ${new Date().toISOString().slice(0, 10)}`;
       const r = await apiFetch("/api/plots", {
         method: "POST",
-        body: { plotName: baseName, alias: baseName, caretaker: "", plantType: "", plantedAt: "" },
+        body: { plotName: baseName, name: baseName, alias: baseName, caretaker: "", plantType: "", plantedAt: "" },
       });
       const created = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
       if (created) {
@@ -219,7 +219,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
     try {
       const r = await apiFetch(`/api/plots/${selectedPlotId}`, {
         method: "PATCH",
-        body: { alias: plotAlias, plotName, caretaker, plantType, plantedAt },
+        body: { plotName, name: plotName, alias: plotAlias || plotName, caretaker, plantType, plantedAt },
       });
       const updated = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
       if (updated) setPlots((prev) => prev.map((p) => (String(p.id) === String(updated.id) ? updated : p)));
@@ -444,7 +444,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   }
 
   const getPlotDisplayName = (p) => {
-    const t = (p?.alias || p?.plotName || p?.name || "").trim();
+    const t = (p?.plotName || p?.name || p?.alias || "").trim();
     return t || "แปลง";
   };
 
@@ -512,13 +512,22 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
             <div style={{ display: "grid", gap: 10 }}>
               <label style={{ display: "grid", gap: 6 }}>
-                <div>ชื่อแปลง (alias)</div>
-                <input value={plotAlias} onChange={(e) => setPlotAlias(e.target.value)} disabled={isReadOnly || busy} />
+                <div>ชื่อแปลง (ชื่อจริง)</div>
+                <input
+                  value={plotName}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setPlotName(v);
+                    // ให้ชื่อแสดงผลตามชื่อจริงโดยอัตโนมัติ (ลดความสับสน)
+                    setPlotAlias(v);
+                  }}
+                  disabled={isReadOnly || busy}
+                />
               </label>
 
               <label style={{ display: "grid", gap: 6 }}>
-                <div>ชื่อเต็มแปลง (plotName)</div>
-                <input value={plotName} onChange={(e) => setPlotName(e.target.value)} disabled={isReadOnly || busy} />
+                <div>ชื่อแปลงสำหรับแสดง (alias)</div>
+                <input value={plotAlias} onChange={(e) => setPlotAlias(e.target.value)} disabled={isReadOnly || busy} />
               </label>
 
               <label style={{ display: "grid", gap: 6 }}>
@@ -630,7 +639,10 @@ export default function AddPlantingPlotsPageMultiPolygons() {
             </div>
 
             <div style={{ marginTop: 10, height: 560, borderRadius: 12, overflow: "hidden" }}>
-              <MapContainer center={[13.7563, 100.5018]} zoom={13} style={{ height: "100%", width: "100%" }}>
+              {!mounted ? (
+                <div style={{ height: "100%" }} />
+              ) : (
+                <MapContainer key={selectedPlotId || "map"} center={[13.7563, 100.5018]} zoom={13} style={{ height: "100%", width: "100%" }} preferCanvas={true}>
                 <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
                 <FeatureGroup ref={fgRef}>
@@ -659,6 +671,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                   />
                 </FeatureGroup>
               </MapContainer>
+              )}
             </div>
           </div>
         </div>
