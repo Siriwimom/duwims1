@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import "leaflet/dist/leaflet.css";
 
 // --- dynamic import React-Leaflet เฉพาะฝั่ง client ---
@@ -223,8 +224,7 @@ async function apiFetch(path, { method = "GET", token = "", body } = {}) {
 }
 
 // ============================
-// ✅ Weather (FRONTEND ONLY): Open-Meteo 7 days
-// - daily: max/min temp, pop max, precipitation_sum
+// ✅ Weather (Open-Meteo) 7 days
 // ============================
 function toThaiWeekday(dateStr) {
   const d = new Date(dateStr);
@@ -361,6 +361,8 @@ function buildGroupsFromSensors(sensors = [], sensorTypeMap = new Map()) {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
+
   const [pinIcon, setPinIcon] = useState(null);
   const [isClient, setIsClient] = useState(false);
 
@@ -393,64 +395,28 @@ export default function DashboardPage() {
 
   const gridTop = useMemo(() => {
     if (isMobile) {
-      return {
-        display: "grid",
-        gridTemplateColumns: "1fr",
-        gridTemplateAreas: `"forecast" "mid" "right"`,
-        gap: 12,
-      };
+      return { display: "grid", gridTemplateColumns: "1fr", gridTemplateAreas: `"forecast" "mid" "right"`, gap: 12 };
     }
     if (isTablet) {
-      return {
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gridTemplateAreas: `"forecast forecast" "mid right"`,
-        gap: 14,
-      };
+      return { display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateAreas: `"forecast forecast" "mid right"`, gap: 14 };
     }
-    return {
-      display: "grid",
-      gridTemplateColumns: "2fr 1.1fr 1.1fr",
-      gridTemplateAreas: `"forecast mid right"`,
-      gap: 16,
-    };
+    return { display: "grid", gridTemplateColumns: "2fr 1.1fr 1.1fr", gridTemplateAreas: `"forecast mid right"`, gap: 16 };
   }, [isMobile, isTablet]);
 
   const gridMiddle = useMemo(() => {
     if (isMobile) {
-      return {
-        display: "grid",
-        gridTemplateColumns: "1fr",
-        gridTemplateAreas: `"map" "status" "issue"`,
-        gap: 12,
-      };
+      return { display: "grid", gridTemplateColumns: "1fr", gridTemplateAreas: `"map" "status" "issue"`, gap: 12 };
     }
     if (isTablet) {
-      return {
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gridTemplateAreas: `"map map" "status issue"`,
-        gap: 14,
-      };
+      return { display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateAreas: `"map map" "status issue"`, gap: 14 };
     }
-    return {
-      display: "grid",
-      gridTemplateColumns: "2fr 1.1fr 1.1fr",
-      gridTemplateAreas: `"map status issue"`,
-      gap: 16,
-    };
+    return { display: "grid", gridTemplateColumns: "2fr 1.1fr 1.1fr", gridTemplateAreas: `"map status issue"`, gap: 16 };
   }, [isMobile, isTablet]);
 
   const gridPins = useMemo(() => {
     if (isMobile) return { display: "grid", gridTemplateColumns: "1fr", gap: 12 };
     if (isTablet) return { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 };
-    return {
-      display: "grid",
-      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-      gap: 16,
-      alignItems: "stretch",
-      gridAutoRows: "1fr",
-    };
+    return { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16, alignItems: "stretch", gridAutoRows: "1fr" };
   }, [isMobile, isTablet]);
 
   const gridWeather = useMemo(() => {
@@ -470,9 +436,7 @@ export default function DashboardPage() {
   }, [isMobile]);
 
   const pinPillRow = useMemo(() => {
-    if (isMobile) {
-      return { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginBottom: 12 };
-    }
+    if (isMobile) return { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginBottom: 12 };
     return { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginBottom: 12 };
   }, [isMobile]);
 
@@ -505,32 +469,19 @@ export default function DashboardPage() {
   }, [isClient]);
 
   // ============================
-  // ✅ Auth
+  // ✅ Auth + Data state
   // ============================
   const [token, setToken] = useState("");
   const [me, setMe] = useState(null);
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authError, setAuthError] = useState("");
-
-  // ============================
-  // ✅ Data
-  // ============================
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
 
-  // weather
   const [forecastDays, setForecastDays] = useState([]);
 
-  // backend/cached
   const [plots, setPlots] = useState([DEMO_PLOT]);
   const [selectedPlotId, setSelectedPlotId] = useState("__demo__");
-  const selectedPlot = useMemo(
-    () => plots.find((p) => String(p.id) === String(selectedPlotId)) || DEMO_PLOT,
-    [plots, selectedPlotId]
-  );
+  const selectedPlot = useMemo(() => plots.find((p) => String(p.id) === String(selectedPlotId)) || DEMO_PLOT, [plots, selectedPlotId]);
 
   const [polygons, setPolygons] = useState([{ id: "demo-poly", coords: DEMO_POLYGON, color: "#16a34a" }]);
   const [pins, setPins] = useState(DEMO_PINS);
@@ -546,7 +497,7 @@ export default function DashboardPage() {
   const [cacheTs, setCacheTs] = useState(null);
 
   // ============================
-  // ✅ Load token/cache on mount
+  // ✅ Mount: token + cache + lastPlot
   // ============================
   useEffect(() => {
     if (!isClient) return;
@@ -565,7 +516,6 @@ export default function DashboardPage() {
     const cache = loadCache();
     if (cache?.data) {
       setCacheTs(cache.ts || null);
-
       const cachedPlots = Array.isArray(cache.data.plots) ? cache.data.plots : [];
       const mergedPlots = [DEMO_PLOT, ...cachedPlots.filter((p) => p && p.id)];
       setPlots(mergedPlots.length ? mergedPlots : [DEMO_PLOT]);
@@ -584,6 +534,7 @@ export default function DashboardPage() {
         setPins(perPlot.pins || []);
         setSensorsByPinId(perPlot.sensorsByPinId || {});
       }
+
       setMode("cache");
     } else {
       setMode("demo");
@@ -607,12 +558,10 @@ export default function DashboardPage() {
     let cancelled = false;
     apiFetch("/me", { token })
       .then((d) => {
-        if (cancelled) return;
-        setMe(d?.user || null);
+        if (!cancelled) setMe(d?.user || null);
       })
       .catch(() => {
-        if (cancelled) return;
-        setMe(null);
+        if (!cancelled) setMe(null);
       });
     return () => {
       cancelled = true;
@@ -620,45 +569,19 @@ export default function DashboardPage() {
   }, [token]);
 
   // ============================
-  // ✅ Login / Register / Logout
+  // ✅ Redirect if no token (optional)
+  // ถ้าคุณอยากให้ dashboard เข้าได้เฉพาะ login ให้เปิดบรรทัดนี้
   // ============================
-  async function onLogin() {
-    setAuthError("");
-    setAuthLoading(true);
-    try {
-      const d = await apiFetch("/auth/login", { method: "POST", body: { email, password } });
-      const tk = d?.token || "";
-      if (!tk) throw new Error("No token returned");
-      setStoredToken(tk);
-      setToken(tk);
-      setPassword("");
-    } catch (e) {
-      setAuthError(e?.message || "Login failed");
-    } finally {
-      setAuthLoading(false);
-    }
-  }
-
-  async function onRegister() {
-    setAuthError("");
-    setAuthLoading(true);
-    try {
-      await apiFetch("/auth/register", { method: "POST", body: { email, password, role: "owner" } });
-      await onLogin();
-    } catch (e) {
-      setAuthError(e?.message || "Register failed");
-    } finally {
-      setAuthLoading(false);
-    }
-  }
+  // useEffect(() => {
+  //   if (isClient && !token) router.replace("/login");
+  // }, [isClient, token, router]);
 
   function onLogout() {
     clearStoredToken();
     setToken("");
     setMe(null);
-    setAuthError("");
     setLoadError("");
-    setMode(loadCache()?.data ? "cache" : "demo");
+    router.push("/login"); // ✅ logout แล้วเด้งไป login
   }
 
   // ============================
@@ -687,15 +610,15 @@ export default function DashboardPage() {
 
         setMode("live");
 
-        // cache plots + sensorTypes
         const cache = loadCache()?.data || { plots: [], byPlot: {}, sensorTypes: [] };
         const ts = new Date().toISOString();
         saveCache({ ts, data: { ...cache, plots: items, sensorTypes: st?.items || [] } });
         setCacheTs(ts);
       } catch (e) {
-        if (cancelled) return;
-        setLoadError(e?.message || "โหลดข้อมูลไม่สำเร็จ");
-        setMode(loadCache()?.data ? "cache" : "demo");
+        if (!cancelled) {
+          setLoadError(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+          setMode(loadCache()?.data ? "cache" : "demo");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -709,10 +632,9 @@ export default function DashboardPage() {
   }, [token]);
 
   // ============================
-  // ✅ Load plot data (polygons/pins/sensors) by plot
+  // ✅ Load plot data (polygons/pins/sensors)
   // ============================
   useEffect(() => {
-    // demo plot
     if (selectedPlotId === "__demo__") {
       setPolygons([{ id: "demo-poly", coords: DEMO_POLYGON, color: "#16a34a" }]);
       setPins(DEMO_PINS);
@@ -721,7 +643,6 @@ export default function DashboardPage() {
       return;
     }
 
-    // not logged in -> cache
     if (!token) {
       const cache = loadCache();
       const perPlot = cache?.data?.byPlot?.[String(selectedPlotId)] || null;
@@ -737,7 +658,6 @@ export default function DashboardPage() {
       return;
     }
 
-    // logged in -> load live
     let cancelled = false;
     async function loadPlotLive() {
       setLoading(true);
@@ -778,7 +698,6 @@ export default function DashboardPage() {
 
         setMode("live");
 
-        // cache perPlot
         const cache = loadCache()?.data || { plots: [], byPlot: {}, sensorTypes: sensorTypes || [] };
         const newByPlot = { ...(cache.byPlot || {}) };
         newByPlot[String(selectedPlotId)] = { polygons: polyItems, pins: pinsRaw, sensorsByPinId: map };
@@ -786,9 +705,11 @@ export default function DashboardPage() {
         saveCache({ ts, data: { ...cache, byPlot: newByPlot, sensorTypes: sensorTypes || cache.sensorTypes || [] } });
         setCacheTs(ts);
       } catch (e) {
-        if (cancelled) return;
-        setLoadError(e?.message || "โหลดข้อมูลแปลงไม่สำเร็จ");
-        setMode(loadCache()?.data ? "cache" : "demo");
+        if (!cancelled) {
+          if (e?.status === 401) router.replace("/login");
+          setLoadError(e?.message || "โหลดข้อมูลแปลงไม่สำเร็จ");
+          setMode(loadCache()?.data ? "cache" : "demo");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -798,14 +719,13 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, selectedPlotId, sensorTypes]);
+  }, [token, selectedPlotId, sensorTypes, router]);
 
   // ============================
-  // ✅ Weather effect (Open-Meteo)
+  // ✅ Weather effect
   // ============================
   useEffect(() => {
     let cancelled = false;
-
     async function loadWeather() {
       try {
         const latestPoly = polygons?.[0];
@@ -823,7 +743,6 @@ export default function DashboardPage() {
         if (!cancelled) setForecastDays([]);
       }
     }
-
     loadWeather();
     return () => {
       cancelled = true;
@@ -831,7 +750,7 @@ export default function DashboardPage() {
   }, [polygons, pins, selectedPlotId]);
 
   // ============================
-  // ✅ Derived: map polygon + pins
+  // ✅ Derived UI
   // ============================
   const mapPolygonPositions = useMemo(() => {
     const latest = polygons?.[0];
@@ -862,11 +781,8 @@ export default function DashboardPage() {
     return DEMO_PINS;
   }, [pins]);
 
-  // ============================
-  // ✅ Derived: Correct “other info”
-  // ============================
+  // Correct top cards
   const today = forecastDays?.[0] || null;
-
   const tempRangeText = today ? `${safeNum(today.tempMin, 0)} – ${safeNum(today.tempMax, 0)} °C` : "—";
   const rainChanceToday = today ? safeNum(today.rainChance, 0) : 0;
   const rainSum7 = useMemo(() => {
@@ -875,7 +791,6 @@ export default function DashboardPage() {
     return Math.round(sum);
   }, [forecastDays]);
 
-  // “คำแนะนำ” ให้ตามฝน 3 วันข้างหน้า
   const adviceText = useMemo(() => {
     if (!forecastDays?.length) return "กำลังโหลดพยากรณ์อากาศ...";
     const next3 = forecastDays.slice(0, 3).map((d) => safeNum(d.rainChance, 0));
@@ -885,10 +800,8 @@ export default function DashboardPage() {
     return "ฝนค่อนข้างน้อย เหมาะกับการจัดการให้น้ำตามแผน และตรวจความชื้นดินเป็นระยะ";
   }, [forecastDays]);
 
-  // “สถานะอุปกรณ์” ให้สมเหตุสมผล: ใช้จำนวน pins เป็นจำนวน “จุดวัด”
   const pinCount = (pins || []).length;
 
-  // “ปัญหาพื้นที่” นับจาก sensor status != OK (จริงกว่า)
   const issueCount = useMemo(() => {
     const allPins = Object.keys(sensorsByPinId || {});
     let n = 0;
@@ -907,7 +820,6 @@ export default function DashboardPage() {
     return "โหมด Demo";
   }, [mode, cacheTs]);
 
-  // 7 days ui
   const daysUI = useMemo(() => {
     if (forecastDays?.length) {
       return forecastDays.map((d) => ({
@@ -928,9 +840,6 @@ export default function DashboardPage() {
     ];
   }, [forecastDays]);
 
-  // ============================
-  // UI
-  // ============================
   return (
     <div style={pageStyle}>
       <div style={outerWrap}>
@@ -943,7 +852,7 @@ export default function DashboardPage() {
           }}
           className="du-dashboard"
         >
-          {/* ===== AUTH + SELECT PLOT ===== */}
+          {/* ===== Header Bar ===== */}
           <div style={{ ...cardBaseR, marginBottom: 16 }} className="du-card">
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
               <div style={{ fontSize: 14, fontWeight: 700, marginRight: 6 }}>
@@ -960,91 +869,26 @@ export default function DashboardPage() {
                 {" • Weather: Open-Meteo (frontend)"}
               </div>
 
-              {token ? (
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <div style={{ fontSize: 12, color: "#374151" }}>{me?.email ? `ผู้ใช้: ${me.email}` : "ผู้ใช้: -"}</div>
-                  <button
-                    onClick={onLogout}
-                    style={{
-                      border: "none",
-                      borderRadius: 999,
-                      padding: "8px 12px",
-                      background: "#111827",
-                      color: "#fff",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    ออกจากระบบ
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                  <input
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="email"
-                    style={{
-                      borderRadius: 999,
-                      border: "1px solid rgba(148,163,184,0.6)",
-                      padding: "8px 12px",
-                      outline: "none",
-                      minWidth: 180,
-                      background: "#fff",
-                    }}
-                  />
-                  <input
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="password"
-                    type="password"
-                    style={{
-                      borderRadius: 999,
-                      border: "1px solid rgba(148,163,184,0.6)",
-                      padding: "8px 12px",
-                      outline: "none",
-                      minWidth: 160,
-                      background: "#fff",
-                    }}
-                  />
-                  <button
-                    onClick={onLogin}
-                    disabled={authLoading}
-                    style={{
-                      border: "none",
-                      borderRadius: 999,
-                      padding: "8px 12px",
-                      background: "#1d4ed8",
-                      color: "#fff",
-                      fontWeight: 800,
-                      cursor: "pointer",
-                      opacity: authLoading ? 0.7 : 1,
-                    }}
-                  >
-                    {authLoading ? "กำลังทำงาน..." : "Login"}
-                  </button>
-                  <button
-                    onClick={onRegister}
-                    disabled={authLoading}
-                    style={{
-                      border: "none",
-                      borderRadius: 999,
-                      padding: "8px 12px",
-                      background: "#16a34a",
-                      color: "#fff",
-                      fontWeight: 800,
-                      cursor: "pointer",
-                      opacity: authLoading ? 0.7 : 1,
-                    }}
-                  >
-                    Register
-                  </button>
-                  {authError ? <span style={{ fontSize: 12, color: "#b91c1c" }}>{authError}</span> : null}
-                </div>
-              )}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ fontSize: 12, color: "#374151" }}>{me?.email ? `ผู้ใช้: ${me.email}` : "ผู้ใช้: -"}</div>
+                <button
+                  onClick={onLogout}
+                  style={{
+                    border: "none",
+                    borderRadius: 999,
+                    padding: "8px 12px",
+                    background: "#111827",
+                    color: "#fff",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Logout
+                </button>
+              </div>
             </div>
 
-            {/* ✅ เลือกแปลง */}
+            {/* ✅ Select plot */}
             <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
               <div style={{ fontSize: 12, color: "#374151", fontWeight: 700 }}>แปลง:</div>
               <select
@@ -1075,9 +919,8 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* ===== แถวบน ===== */}
+          {/* ===== Top Row ===== */}
           <div style={{ ...gridTop, marginBottom: 16 }}>
-            {/* พยากรณ์ 7 วัน */}
             <div style={{ ...cardBaseR, gridArea: "forecast" }} className="du-card">
               <div className="du-card-title" style={{ ...title18, marginBottom: 6 }}>
                 พยากรณ์อากาศ 7 วันข้างหน้า
@@ -1109,7 +952,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* คอลัมน์กลาง */}
             <div style={{ gridArea: "mid", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
               <div style={{ ...cardBaseR, background: "#1d4ed8", color: "#ffffff" }} className="du-card">
                 <div className="du-card-title" style={{ ...title18, marginBottom: 4 }}>
@@ -1130,7 +972,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* คอลัมน์ขวา */}
             <div style={{ gridArea: "right", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
               <div className="du-card" style={{ ...cardBaseR, background: "#ef4444", color: "#ffffff" }}>
                 <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
@@ -1156,29 +997,20 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* ===== แถวกลาง ===== */}
+          {/* ===== Middle Row ===== */}
           <div style={{ ...gridMiddle, marginBottom: 16 }} className="du-grid-3">
             <div style={{ ...cardBaseR, gridArea: "map" }} className="du-card">
               <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
                 แผนที่และทรัพยากร
               </div>
-              <div
-                style={{
-                  borderRadius: isMobile ? 18 : 22,
-                  overflow: "hidden",
-                  boxShadow: "0 8px 18px rgba(15,23,42,0.18)",
-                }}
-              >
+              <div style={{ borderRadius: isMobile ? 18 : 22, overflow: "hidden", boxShadow: "0 8px 18px rgba(15,23,42,0.18)" }}>
                 {isClient && (
                   <MapContainer center={[13.3, 101.1]} zoom={11} scrollWheelZoom={true} style={{ height: mapHeight, width: "100%" }}>
                     <TileLayer
                       attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
                       url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
                     />
-                    <Polygon
-                      positions={mapPolygonPositions}
-                      pathOptions={{ color: "#16a34a", weight: 2, fillColor: "#86efac", fillOpacity: 0.4 }}
-                    />
+                    <Polygon positions={mapPolygonPositions} pathOptions={{ color: "#16a34a", weight: 2, fillColor: "#86efac", fillOpacity: 0.4 }} />
                     {pinIcon &&
                       mapPinsForMap.map((p) => (
                         <Marker key={p.id} position={p.position} icon={pinIcon}>
@@ -1190,55 +1022,35 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* ✅ สถานะอุปกรณ์ (แก้ให้สมเหตุสมผล) */}
             <div style={{ ...cardBaseR, gridArea: "status", background: "#dcfce7" }} className="du-card">
               <div className="du-card-title" style={{ ...title18, marginBottom: 10 }}>
                 สถานะการทำงานของอุปกรณ์
               </div>
-
               <div style={{ fontSize: 12, color: "#166534", marginBottom: 6 }}>{statusText}</div>
-
               <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 8 }}>
                 <span style={{ fontSize: isMobile ? 28 : 32, fontWeight: 800, color: "#15803d" }}>{pinCount}</span>
                 <span style={{ fontSize: 14 }}>จุดวัด (Pins) ในแปลง</span>
               </div>
-
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <span
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 999,
-                    background: "#22c55e",
-                    color: "#fff",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    whiteSpace: "nowrap",
-                  }}
-                >
+                <span style={{ padding: "4px 10px", borderRadius: 999, background: "#22c55e", color: "#fff", fontSize: 12, fontWeight: 600 }}>
                   พบ {pinCount} จุด
                 </span>
-                <span
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 999,
-                    background: "#e5e7eb",
-                    fontSize: 12,
-                    fontWeight: 500,
-                    whiteSpace: "nowrap",
-                  }}
-                >
+                <span style={{ padding: "4px 10px", borderRadius: 999, background: "#e5e7eb", fontSize: 12, fontWeight: 500 }}>
                   (Online/Offline จริงต้องมีข้อมูลจาก Node)
                 </span>
               </div>
             </div>
 
-            {/* ✅ ปัญหาพื้นที่ (แก้ให้จริงจาก sensor status) */}
             <div style={{ ...cardBaseR, gridArea: "issue", background: "#fed7aa" }} className="du-card">
               <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
                 ปัญหาพื้นที่
               </div>
               <p style={{ fontSize: 13, marginBottom: 6, lineHeight: 1.55 }}>
-                {mode === "demo" ? "โหมดตัวอย่าง (ยังไม่ได้ดึงข้อมูลเซนเซอร์จริง)" : issueCount > 0 ? `พบเซนเซอร์ผิดปกติ ${issueCount} รายการ` : "ยังไม่พบปัญหา (ทุกเซนเซอร์สถานะ OK)"}
+                {mode === "demo"
+                  ? "โหมดตัวอย่าง (ยังไม่ได้ดึงข้อมูลเซนเซอร์จริง)"
+                  : issueCount > 0
+                  ? `พบเซนเซอร์ผิดปกติ ${issueCount} รายการ`
+                  : "ยังไม่พบปัญหา (ทุกเซนเซอร์สถานะ OK)"}
               </p>
               <span
                 style={{
@@ -1256,7 +1068,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* ===== แถวล่าง : Pin cards ===== */}
+          {/* ===== Bottom Row: Pin Cards ===== */}
           <div style={gridPins} className="du-grid-3">
             {pinCards.map((pin) => {
               const pinId = String(pin.id || "__no_pin__");
@@ -1267,6 +1079,7 @@ export default function DashboardPage() {
 
               const hasAlert = mode !== "demo" && sensors.some((s) => String(s.status || "").toUpperCase() !== "OK");
               const backgroundColor = hasAlert ? "#FFBABA" : "#dfffee";
+
               const sensorTypeCount = mode === "demo" ? 6 : new Set(sensors.map((s) => s.sensorType).filter(Boolean)).size;
 
               return (
@@ -1316,7 +1129,6 @@ export default function DashboardPage() {
                     {groups.map((g) => (
                       <div key={g.group} style={pinGroupContainer}>
                         <div style={pinGroupLabel}>{g.group}</div>
-
                         <div style={pinGroupGrid}>
                           {g.items.map((it) => {
                             const isAlert = !!it.isAlert;
@@ -1326,11 +1138,7 @@ export default function DashboardPage() {
                               boxShadow: isAlert ? "0 0 0 1px #facc15" : pinGroupItem.boxShadow,
                             };
                             const nameStyle = { ...pinSensorName, color: isAlert ? "#b91c1c" : "#111827" };
-                            const valueStyle = {
-                              ...pinSensorValue,
-                              color: isAlert ? "#b91c1c" : "#6b7280",
-                              fontWeight: isAlert ? 600 : 400,
-                            };
+                            const valueStyle = { ...pinSensorValue, color: isAlert ? "#b91c1c" : "#6b7280", fontWeight: isAlert ? 600 : 400 };
                             return (
                               <div key={it.name} style={itemStyle}>
                                 <div style={nameStyle}>{it.name}</div>
