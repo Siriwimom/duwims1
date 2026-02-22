@@ -12,6 +12,8 @@ const TileLayer = dynamic(() => import("react-leaflet").then((m) => m.TileLayer)
 const FeatureGroup = dynamic(() => import("react-leaflet").then((m) => m.FeatureGroup), { ssr: false });
 const Polygon = dynamic(() => import("react-leaflet").then((m) => m.Polygon), { ssr: false });
 const EditControl = dynamic(() => import("react-leaflet-draw").then((m) => m.EditControl), { ssr: false });
+const Circle = dynamic(() => import("react-leaflet").then((m) => m.Circle), { ssr: false });
+const CircleMarker = dynamic(() => import("react-leaflet").then((m) => m.CircleMarker), { ssr: false });
 
 /**
  * Multi-polygons CRUD endpoints (via Next rewrites or direct base URL):
@@ -112,8 +114,77 @@ function PolyLayer({ poly, onReady }) {
   );
 }
 
+
+const CurrentLocationLayer = dynamic(
+  async () => {
+    const RL = await import("react-leaflet");
+    const { useMap } = RL;
+
+    return function CurrentLocationLayerInner({ locateTick, onStatus }) {
+      const map = useMap();
+      const [pos, setPos] = React.useState(null); // { lat, lng, accuracy }
+
+      React.useEffect(() => {
+        if (!locateTick) return;
+        if (!map) return;
+        if (typeof window === "undefined") return;
+
+        if (!("geolocation" in navigator)) {
+          onStatus?.("อุปกรณ์/เบราว์เซอร์นี้ไม่รองรับการระบุตำแหน่ง");
+          return;
+        }
+
+        onStatus?.("กำลังหาตำแหน่งปัจจุบัน...");
+        navigator.geolocation.getCurrentPosition(
+          (p) => {
+            const lat = p.coords.latitude;
+            const lng = p.coords.longitude;
+            const accuracy = p.coords.accuracy || 0;
+
+            setPos({ lat, lng, accuracy });
+
+            const zoom = Math.max(map.getZoom(), 17);
+            map.setView([lat, lng], zoom, { animate: true });
+
+            onStatus?.("พบตำแหน่งแล้ว ✅");
+          },
+          (err) => {
+            onStatus?.(err?.message || "ไม่สามารถเข้าถึงตำแหน่งได้ (โปรดอนุญาต Location)");
+          },
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        );
+      }, [locateTick, map, onStatus]);
+
+      if (!pos) return null;
+
+      return (
+        <>
+          {pos.accuracy > 0 && (
+            <Circle
+              center={[pos.lat, pos.lng]}
+              radius={pos.accuracy}
+              pathOptions={{ weight: 1, opacity: 0.7, fillOpacity: 0.15 }}
+            />
+          )}
+
+          <CircleMarker
+            center={[pos.lat, pos.lng]}
+            radius={7}
+            pathOptions={{ weight: 2, opacity: 1, fillOpacity: 1 }}
+          />
+        </>
+      );
+    };
+  },
+  { ssr: false }
+);
+
 export default function AddPlantingPlotsPageMultiPolygons() {
   const [mounted, setMounted] = useState(false);
+
+  // ✅ Current location (กดปุ่มเพื่อซูมไปตำแหน่งปัจจุบัน)
+  const [locateTick, setLocateTick] = useState(0);
+  const [locateStatus, setLocateStatus] = useState("");
   useEffect(() => setMounted(true), []);
 
   const fgRef = useRef(null);
@@ -552,6 +623,22 @@ export default function AddPlantingPlotsPageMultiPolygons() {
             <div className="pui-mapbox pui-mapbox-top">
               <div className="pui-map-title">Draw Polygons on a Map</div>
 
+              <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "8px 0 10px" }}>
+                <button
+                  type="button"
+                  className="pui-pill"
+                  onClick={() => setLocateTick((x) => x + 1)}
+                  disabled={!mounted}
+                  title="ขอตำแหน่งปัจจุบันและซูมไปยังจุดนั้น"
+                >
+                  📍 ตำแหน่งฉัน
+                </button>
+
+                {locateStatus ? (
+                  <div style={{ fontSize: 12 }}>{locateStatus}</div>
+                ) : null}
+              </div>
+
               <div className="pui-map pui-map-top">
                 {!mounted ? (
                   <div className="pui-map-loading">Loading map...</div>
@@ -567,6 +654,8 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                       attribution="&copy; OpenStreetMap contributors"
                       url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     />
+
+                    <CurrentLocationLayer locateTick={locateTick} onStatus={setLocateStatus} />
 
                     <FeatureGroup ref={fgRef}>
                       {plotPolygons.map((poly) => (

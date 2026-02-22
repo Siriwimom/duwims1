@@ -8,6 +8,7 @@ import "leaflet/dist/leaflet.css";
 const LeafletMap = dynamic(
   async () => {
     const RL = await import("react-leaflet");
+    const React = await import("react");
     const L = await import("leaflet");
 
     // ✅ Fix default icon path for Next (กัน marker icon หาย/undefined)
@@ -46,6 +47,60 @@ const LeafletMap = dynamic(
       return null;
     }
 
+
+function CurrentLocationLayerInner({ locateTick, onStatus }) {
+  const map = RL.useMap();
+  const [pos, setPos] = React.useState(null); // { lat, lng, accuracy }
+
+  useEffect(() => {
+    if (!locateTick) return;
+    if (!map) return;
+    if (typeof window === "undefined") return;
+
+    if (!("geolocation" in navigator)) {
+      onStatus?.("อุปกรณ์/เบราว์เซอร์นี้ไม่รองรับ Geolocation");
+      return;
+    }
+
+    onStatus?.("กำลังหาตำแหน่งปัจจุบัน...");
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        const lat = p.coords.latitude;
+        const lng = p.coords.longitude;
+        const accuracy = p.coords.accuracy || 0;
+        setPos({ lat, lng, accuracy });
+
+        const zoom = Math.max(map.getZoom(), 17);
+        map.setView([lat, lng], zoom, { animate: true });
+        onStatus?.("พบตำแหน่งแล้ว ✅");
+      },
+      (err) => {
+        onStatus?.(err?.message || "ไม่สามารถเข้าถึงตำแหน่งได้ (อาจไม่ได้อนุญาตสิทธิ์)");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }, [locateTick, map, onStatus]);
+
+  if (!pos) return null;
+
+  return (
+    <>
+      {pos.accuracy > 0 && (
+        <RL.Circle
+          center={[pos.lat, pos.lng]}
+          radius={pos.accuracy}
+          pathOptions={{ weight: 1, opacity: 0.7, fillOpacity: 0.15 }}
+        />
+      )}
+      <RL.CircleMarker
+        center={[pos.lat, pos.lng]}
+        radius={7}
+        pathOptions={{ weight: 2, opacity: 1, fillOpacity: 1 }}
+      />
+    </>
+  );
+}
+
     return function LeafletMapInner({
       mapKey,
       center,
@@ -57,6 +112,8 @@ const LeafletMap = dynamic(
       onPick,
       onCreated,
       onReady,
+      locateTick,
+      onLocateStatus,
     }) {
       return (
         <RL.MapContainer
@@ -72,6 +129,8 @@ const LeafletMap = dynamic(
             attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
+
+          <CurrentLocationLayerInner locateTick={locateTick} onStatus={onLocateStatus} />
 
           <MapFitBoundsInner polygons={polygons} />
 
@@ -242,6 +301,10 @@ export default function AddSensor() {
   }, []);
 
   const [mapReady, setMapReady] = useState(false);
+
+  // ===== current location =====
+  const [locateTick, setLocateTick] = useState(0);
+  const [locateStatus, setLocateStatus] = useState("");
 
   // ===== responsive =====
   const [width, setWidth] = useState(1200);
@@ -1119,6 +1182,53 @@ export default function AddSensor() {
             <div style={styles.mapTitle}>จุด Pin เซนเซอร์ชุดนี้ (คลิกแผนที่เพื่อปักพิกัดให้ Pin ที่เลือก)</div>
             <div style={styles.mapHelp}>เลือก Pin จากรายการด้านล่างก่อน แล้วค่อยคลิกบนแผนที่เพื่อย้ายหมุด</div>
 
+            <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "8px 0 10px" }}>
+              <button
+                type="button"
+                title="ขอตำแหน่งปัจจุบันและซูมไปยังจุดนั้น"
+                onClick={() => setLocateTick((t) => t + 1)}
+                disabled={!mounted}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "10px 16px",
+                  borderRadius: 999,
+                  background: "#fff",
+                  border: "1px solid rgba(15, 23, 42, 0.12)",
+                  boxShadow: "0 1px 0 rgba(15,23,42,0.04)",
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: mounted ? "pointer" : "not-allowed",
+                  opacity: mounted ? 1 : 0.6,
+                  userSelect: "none",
+                  lineHeight: 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (!mounted) return;
+                  e.currentTarget.style.borderColor = "rgba(251, 113, 133, 0.45)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(15, 23, 42, 0.12)";
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: "#fb7185",
+                    boxShadow: "0 0 0 4px rgba(251, 113, 133, 0.18)",
+                    flex: "0 0 auto",
+                  }}
+                />
+                ตำแหน่งฉัน
+              </button>
+              {locateStatus ? <div style={{ fontSize: 12 }}>{locateStatus}</div> : null}
+            </div>
+
             {!mounted ? (
               <div style={styles.mapLoading}>Loading map...</div>
             ) : (
@@ -1136,6 +1246,8 @@ export default function AddSensor() {
                     mapRef.current = map;
                   }}
                   onReady={() => setMapReady(true)}
+                  locateTick={locateTick}
+                  onLocateStatus={setLocateStatus}
                 />
               </div>
             )}
