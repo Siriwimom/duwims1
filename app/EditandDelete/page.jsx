@@ -89,8 +89,20 @@ const LeafletClient = dynamic(
 
           {/* Pin เซนเซอร์ (วาด polygon ขอบแปลงด้วย) */}
           <div style={styles.mapCard}>
+<<<<<<< Updated upstream
             <div style={styles.mapTitle}>Pin เซนเซอร์ ({(pins || []).length})</div>
             <MapContainer center={center} zoom={11} scrollWheelZoom style={{ height: 230, width: "100%" }}>
+=======
+            <div style={styles.mapTitle}>
+              Pin เซนเซอร์ ({(pins || []).length})
+            </div>
+            <MapContainer
+              center={center}
+              zoom={11}
+              scrollWheelZoom
+              style={{ height: 230, width: "100%" }}
+            >
+>>>>>>> Stashed changes
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -198,10 +210,60 @@ const styles = {
   pinLabel: { fontWeight: 800, fontSize: 12, color: "#000" },
   pinCoord: { fontSize: 12, color: "#000" },
 
+<<<<<<< Updated upstream
   panelBox: { borderRadius: 18, background: "rgba(255,255,255,0.95)", padding: "12px 14px", boxShadow: "0 10px 24px rgba(15,23,42,0.12)", color: "#000", marginTop: 10 },
   row3: { display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "end" },
   input: { width: "100%", borderRadius: 12, border: "1px solid rgba(15,23,42,0.12)", padding: "8px 10px", fontSize: 12, background: "#fff", outline: "none", color: "#000" },
   btnDark: { borderRadius: 999, border: "none", padding: "9px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer", background: "#111827", color: "#fff", whiteSpace: "nowrap" },
+=======
+  // panels
+  panelBox: {
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.95)",
+    padding: "12px 14px",
+    boxShadow: "0 10px 24px rgba(15,23,42,0.12)",
+    color: "#000",
+    marginTop: 10,
+  },
+  row3: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr auto",
+    gap: 8,
+    alignItems: "end",
+  },
+  input: {
+    width: "100%",
+    borderRadius: 12,
+    border: "1px solid rgba(15,23,42,0.12)",
+    padding: "8px 10px",
+    fontSize: 12,
+    background: "#fff",
+    outline: "none",
+    color: "#000",
+  },
+  btnDark: {
+    borderRadius: 999,
+    border: "none",
+    padding: "9px 14px",
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: "pointer",
+    background: "#111827",
+    color: "#fff",
+    whiteSpace: "nowrap",
+  },
+  btnLight: {
+    borderRadius: 999,
+    border: "1px solid rgba(15,23,42,0.18)",
+    padding: "7px 12px",
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: "pointer",
+    background: "#ffffff",
+    color: "#111827",
+    whiteSpace: "nowrap",
+  },
+>>>>>>> Stashed changes
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3001";
@@ -438,9 +500,16 @@ export default function EditAndDelete() {
           apiFetchJson(`/api/pins?plotId=${encodeURIComponent(plotId)}&nodeCategory=${encodeURIComponent(nodeCategory)}&sensorType=all`),
         ]);
 
+<<<<<<< Updated upstream
         const polyItems = Array.isArray(polyRes.items) ? polyRes.items : [];
         const polys = polyItems
           .filter((x) => (Array.isArray(x?.coords) || Array.isArray(x?.coordinates)) && (x.coords || x.coordinates).length >= 3)
+=======
+        // ✅ polygon: เอา “ทั้งหมด” ของ plot นี้
+        const polyItems = Array.isArray(polyRes.items) ? polyRes.items : [];
+        const polys = polyItems
+          .filter((x) => (Array.isArray(x?.coords) || Array.isArray(x?.coordinates)) && (x.coords || x.coordinates).length)
+>>>>>>> Stashed changes
           .map((x) => {
             const coords = Array.isArray(x.coords) ? x.coords : x.coordinates;
             const id = String(x.id || x._id || "");
@@ -491,8 +560,19 @@ export default function EditAndDelete() {
   }, [hydrated, authed, plots, selectedPlot, nodeCategory, selectedSensorType, loadMapData]);
 
   const currentPlotInfo = useMemo(() => {
+<<<<<<< Updated upstream
     if (selectedPlot === "all") return { name: "ทุกแปลง", caretaker: "-", plantType: "-", startDate: "-" };
     const p = (plots || []).find((x) => String(x.id || x._id) === String(selectedPlot));
+=======
+    if (selectedPlot === "all")
+      return {
+        name: "ทุกแปลง",
+        caretaker: "-",
+        plantType: "-",
+        startDate: "-",
+      };
+    const p = (plots || []).find((x) => x.id === selectedPlot);
+>>>>>>> Stashed changes
     if (!p) return { name: "-", caretaker: "-", plantType: "-", startDate: "-" };
     return {
       name: p.plotName || p.name || `แปลง ${String(p.id || p._id).slice(-4)}`,
@@ -550,7 +630,19 @@ export default function EditAndDelete() {
         <section style={styles.headerPanel}>
           <div style={styles.headerRow}>
             <div style={styles.headerTitle}>การจัดการ PIN และ Sensor</div>
+<<<<<<< Updated upstream
             {/* ✅ เอาปุ่มออกแล้ว: Logout / + เพิ่ม PIN / SAVE */}
+=======
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {authed ? (
+                <button type="button" style={styles.btnLight} onClick={doLogout}>
+                  Logout
+                </button>
+              ) : null}
+              {/* ✅ เอาปุ่ม + เพิ่ม PIN ออก ตามที่ขอ */}
+            </div>
+>>>>>>> Stashed changes
           </div>
 
           {!authed ? (
@@ -569,7 +661,15 @@ export default function EditAndDelete() {
                   Login
                 </button>
               </div>
+<<<<<<< Updated upstream
               {authMsg ? <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800 }}>{authMsg}</div> : null}
+=======
+              {authMsg ? (
+                <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800 }}>
+                  {authMsg}
+                </div>
+              ) : null}
+>>>>>>> Stashed changes
             </div>
           ) : null}
 
@@ -620,7 +720,13 @@ export default function EditAndDelete() {
             </button>
           </div>
 
+<<<<<<< Updated upstream
           <div style={styles.bottomSub}>แสดง Polygon ทั้งหมด + ลบตำแหน่ง PIN ของแปลงนี้</div>
+=======
+          <div style={styles.bottomSub}>
+            ปรับแก้ Polygon และลบตำแหน่ง PIN ของแปลงนี้
+          </div>
+>>>>>>> Stashed changes
 
           <div style={infoGridStyle}>
             <div>
@@ -687,7 +793,12 @@ export default function EditAndDelete() {
                   <div style={styles.pinIconCircle}>📍</div>
                   <div>
                     <div style={styles.pinLabel}>
+<<<<<<< Updated upstream
                       number #{p.number} {selectedPlot === "all" ? `(${p.plotLabel || "-"})` : ""}
+=======
+                      number #{p.number}{" "}
+                      {selectedPlot === "all" ? `(${p.plotLabel || "-"})` : ""}
+>>>>>>> Stashed changes
                     </div>
                   </div>
                 </div>
