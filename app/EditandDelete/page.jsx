@@ -90,9 +90,12 @@ const LeafletClient = dynamic(
           {/* Pin เซนเซอร์ (วาด polygon ขอบแปลงด้วย) */}
           <div style={styles.mapCard}>
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
             <div style={styles.mapTitle}>Pin เซนเซอร์ ({(pins || []).length})</div>
             <MapContainer center={center} zoom={11} scrollWheelZoom style={{ height: 230, width: "100%" }}>
 =======
+=======
+>>>>>>> Stashed changes
             <div style={styles.mapTitle}>
               Pin เซนเซอร์ ({(pins || []).length})
             </div>
@@ -501,14 +504,20 @@ export default function EditAndDelete() {
         ]);
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
         const polyItems = Array.isArray(polyRes.items) ? polyRes.items : [];
         const polys = polyItems
           .filter((x) => (Array.isArray(x?.coords) || Array.isArray(x?.coordinates)) && (x.coords || x.coordinates).length >= 3)
 =======
+=======
+>>>>>>> Stashed changes
         // ✅ polygon: เอา “ทั้งหมด” ของ plot นี้
         const polyItems = Array.isArray(polyRes.items) ? polyRes.items : [];
         const polys = polyItems
           .filter((x) => (Array.isArray(x?.coords) || Array.isArray(x?.coordinates)) && (x.coords || x.coordinates).length)
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
           .map((x) => {
             const coords = Array.isArray(x.coords) ? x.coords : x.coordinates;
@@ -572,6 +581,9 @@ export default function EditAndDelete() {
         startDate: "-",
       };
     const p = (plots || []).find((x) => x.id === selectedPlot);
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
     if (!p) return { name: "-", caretaker: "-", plantType: "-", startDate: "-" };
     return {
@@ -669,6 +681,9 @@ export default function EditAndDelete() {
                   {authMsg}
                 </div>
               ) : null}
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
             </div>
           ) : null}
@@ -798,6 +813,9 @@ export default function EditAndDelete() {
 =======
                       number #{p.number}{" "}
                       {selectedPlot === "all" ? `(${p.plotLabel || "-"})` : ""}
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
                     </div>
                   </div>
