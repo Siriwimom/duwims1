@@ -15,38 +15,59 @@ const LeafletClient = dynamic(
     const anyL = L;
     if (anyL?.Icon?.Default) {
       anyL.Icon.Default.mergeOptions({
-        iconUrl:
-          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-        iconRetinaUrl:
-          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-        shadowUrl:
-          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+        iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+        iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
+        shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
       });
+    }
+
+    // ✅ หาศูนย์กลางจาก pins/polygons (ไม่ใช้ mock/demo)
+    function computeCenter(pins, polygons) {
+      // 1) center จาก pins
+      if (Array.isArray(pins) && pins.length) {
+        const pts = pins
+          .map((p) => p?.latLng)
+          .filter((x) => Array.isArray(x) && x.length === 2 && Number.isFinite(x[0]) && Number.isFinite(x[1]));
+        if (pts.length) {
+          const lat = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+          const lng = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+          return [lat, lng];
+        }
+      }
+
+      // 2) center จาก polygons (เฉลี่ยจุดทั้งหมด)
+      if (Array.isArray(polygons) && polygons.length) {
+        const pts = [];
+        for (const poly of polygons) {
+          const coords = poly?.coords;
+          if (!Array.isArray(coords)) continue;
+          for (const p of coords) {
+            if (Array.isArray(p) && p.length === 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])) pts.push(p);
+          }
+        }
+        if (pts.length) {
+          const lat = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+          const lng = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+          return [lat, lng];
+        }
+      }
+
+      // 3) ถ้าไม่มีข้อมูลจริง ให้คงศูนย์กลางเริ่มต้นแบบกลาง ๆ (หลีกเลี่ยง mock polygon)
+      return [13.7563, 100.5018];
     }
 
     // ✅ component สำหรับ render map
     function LeafletMaps({ polygons, pins, styles }) {
       const { MapContainer, TileLayer, Polygon, Marker, Popup } = RL;
 
-      const center = pins?.length
-        ? [pins[0].latLng[0], pins[0].latLng[1]]
-        : polygons?.length && polygons[0]?.coords?.length
-        ? [polygons[0].coords[0][0], polygons[0].coords[0][1]]
-        : [13.3, 101.1];
+      const center = computeCenter(pins, polygons);
 
       return (
         <>
           {/* Polygon แปลง */}
           <div style={styles.mapCard}>
-            <div style={styles.mapTitle}>
-              Polygon แปลง ({(polygons || []).length})
-            </div>
-            <MapContainer
-              center={center}
-              zoom={11}
-              scrollWheelZoom
-              style={{ height: 230, width: "100%" }}
-            >
+            <div style={styles.mapTitle}>Polygon แปลง ({(polygons || []).length})</div>
+            <MapContainer center={center} zoom={11} scrollWheelZoom style={{ height: 230, width: "100%" }}>
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -70,18 +91,12 @@ const LeafletClient = dynamic(
           {/* Pin เซนเซอร์ (✅ วาด polygon ขอบแปลงด้วย) */}
           <div style={styles.mapCard}>
             <div style={styles.mapTitle}>Pin เซนเซอร์ ({(pins || []).length})</div>
-            <MapContainer
-              center={center}
-              zoom={11}
-              scrollWheelZoom
-              style={{ height: 230, width: "100%" }}
-            >
+            <MapContainer center={center} zoom={11} scrollWheelZoom style={{ height: 230, width: "100%" }}>
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
 
-              {/* ✅ โชว์ polygon ใน map pin ด้วย */}
               {(polygons || []).map((poly) => (
                 <Polygon
                   key={`pins-${poly.key}`}
@@ -97,11 +112,7 @@ const LeafletClient = dynamic(
 
               {(pins || []).map((p) => (
                 <Marker key={p.id} position={p.latLng}>
-                  <Popup>
-                    {p.plotLabel
-                      ? `${p.plotLabel} — PIN #${p.number}`
-                      : `PIN #${p.number}`}
-                  </Popup>
+                  <Popup>{p.plotLabel ? `${p.plotLabel} — PIN #${p.number}` : `PIN #${p.number}`}</Popup>
                 </Marker>
               ))}
             </MapContainer>
@@ -116,8 +127,7 @@ const LeafletClient = dynamic(
 );
 
 const pageStyle = {
-  fontFamily:
-    '"Prompt", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  fontFamily: '"Prompt", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   background: "#e5edf8",
   minHeight: "100vh",
   color: "#000",
@@ -158,8 +168,7 @@ const styles = {
 
   fieldCard: {
     borderRadius: 18,
-    background:
-      "linear-gradient(135deg,rgba(255,255,255,0.96),rgba(224,242,254,0.96))",
+    background: "linear-gradient(135deg,rgba(255,255,255,0.96),rgba(224,242,254,0.96))",
     padding: "10px 12px 12px",
     fontSize: 12,
     boxShadow: "0 4px 10px rgba(15,23,42,0.15)",
@@ -276,21 +285,6 @@ const styles = {
     cursor: "pointer",
   },
 
-  saveBtn: {
-    marginTop: 12,
-    display: "block",
-    marginLeft: "auto",
-    marginRight: "auto",
-    borderRadius: 999,
-    border: "none",
-    padding: "8px 40px",
-    fontSize: 13,
-    fontWeight: 700,
-    background: "linear-gradient(135deg,#6366f1,#3b82f6)",
-    color: "#fff",
-    cursor: "pointer",
-  },
-
   pinNumberBox: { display: "flex", alignItems: "center", gap: 8, color: "#000" },
   pinIconCircle: {
     width: 28,
@@ -319,12 +313,6 @@ const styles = {
     gap: 8,
     alignItems: "end",
   },
-  row4: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr 1fr auto",
-    gap: 8,
-    alignItems: "end",
-  },
   input: {
     width: "100%",
     borderRadius: 12,
@@ -344,17 +332,6 @@ const styles = {
     cursor: "pointer",
     background: "#111827",
     color: "#fff",
-    whiteSpace: "nowrap",
-  },
-  btnLight: {
-    borderRadius: 999,
-    border: "1px solid rgba(15,23,42,0.18)",
-    padding: "7px 12px",
-    fontSize: 12,
-    fontWeight: 800,
-    cursor: "pointer",
-    background: "#ffffff",
-    color: "#111827",
     whiteSpace: "nowrap",
   },
 };
@@ -420,20 +397,6 @@ function pinToUi(pinDoc, plotLabel) {
   };
 }
 
-// ✅ เลือก polygon ล่าสุด (กันซ้อน)
-function pickLatestPolygon(items) {
-  const arr = Array.isArray(items) ? [...items] : [];
-  arr.sort((a, b) => {
-    const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const tb = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
-    if (ta !== tb) return tb - ta;
-    const ia = String(a?.id || a?._id || "");
-    const ib = String(b?.id || b?._id || "");
-    return ib.localeCompare(ia);
-  });
-  return arr[0] || null;
-}
-
 export default function EditAndDelete() {
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
@@ -469,12 +432,6 @@ export default function EditAndDelete() {
   const [loading, setLoading] = useState(false);
   const [errMsg, setErrMsg] = useState("");
 
-  // add pin
-  const [addOpen, setAddOpen] = useState(false);
-  const [pinNumber, setPinNumber] = useState("");
-  const [pinLat, setPinLat] = useState("");
-  const [pinLng, setPinLng] = useState("");
-
   useEffect(() => {
     if (!hydrated) return;
     setAuthed(!!getToken());
@@ -483,8 +440,8 @@ export default function EditAndDelete() {
   const plotOptions = useMemo(() => {
     const base = [{ value: "all", label: "ทุกแปลง" }];
     const dyn = (plots || []).map((p) => ({
-      value: p.id,
-      label: p.plotName || p.name || `แปลง ${p.id.slice(-4)}`,
+      value: String(p.id || p._id),
+      label: p.plotName || p.name || `แปลง ${String(p.id || p._id).slice(-4)}`,
     }));
     return [...base, ...dyn];
   }, [plots]);
@@ -520,11 +477,7 @@ export default function EditAndDelete() {
   const sensorOptions = useMemo(() => {
     if (nodeCategory === "air") return AIR_SENSOR_OPTIONS;
     if (nodeCategory === "soil") return SOIL_SENSOR_OPTIONS;
-    return [
-      { value: "all", label: "ทุกเซนเซอร์" },
-      ...AIR_SENSOR_OPTIONS,
-      ...SOIL_SENSOR_OPTIONS,
-    ];
+    return [{ value: "all", label: "ทุกเซนเซอร์" }, ...AIR_SENSOR_OPTIONS, ...SOIL_SENSOR_OPTIONS];
   }, [nodeCategory, AIR_SENSOR_OPTIONS, SOIL_SENSOR_OPTIONS]);
 
   useEffect(() => {
@@ -538,22 +491,14 @@ export default function EditAndDelete() {
   const topGridStyle = useMemo(() => {
     return {
       ...styles.topGrid,
-      gridTemplateColumns: isMobile
-        ? "1fr"
-        : isTablet
-        ? "repeat(2,minmax(0,1fr))"
-        : "repeat(3,minmax(0,1fr))",
+      gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,minmax(0,1fr))" : "repeat(3,minmax(0,1fr))",
     };
   }, [isMobile, isTablet]);
 
   const infoGridStyle = useMemo(() => {
     return {
       ...styles.infoGrid,
-      gridTemplateColumns: isMobile
-        ? "1fr"
-        : isTablet
-        ? "repeat(2,minmax(0,1fr))"
-        : "repeat(4,minmax(0,1fr))",
+      gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,minmax(0,1fr))" : "repeat(4,minmax(0,1fr))",
     };
   }, [isMobile, isTablet]);
 
@@ -569,8 +514,7 @@ export default function EditAndDelete() {
     setAuthMsg("");
     setErrMsg("");
     try {
-      if (!loginEmail || !loginPassword)
-        return setAuthMsg("กรอก email และ password ก่อน");
+      if (!loginEmail || !loginPassword) return setAuthMsg("กรอก email และ password ก่อน");
 
       const j = await apiFetchJson("/auth/login", {
         method: "POST",
@@ -587,15 +531,6 @@ export default function EditAndDelete() {
       setAuthed(false);
       setAuthMsg(String(e.message || e));
     }
-  };
-
-  const doLogout = () => {
-    clearToken();
-    setAuthed(false);
-    setPlots([]);
-    setPins([]);
-    setPolygons([]);
-    setAuthMsg("ออกจากระบบแล้ว");
   };
 
   // ===== load plots =====
@@ -630,9 +565,8 @@ export default function EditAndDelete() {
 
     try {
       const loadOnePlot = async (plot) => {
-        const plotId = plot.id;
+        const plotId = String(plot.id || plot._id);
 
-        // ✅ label ปลอดภัย
         const plotLabel = plot.plotName
           ? `แปลง ${plot.plotName}`
           : plot.name
@@ -640,27 +574,20 @@ export default function EditAndDelete() {
           : `แปลง ${String(plotId).slice(-4)}`;
 
         const [polyRes, pinRes] = await Promise.all([
-          apiFetchJson(`/api/plots/${plotId}/polygons`),
-          // ✅ pins ไม่กรองด้วย sensorType เพื่อกันหาย
+          apiFetchJson(`/api/plots/${encodeURIComponent(plotId)}/polygons`),
           apiFetchJson(
-            `/api/pins?plotId=${encodeURIComponent(
-              plotId
-            )}&nodeCategory=${encodeURIComponent(nodeCategory)}&sensorType=all`
+            `/api/pins?plotId=${encodeURIComponent(plotId)}&nodeCategory=${encodeURIComponent(nodeCategory)}&sensorType=all`
           ),
         ]);
 
-        // ✅ polygon: เอาแค่ “ล่าสุด” ต่อ plot (กันซ้อนแน่นอน)
-        const latest = pickLatestPolygon(polyRes.items || []);
-        const polys =
-          latest?.coords?.length
-            ? [
-                {
-                  key: `${plotId}:${String(latest.id || latest._id)}`,
-                  plotId,
-                  coords: latest.coords,
-                },
-              ]
-            : [];
+        // ✅ polygon: เอามา “ทั้งหมด” ไม่เลือก latest
+        const polys = (polyRes.items || [])
+          .filter((x) => Array.isArray(x?.coords) && x.coords.length >= 3)
+          .map((p) => ({
+            key: `${plotId}:${String(p.id || p._id)}`,
+            plotId,
+            coords: p.coords,
+          }));
 
         const pinItems = (pinRes.items || []).map((p) => pinToUi(p, plotLabel));
         return { polys, pinItems };
@@ -672,7 +599,7 @@ export default function EditAndDelete() {
         setPolygons(results.flatMap((r) => r.polys));
         setPins(results.flatMap((r) => r.pinItems));
       } else {
-        const plot = (plots || []).find((p) => p.id === selectedPlot);
+        const plot = (plots || []).find((p) => String(p.id || p._id) === String(selectedPlot));
         if (!plot) {
           setPolygons([]);
           setPins([]);
@@ -697,29 +624,17 @@ export default function EditAndDelete() {
   useEffect(() => {
     if (!hydrated || !authed) return;
     loadMapData();
-  }, [
-    hydrated,
-    authed,
-    plots,
-    selectedPlot,
-    nodeCategory,
-    selectedSensorType,
-    loadMapData,
-  ]);
+  }, [hydrated, authed, plots, selectedPlot, nodeCategory, selectedSensorType, loadMapData]);
 
   const currentPlotInfo = useMemo(() => {
     if (selectedPlot === "all")
-      return {
-        name: "ทุกแปลง",
-        caretaker: "-",
-        plantType: "-",
-        startDate: "-",
-      };
-    const p = (plots || []).find((x) => x.id === selectedPlot);
-    if (!p)
-      return { name: "-", caretaker: "-", plantType: "-", startDate: "-" };
+      return { name: "ทุกแปลง", caretaker: "-", plantType: "-", startDate: "-" };
+
+    const p = (plots || []).find((x) => String(x.id || x._id) === String(selectedPlot));
+    if (!p) return { name: "-", caretaker: "-", plantType: "-", startDate: "-" };
+
     return {
-      name: p.plotName || p.name || `แปลง ${p.id.slice(-4)}`,
+      name: p.plotName || p.name || `แปลง ${String(p.id || p._id).slice(-4)}`,
       caretaker: p.caretaker || p.ownerName || "-",
       plantType: p.plantType || p.cropType || "-",
       startDate: fmtDate(p.plantedAt),
@@ -731,9 +646,7 @@ export default function EditAndDelete() {
     setErrMsg("");
     try {
       setPins((prev) => prev.filter((p) => p.id !== pinId));
-      await apiFetchJson(`/api/pins/${encodeURIComponent(pinId)}`, {
-        method: "DELETE",
-      });
+      await apiFetchJson(`/api/pins/${encodeURIComponent(pinId)}`, { method: "DELETE" });
       await loadMapData();
     } catch (e) {
       setErrMsg(String(e.message || e));
@@ -750,59 +663,17 @@ export default function EditAndDelete() {
         await Promise.all(
           (plots || []).map((p) =>
             Promise.all([
-              apiFetchJson(`/api/plots/${p.id}/pins`, { method: "DELETE" }),
-              apiFetchJson(`/api/plots/${p.id}/polygons`, { method: "DELETE" }),
+              apiFetchJson(`/api/plots/${encodeURIComponent(String(p.id || p._id))}/pins`, { method: "DELETE" }),
+              apiFetchJson(`/api/plots/${encodeURIComponent(String(p.id || p._id))}/polygons`, { method: "DELETE" }),
             ])
           )
         );
       } else {
-        await apiFetchJson(`/api/plots/${encodeURIComponent(selectedPlot)}/pins`, {
-          method: "DELETE",
-        });
-        await apiFetchJson(
-          `/api/plots/${encodeURIComponent(selectedPlot)}/polygons`,
-          { method: "DELETE" }
-        );
+        await apiFetchJson(`/api/plots/${encodeURIComponent(selectedPlot)}/pins`, { method: "DELETE" });
+        await apiFetchJson(`/api/plots/${encodeURIComponent(selectedPlot)}/polygons`, { method: "DELETE" });
       }
       setPins([]);
       setPolygons([]);
-      await loadMapData();
-    } catch (e) {
-      setErrMsg(String(e.message || e));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ✅ add pin (POST /api/plots/:plotId/pins)
-  const handleAddPin = async () => {
-    setErrMsg("");
-
-    if (selectedPlot === "all") {
-      setErrMsg("เพิ่ม PIN ต้องเลือกแปลงก่อน (ห้ามเป็นทุกแปลง)");
-      return;
-    }
-
-    const n = Number(pinNumber);
-    const la = Number(pinLat);
-    const lo = Number(pinLng);
-
-    if (!Number.isFinite(n) || n <= 0) return setErrMsg("number ต้องเป็นเลข > 0");
-    if (!Number.isFinite(la) || !Number.isFinite(lo))
-      return setErrMsg("lat/lng ต้องเป็นตัวเลข");
-
-    setLoading(true);
-    try {
-      await apiFetchJson(`/api/plots/${encodeURIComponent(selectedPlot)}/pins`, {
-        method: "POST",
-        body: { number: n, lat: la, lng: lo },
-      });
-
-      setPinNumber("");
-      setPinLat("");
-      setPinLng("");
-      setAddOpen(false);
-
       await loadMapData();
     } catch (e) {
       setErrMsg(String(e.message || e));
@@ -819,30 +690,12 @@ export default function EditAndDelete() {
           <div style={styles.headerRow}>
             <div style={styles.headerTitle}>การจัดการ PIN และ Sensor</div>
 
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {authed ? (
-                <button type="button" style={styles.btnLight} onClick={doLogout}>
-                  Logout
-                </button>
-              ) : null}
-
-              <button
-                type="button"
-                style={styles.btnLight}
-                onClick={() => setAddOpen((v) => !v)}
-                disabled={!authed}
-                title={!authed ? "กรุณา Login ก่อน" : ""}
-              >
-                + เพิ่ม PIN
-              </button>
-            </div>
+            {/* ✅ เอาปุ่มออกแล้ว: Logout / + เพิ่ม PIN */}
           </div>
 
           {!authed ? (
             <div style={styles.panelBox}>
-              <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8 }}>
-                เข้าสู่ระบบเพื่อใช้งาน API
-              </div>
+              <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8 }}>เข้าสู่ระบบเพื่อใช้งาน API</div>
               <div style={styles.row3}>
                 <div>
                   <div style={styles.fieldLabel}>Email</div>
@@ -867,67 +720,7 @@ export default function EditAndDelete() {
                   Login
                 </button>
               </div>
-              {authMsg ? (
-                <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800 }}>
-                  {authMsg}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {/* Add PIN */}
-          {authed && addOpen ? (
-            <div style={styles.panelBox}>
-              <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8 }}>
-                เพิ่ม PIN
-              </div>
-              <div style={styles.row4}>
-                <div>
-                  <div style={styles.fieldLabel}>number</div>
-                  <input
-                    style={styles.input}
-                    value={pinNumber}
-                    onChange={(e) => setPinNumber(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <div style={styles.fieldLabel}>lat</div>
-                  <input
-                    style={styles.input}
-                    value={pinLat}
-                    onChange={(e) => setPinLat(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <div style={styles.fieldLabel}>lng</div>
-                  <input
-                    style={styles.input}
-                    value={pinLng}
-                    onChange={(e) => setPinLng(e.target.value)}
-                  />
-                </div>
-                <button
-                  type="button"
-                  style={styles.btnDark}
-                  onClick={handleAddPin}
-                  disabled={loading}
-                >
-                  บันทึก
-                </button>
-              </div>
-
-              {selectedPlot === "all" ? (
-                <div
-                  style={{
-                    marginTop: 8,
-                    fontSize: 12,
-                    fontWeight: 800,
-                    color: "#b91c1c",
-                  }}
-                >
-                  * ต้องเลือกแปลงก่อนเพิ่ม PIN
-                </div>
-              ) : null}
+              {authMsg ? <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800 }}>{authMsg}</div> : null}
             </div>
           ) : null}
 
@@ -982,16 +775,7 @@ export default function EditAndDelete() {
           </div>
 
           {errMsg ? (
-            <div
-              style={{
-                marginTop: 10,
-                fontSize: 12,
-                color: "#b91c1c",
-                fontWeight: 800,
-              }}
-            >
-              {errMsg}
-            </div>
+            <div style={{ marginTop: 10, fontSize: 12, color: "#b91c1c", fontWeight: 800 }}>{errMsg}</div>
           ) : null}
         </section>
 
@@ -1009,9 +793,7 @@ export default function EditAndDelete() {
             </button>
           </div>
 
-          <div style={styles.bottomSub}>
-            ปรับแก้ Polygon และลบ / เพิ่มตำแหน่ง PIN ของแปลงนี้
-          </div>
+          <div style={styles.bottomSub}>แสดง Polygon ทั้งหมด + ลบตำแหน่ง PIN ของแปลงนี้</div>
 
           <div style={infoGridStyle}>
             <div>
@@ -1078,28 +860,19 @@ export default function EditAndDelete() {
                   <div style={styles.pinIconCircle}>📍</div>
                   <div>
                     <div style={styles.pinLabel}>
-                      number #{p.number}{" "}
-                      {selectedPlot === "all"
-                        ? `(${p.plotLabel || "-"})`
-                        : ""}
+                      number #{p.number} {selectedPlot === "all" ? `(${p.plotLabel || "-"})` : ""}
                     </div>
                   </div>
                 </div>
                 <div style={styles.pinCoord}>ละติจูด&nbsp;&nbsp;{p.lat}</div>
                 <div style={styles.pinCoord}>ลองจิจูด&nbsp;&nbsp;{p.lon}</div>
-                <button
-                  style={styles.deleteBtn}
-                  type="button"
-                  onClick={() => handleDeletePin(p.id)}
-                >
+                <button style={styles.deleteBtn} type="button" onClick={() => handleDeletePin(p.id)}>
                   🗑️
                 </button>
               </div>
             ))}
 
-          <button style={styles.saveBtn} type="button" disabled={!authed}>
-            SAVE
-          </button>
+          {/* ✅ เอาปุ่ม SAVE ออกแล้ว */}
         </section>
       </main>
     </div>

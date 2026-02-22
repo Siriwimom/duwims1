@@ -1,8 +1,12 @@
 "use client";
 
-// ตามคำสั่ง: เพิ่ม "ทุกแปลง" / "ทุก Node" / "ทุกเซนเซอร์" + รายการเซนเซอร์ให้ครบ
-// และให้หน้าบนเป็น: การจัดการ PIN และ Sensor + ปุ่ม + เพิ่ม PIN และ Sensor
-// ห้ามแก้ส่วนอื่น -> โค้ดเดิมทั้งหมดคงไว้ เปลี่ยนเฉพาะส่วน filter/topbar + state ที่เกี่ยวข้อง
+// ✅ เชื่อม Backend จริง (ไม่มี mock)
+// ✅ ดึง plots / polygons / pins / sensors ครบ
+// ✅ pins ไม่ถูกกรองด้วย selectedSensorType (sensorType=all เสมอ)
+// ✅ sensors “ดึงครบทุกชนิด” ด้วย sensorType=all แล้วค่อย filter ใน FE ตาม selectedSensorType
+// ✅ เลือก “ทุกแปลง” -> รวม polygons + pins + sensors ทุกแปลง
+// ✅ ใช้ token จาก localStorage: token | authToken
+// ✅ ตั้ง API base: NEXT_PUBLIC_API_BASE=http://localhost:3001/api (ถ้าไม่ใช้ rewrite)
 
 import "leaflet/dist/leaflet.css";
 
@@ -238,21 +242,81 @@ const styles = {
     boxShadow: "0 4px 10px rgba(15,23,42,0.18)",
     whiteSpace: "nowrap",
   },
+
+  errorBar: {
+    marginTop: 10,
+    borderRadius: 14,
+    padding: "8px 10px",
+    background: "#fee2e2",
+    color: "#7f1d1d",
+    fontSize: 12,
+    border: "1px solid #fecaca",
+  },
 };
 
-const sensors = [
-  "เซนเซอร์ #1",
-  "เซนเซอร์ #2",
-  "เซนเซอร์ #3",
-  "เซนเซอร์ #4",
-  "เซนเซอร์ #5",
-  "เซนเซอร์ #6",
-];
+function getToken() {
+  if (typeof window === "undefined") return "";
+  return (
+    window.localStorage.getItem("token") ||
+    window.localStorage.getItem("authToken") ||
+    ""
+  );
+}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api";
+
+async function apiFetch(path, { method = "GET", body } = {}) {
+  const token = getToken();
+  const url = `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+
+  const res = await fetch(url, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { message: text || "Invalid JSON from server" };
+  }
+
+  if (!res.ok) {
+    const msg = data?.message || data?.error || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    err.payload = data;
+    throw err;
+  }
+
+  return data;
+}
+
+function fmtTs(ts) {
+  if (!ts) return "-";
+  try {
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return String(ts);
+    return d.toLocaleString("th-TH");
+  } catch {
+    return String(ts);
+  }
+}
+
+function safeNum(v) {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 export default function ManagementPage() {
   const [pinIcon, setPinIcon] = useState(null);
 
-  // ✅ กัน error ใน dev/StrictMode: render map หลัง client ready เท่านั้น
+  // ✅ render map หลัง client ready
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
@@ -303,129 +367,299 @@ export default function ManagementPage() {
     };
   }, []);
 
-  // ✅ plots: เพิ่ม "ทุกแปลง" (all) ให้ขึ้นบนสุด
-  const plots = useMemo(
-    () => [
-      {
-        value: "all",
-        label: "ทุกแปลง",
-        meta: {
-          farmer: "-",
-          plant: "-",
-          plantedAt: "-",
-          sensorCount: "-",
-        },
-      },
-      {
-        value: "A",
-        label: "แปลง A – ทุเรียนล่าง",
-        meta: {
-          farmer: "สมหมาย ใจดี",
-          plant: "ทุเรียนหมอนทอง",
-          plantedAt: "15/06/2568",
-          sensorCount: "6 เครื่อง",
-        },
-      },
-      {
-        value: "B",
-        label: "แปลง B – ทุเรียนบน",
-        meta: {
-          farmer: "คุณสมชาย สวนทุเรียน",
-          plant: "ทุเรียนหมอนทอง",
-          plantedAt: "11/02/2568",
-          sensorCount: "6 เครื่อง",
-        },
-      },
-      {
-        value: "C",
-        label: "แปลง C",
-        meta: {
-          farmer: "-",
-          plant: "-",
-          plantedAt: "-",
-          sensorCount: "0 เครื่อง",
-        },
-      },
-    ],
-    []
-  );
+  // ===== state =====
+  const [plots, setPlots] = useState([
+    {
+      value: "all",
+      label: "ทุกแปลง",
+      meta: { farmer: "-", plant: "-", plantedAt: "-", sensorCount: "-" },
+      raw: null,
+    },
+  ]);
 
-  // ✅ FILTER: ค่าเริ่มต้นตามที่สั่ง
-  // แปลง: ทุกแปลง
-  // Node: ทุก Node
-  // ชนิดเซนเซอร์: ความชื้ื้นในดิน
   const [selectedPlot, setSelectedPlot] = useState("all");
   const [nodeCategory, setNodeCategory] = useState("all"); // all | air | soil
-  const [selectedSensorType, setSelectedSensorType] = useState("soil_moisture");
-  const [fetchMode, setFetchMode] = useState("pin");
+  const [selectedSensorType, setSelectedSensorType] = useState("all"); // ✅ default เป็น all เพื่อไม่ซ่อนข้อมูลตอนเริ่ม
 
-  // ✅ ชนิดเซนเซอร์: มี "ทุกเซนเซอร์" + รายการครบตามคำสั่ง
-  // หมายเหตุ: ไม่ผูกกับ nodeCategory แล้ว เพื่อให้ "ปรับให้มีครบ" จริง
-  const sensorOptions = useMemo(
-    () => [
-      { value: "all", label: "ทุกเซนเซอร์" },
+  // map data (รวมแปลงได้)
+  const [polygons, setPolygons] = useState([]); // {id, plotId, color, coords}
+  const [pins, setPins] = useState([]); // {id, plotId, number, lat, lng, nodeId}
+  const [sensorsAll, setSensorsAll] = useState([]); // ✅ sensors ครบทุกชนิด (id, plotId,...)
+
+  const [loadingPlots, setLoadingPlots] = useState(false);
+  const [loadingData, setLoadingData] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  // ✅ sensor options ผูกกับ nodeCategory ตามที่คุณสั่ง
+  const sensorOptions = useMemo(() => {
+    const AIR = [
       { value: "temp_rh", label: "อุณหภูมิและความชื้น" },
       { value: "wind", label: "วัดความเร็วลม" },
       { value: "ppfd", label: "ความเข้มแสง" },
       { value: "rain", label: "ปริมาณน้ำฝน" },
+    ];
+    const SOIL = [
+      { value: "soil_moisture", label: "ความชื้ื้นในดิน" },
       { value: "npk", label: "ความเข้้มข้นธาตุอาหาร (N,P,K)" },
       { value: "irrigation", label: "การให้น้ำ / ความพร้อมใช้น้ำ" },
-      { value: "soil_moisture", label: "ความชื้ื้นในดิน" },
-    ],
-    []
-  );
+    ];
 
-  // ✅ กันค่าหลุด
+    if (nodeCategory === "all")
+      return [{ value: "all", label: "ทุกเซนเซอร์" }, ...AIR, ...SOIL];
+    if (nodeCategory === "air")
+      return [{ value: "all", label: "ทุกเซนเซอร์" }, ...AIR];
+    return [{ value: "all", label: "ทุกเซนเซอร์" }, ...SOIL];
+  }, [nodeCategory]);
+
+  // ✅ กันค่าหลุด + default ตาม Node
   useEffect(() => {
     const ok = sensorOptions.some((x) => x.value === selectedSensorType);
-    if (!ok) setSelectedSensorType("soil_moisture");
+    if (ok) return;
+    setSelectedSensorType("all");
   }, [sensorOptions, selectedSensorType]);
+
+  // ===== load plots =====
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPlots() {
+      setLoadingPlots(true);
+      setErrorMsg("");
+      try {
+        const data = await apiFetch("/plots");
+        const items = Array.isArray(data?.items) ? data.items : [];
+
+        const mapped = items.map((p) => {
+          const id = String(p.id || p._id || "");
+          const plotName = p.plotName || p.name || "-";
+          const alias = p.alias || plotName || `แปลง ${id}`;
+          const caretaker = p.caretaker || p.ownerName || "-";
+          const plantType = p.plantType || p.cropType || "-";
+          const plantedAt = p.plantedAt || "-";
+
+          return {
+            value: id,
+            label: alias,
+            meta: {
+              farmer: caretaker,
+              plant: plantType,
+              plantedAt,
+              sensorCount: "-", // จะเติมจากข้อมูลที่โหลดจริง
+            },
+            raw: p,
+          };
+        });
+
+        const allRow = {
+          value: "all",
+          label: "ทุกแปลง",
+          meta: { farmer: "-", plant: "-", plantedAt: "-", sensorCount: "-" },
+          raw: null,
+        };
+
+        const nextPlots = [allRow, ...mapped];
+
+        if (!cancelled) {
+          setPlots(nextPlots);
+          if (!nextPlots.some((x) => x.value === selectedPlot))
+            setSelectedPlot("all");
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setErrorMsg(
+            e?.status === 401
+              ? "401: ยังไม่ได้ล็อกอิน หรือ token ไม่ถูกต้อง (กรุณา login ก่อน)"
+              : `โหลดแปลงไม่สำเร็จ: ${e.message || "error"}`
+          );
+        }
+      } finally {
+        if (!cancelled) setLoadingPlots(false);
+      }
+    }
+
+    loadPlots();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => (cancelled = true);
+  }, []);
 
   const selectedPlotObj = useMemo(
     () => plots.find((p) => p.value === selectedPlot) || plots[0],
     [plots, selectedPlot]
   );
 
-  const mapKey = `${selectedPlot}-${nodeCategory}-${selectedSensorType}-${fetchMode}`;
+  // ===== load polygons + pins + sensors (ดึงครบจริง) =====
+  useEffect(() => {
+    let cancelled = false;
 
-  const fieldPolygon = [
-    [13.35, 101.0],
-    [13.35, 101.2],
-    [13.25, 101.2],
-    [13.25, 101.0],
-  ];
+    async function loadAll() {
+      setLoadingData(true);
+      setErrorMsg("");
 
-  const sensorPositions = [
-    [13.33, 101.08],
-    [13.33, 101.15],
-    [13.3, 101.12],
-    [13.29, 101.18],
-    [13.28, 101.1],
-    [13.27, 101.16],
-  ];
+      try {
+        const plotIds =
+          selectedPlot === "all"
+            ? plots.filter((p) => p.value !== "all").map((p) => p.value)
+            : [selectedPlot];
 
-  const sensorSubText = useMemo(() => {
-    switch (selectedSensorType) {
-      case "temp_rh":
-        return "อุณหภูมิ: 29°C • ความชื้น: 65%";
-      case "wind":
-        return "ความเร็วลม: 2.4 m/s";
-      case "ppfd":
-        return "ความเข้มแสง: 820 µmol/m²/s";
-      case "rain":
-        return "ปริมาณน้ำฝน: 0.0 mm";
-      case "npk":
-        return "N: 12 • P: 8 • K: 10";
-      case "irrigation":
-        return "การให้น้ำ: ทำงาน";
-      case "soil_moisture":
-        return "ความชื้นในดิน: 32%";
-      case "all":
-        return "รวมทุกเซนเซอร์";
-      default:
-        return "-";
+        if (!plotIds.length) {
+          if (!cancelled) {
+            setPolygons([]);
+            setPins([]);
+            setSensorsAll([]);
+          }
+          return;
+        }
+
+        const jobs = plotIds.map(async (plotId) => {
+          // ✅ pins: sensorType=all เสมอ
+          // ✅ sensors: sensorType=all เสมอ (ดึงครบ) แล้วค่อย filter ใน FE
+          const [polyRes, pinRes, sensorRes] = await Promise.all([
+            apiFetch(`/plots/${encodeURIComponent(plotId)}/polygons`),
+            apiFetch(
+              `/pins?plotId=${encodeURIComponent(plotId)}&nodeCategory=${encodeURIComponent(
+                nodeCategory
+              )}&sensorType=all`
+            ),
+            apiFetch(
+              `/sensors?plotId=${encodeURIComponent(
+                plotId
+              )}&nodeCategory=${encodeURIComponent(nodeCategory)}&sensorType=all`
+            ),
+          ]);
+
+          const polys = (Array.isArray(polyRes?.items) ? polyRes.items : [])
+            .map((x) => ({
+              id: String(x.id || x._id || x.polygonId || Math.random()),
+              plotId,
+              color: x.color || "#2563eb",
+              coords: Array.isArray(x.coords) ? x.coords : [],
+            }))
+            .filter((p) => Array.isArray(p.coords) && p.coords.length >= 3);
+
+          const pinItems = (Array.isArray(pinRes?.items) ? pinRes.items : [])
+            .map((p) => ({
+              id: String(p.id || p._id || ""),
+              plotId: String(p.plotId || plotId),
+              number: safeNum(p.number) ?? 0,
+              lat: safeNum(p.lat),
+              lng: safeNum(p.lng),
+              nodeId: p.nodeId ? String(p.nodeId) : null,
+            }))
+            .filter(
+              (p) =>
+                Number.isFinite(p.lat) &&
+                Number.isFinite(p.lng) &&
+                p.lat >= -90 &&
+                p.lat <= 90 &&
+                p.lng >= -180 &&
+                p.lng <= 180
+            )
+            .sort((a, b) => (a.number || 0) - (b.number || 0));
+
+          const sensorItems = (Array.isArray(sensorRes?.items)
+            ? sensorRes.items
+            : []
+          ).map((s) => ({
+            id: String(s.id || s._id || ""),
+            plotId,
+            sensorType: s.sensorType || "",
+            name: s.name || s.sensorType || "Sensor",
+            unit: s.unit || "",
+            status: s.status || "",
+            nodeId: s.nodeId ? String(s.nodeId) : null,
+            pinId: s.pinId ? String(s.pinId) : null,
+            lastReading: s.lastReading || null,
+          }));
+
+          return { plotId, polys, pinItems, sensorItems };
+        });
+
+        const results = await Promise.all(jobs);
+
+        const mergedPolys = results.flatMap((r) => r.polys);
+        const mergedPins = results.flatMap((r) => r.pinItems);
+        const mergedSensorsAll = results.flatMap((r) => r.sensorItems);
+
+        if (cancelled) return;
+
+        setPolygons(mergedPolys);
+        setPins(mergedPins);
+        setSensorsAll(mergedSensorsAll);
+
+        // ✅ sensorCount ใน plots = จำนวน “จริงทั้งหมด” (ไม่ขึ้นกับ selectedSensorType)
+        setPlots((prev) =>
+          prev.map((p) => {
+            if (p.value === "all") {
+              return {
+                ...p,
+                meta: {
+                  ...p.meta,
+                  sensorCount: `${mergedPins.length} PIN • ${mergedSensorsAll.length} Sensors`,
+                },
+              };
+            }
+            const pid = p.value;
+            const pc = mergedPins.filter((x) => x.plotId === pid).length;
+            const sc = mergedSensorsAll.filter((x) => x.plotId === pid).length;
+            return {
+              ...p,
+              meta: { ...p.meta, sensorCount: `${pc} PIN • ${sc} Sensors` },
+            };
+          })
+        );
+      } catch (e) {
+        if (!cancelled) {
+          setErrorMsg(
+            e?.status === 401
+              ? "401: ยังไม่ได้ล็อกอิน หรือ token ไม่ถูกต้อง (กรุณา login ก่อน)"
+              : `โหลดข้อมูลไม่สำเร็จ: ${e.message || "error"}`
+          );
+        }
+      } finally {
+        if (!cancelled) setLoadingData(false);
+      }
     }
-  }, [selectedSensorType]);
+
+    if (plots.length >= 1) loadAll();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPlot, nodeCategory, plots]); // ✅ ไม่ต้องผูก selectedSensorType แล้ว เพราะ sensors ดึงครบอยู่แล้ว
+
+  // ✅ sensors ที่แสดง = filter จาก sensorsAll ตาม selectedSensorType (UI)
+  const sensorsShown = useMemo(() => {
+    if (selectedSensorType === "all") return sensorsAll;
+    return sensorsAll.filter((s) => String(s.sensorType) === String(selectedSensorType));
+  }, [sensorsAll, selectedSensorType]);
+
+  // ===== map center =====
+  const mapCenter = useMemo(() => {
+    if (polygons.length && polygons[0]?.coords?.length) {
+      const pts = polygons[0].coords;
+      const lat =
+        pts.reduce((sum, p) => sum + Number(p?.[0] || 0), 0) / pts.length;
+      const lng =
+        pts.reduce((sum, p) => sum + Number(p?.[1] || 0), 0) / pts.length;
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
+    }
+
+    if (pins.length) {
+      const lat = pins.reduce((sum, p) => sum + p.lat, 0) / pins.length;
+      const lng = pins.reduce((sum, p) => sum + p.lng, 0) / pins.length;
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
+    }
+
+    return [13.3, 101.1];
+  }, [polygons, pins]);
+
+  const mapKey = `${selectedPlot}-${nodeCategory}-${selectedSensorType}-${polygons.length}-${pins.length}-${sensorsAll.length}-${pinIcon ? 1 : 0}`;
+
+  const pinCountText = useMemo(() => `${pins.length} จุด`, [pins.length]);
+  const sensorCountText = useMemo(
+    () => `${sensorsShown.length} รายการ`,
+    [sensorsShown.length]
+  );
 
   return (
     <div style={pageStyle}>
@@ -440,7 +674,6 @@ export default function ManagementPage() {
       >
         <section style={styles.mainPanel}>
           <div style={styles.headerBar}>
-            {/* ✅ เปลี่ยนเป็นตามที่สั่ง */}
             <div style={styles.headerTitle}>การจัดการ PIN และ Sensor</div>
 
             <div style={styles.headerButtons}>
@@ -450,7 +683,6 @@ export default function ManagementPage() {
                 </button>
               </a>
 
-              {/* ✅ ปุ่มตามที่สั่ง: + เพิ่ม PIN และ Sensor */}
               <a href="./AddSensor">
                 <button style={{ ...styles.headerBtn, ...styles.btnOrange }}>
                   + เพิ่ม PIN และ Sensor
@@ -467,7 +699,9 @@ export default function ManagementPage() {
 
           <div style={styles.topGrid}>
             <div style={styles.dropdownCard}>
-              <label style={styles.fieldLabel}>แปลง</label>
+              <label style={styles.fieldLabel}>
+                แปลง {loadingPlots ? "• กำลังโหลด..." : ""}
+              </label>
               <select
                 value={selectedPlot}
                 onChange={(e) => setSelectedPlot(e.target.value)}
@@ -508,30 +742,22 @@ export default function ManagementPage() {
                 ))}
               </select>
             </div>
-
-            <div style={styles.dropdownCard}>
-              <label style={styles.fieldLabel}>ดึงข้อมูล</label>
-              <select
-                value={fetchMode}
-                onChange={(e) => setFetchMode(e.target.value)}
-                style={styles.fieldSelect}
-              >
-                <option value="pin">จากตำแหน่ง PIN เซนเซอร์</option>
-                <option value="polygon">จาก Polygon แปลง</option>
-              </select>
-            </div>
           </div>
+
+          {errorMsg ? <div style={styles.errorBar}>{errorMsg}</div> : null}
 
           <div style={styles.mapTitle}>แผนที่และทรัพยากร</div>
 
           <div style={styles.mapWrapper}>
             {!hydrated ? (
-              <div style={{ ...styles.mapLoading, height: mapH }}>Loading map...</div>
+              <div style={{ ...styles.mapLoading, height: mapH }}>
+                Loading map...
+              </div>
             ) : (
               <MapContainer
                 key={`map-${mapKey}`}
-                center={[13.3, 101.1]}
-                zoom={11}
+                center={mapCenter}
+                zoom={13}
                 scrollWheelZoom
                 style={{ height: mapH, width: "100%" }}
               >
@@ -539,18 +765,45 @@ export default function ManagementPage() {
                   attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
-                <Polygon
-                  positions={fieldPolygon}
-                  pathOptions={{
-                    color: "#16a34a",
-                    fillColor: "#86efac",
-                    fillOpacity: 0.4,
-                  }}
-                />
+
+                {polygons.map((poly) => (
+                  <Polygon
+                    key={`${poly.plotId}-${poly.id}`}
+                    positions={poly.coords}
+                    pathOptions={{
+                      color: poly.color || "#2563eb",
+                      fillColor: poly.color || "#2563eb",
+                      fillOpacity: 0.22,
+                    }}
+                  />
+                ))}
+
                 {pinIcon &&
-                  sensorPositions.map((pos, i) => (
-                    <Marker key={i} position={pos} icon={pinIcon}>
-                      <Popup>Sensor #{i + 1}</Popup>
+                  pins.map((p) => (
+                    <Marker
+                      key={`${p.plotId}-${p.id}`}
+                      position={[p.lat, p.lng]}
+                      icon={pinIcon}
+                    >
+                      <Popup>
+                        <div style={{ fontSize: 12 }}>
+                          <div style={{ fontWeight: 700 }}>
+                            PIN #{p.number || "-"}
+                          </div>
+                          <div>
+                            lat: {p.lat.toFixed(6)} <br />
+                            lng: {p.lng.toFixed(6)}
+                          </div>
+                          <div style={{ marginTop: 6, color: "#64748b" }}>
+                            plotId: {p.plotId}
+                          </div>
+                          {p.nodeId ? (
+                            <div style={{ marginTop: 2, color: "#64748b" }}>
+                              nodeId: {p.nodeId}
+                            </div>
+                          ) : null}
+                        </div>
+                      </Popup>
                     </Marker>
                   ))}
               </MapContainer>
@@ -574,43 +827,81 @@ export default function ManagementPage() {
           </div>
 
           <div style={styles.bottomSub}>
-            โหมด:{" "}
-            {fetchMode === "pin"
-              ? "จากตำแหน่ง PIN เซนเซอร์"
-              : "จาก Polygon แปลง"}{" "}
-            • เซนเซอร์:{" "}
-            {sensorOptions.find((x) => x.value === selectedSensorType)?.label || "-"}
+            เซนเซอร์:{" "}
+            {sensorOptions.find((x) => x.value === selectedSensorType)?.label ||
+              "-"}
+            {" • "}
+            PIN: {pinCountText}
+            {" • "}
+            รายการเซนเซอร์: {sensorCountText}
           </div>
 
           <div style={styles.infoGrid}>
             <div>
               <div style={styles.infoLabel}>ผู้ปลูก</div>
-              <div style={styles.infoBox}>{selectedPlotObj.meta.farmer}</div>
+              <div style={styles.infoBox}>
+                {selectedPlotObj?.meta?.farmer || "-"}
+              </div>
             </div>
             <div>
               <div style={styles.infoLabel}>ประเภทพืช</div>
-              <div style={styles.infoBox}>{selectedPlotObj.meta.plant}</div>
+              <div style={styles.infoBox}>
+                {selectedPlotObj?.meta?.plant || "-"}
+              </div>
             </div>
             <div>
               <div style={styles.infoLabel}>วันที่เริ่มปลูก</div>
-              <div style={styles.infoBox}>{selectedPlotObj.meta.plantedAt}</div>
+              <div style={styles.infoBox}>
+                {selectedPlotObj?.meta?.plantedAt || "-"}
+              </div>
             </div>
             <div>
-              <div style={styles.infoLabel}>จำนวนเซนเซอร์</div>
-              <div style={styles.infoBox}>{selectedPlotObj.meta.sensorCount}</div>
+              <div style={styles.infoLabel}>จำนวน PIN / เซนเซอร์</div>
+              <div style={styles.infoBox}>
+                {selectedPlotObj?.meta?.sensorCount || "-"}
+              </div>
             </div>
           </div>
 
           <div style={styles.sensorList}>
-            {sensors.map((s, i) => (
-              <div key={i} style={styles.sensorItem}>
-                <div style={styles.sensorIconCircle}>📍</div>
-                <div>
-                  <div style={styles.sensorTextMain}>{s}</div>
-                  <div style={styles.sensorTextSub}>{sensorSubText}</div>
-                </div>
+            {sensorsShown.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#64748b" }}>
+                ยังไม่มีข้อมูลเซนเซอร์ในเงื่อนไขที่เลือก
               </div>
-            ))}
+            ) : (
+              sensorsShown.map((s) => {
+                const lr = s.lastReading || null;
+                const hasVal =
+                  lr &&
+                  lr.value !== undefined &&
+                  lr.value !== null &&
+                  !Number.isNaN(Number(lr.value));
+                const valText = hasVal
+                  ? `${Number(lr.value)}${s.unit ? ` ${s.unit}` : ""}`
+                  : "-";
+                const timeText = lr?.ts ? fmtTs(lr.ts) : "-";
+
+                return (
+                  <div key={`${s.plotId}-${s.id}`} style={styles.sensorItem}>
+                    <div style={styles.sensorIconCircle}>📍</div>
+                    <div style={{ width: "100%" }}>
+                      <div style={styles.sensorTextMain}>
+                        {s.name}{" "}
+                        <span style={{ fontSize: 11, color: "#6b7280" }}>
+                          ({s.sensorType || "-"})
+                        </span>
+                      </div>
+                      <div style={styles.sensorTextSub}>
+                        ล่าสุด: {valText} • เวลา: {timeText}
+                        {s.status ? ` • สถานะ: ${s.status}` : ""}
+                        {" • "}
+                        plotId: {s.plotId}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </section>
       </main>

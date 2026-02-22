@@ -5,12 +5,50 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import "leaflet/dist/leaflet.css";
 
-// --- dynamic import React-Leaflet เฉพาะฝั่ง client ---
+// --- dynamic import React-Leaflet (client only) ---
 const MapContainer = dynamic(() => import("react-leaflet").then((m) => m.MapContainer), { ssr: false });
 const TileLayer = dynamic(() => import("react-leaflet").then((m) => m.TileLayer), { ssr: false });
 const Polygon = dynamic(() => import("react-leaflet").then((m) => m.Polygon), { ssr: false });
 const Marker = dynamic(() => import("react-leaflet").then((m) => m.Marker), { ssr: false });
 const Popup = dynamic(() => import("react-leaflet").then((m) => m.Popup), { ssr: false });
+
+// ✅ Fit bounds helper component (client only)
+const FitToAll = dynamic(
+  async () => {
+    const RL = await import("react-leaflet");
+    const { useMap } = RL;
+
+    return function FitToAllInner({ points = [] }) {
+      const map = useMap();
+      useEffect(() => {
+        let cancelled = false;
+        (async () => {
+          try {
+            const L = await import("leaflet");
+            if (cancelled) return;
+
+            const valid = (points || [])
+              .map((p) => [Number(p?.[0]), Number(p?.[1])])
+              .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+
+            if (!valid.length) return;
+
+            const bounds = L.latLngBounds(valid.map((p) => L.latLng(p[0], p[1])));
+            map.fitBounds(bounds.pad(0.12), { animate: false });
+          } catch {
+            // ignore
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [map, points]);
+
+      return null;
+    };
+  },
+  { ssr: false }
+);
 
 // ============================
 // ✅ API CONFIG
@@ -28,7 +66,7 @@ const pageStyle = {
   minHeight: "100vh",
   color: "#111827",
 };
-const outerWrap = { width: "100%", display: "flex", justifyContent: "center", overflowX: "hidden" };
+const outerWrap = { width: "100%", display: "flex", justifyContent: "center", overflowX: "hidden", minHeight: "100vh" };
 const bodyStyle = {
   width: "100%",
   maxWidth: 1180,
@@ -123,8 +161,6 @@ const pinSensorValue = { fontSize: 10, color: "#6b7280", whiteSpace: "nowrap", o
 // ✅ LocalStorage keys
 // ============================
 const LS_TOKEN = "token";
-const LS_LAST_PLOT_ID = "lastPlotId";
-const LS_DASH_CACHE_V1 = "duwims_dashboard_cache_v1";
 
 // ============================
 // ✅ Helpers
@@ -159,36 +195,6 @@ function getStoredToken() {
   } catch {
     return "";
   }
-}
-function setStoredToken(token) {
-  try {
-    localStorage.setItem(LS_TOKEN, token);
-  } catch {}
-}
-function clearStoredToken() {
-  try {
-    localStorage.removeItem(LS_TOKEN);
-  } catch {}
-}
-function safeJsonParse(s, fallback = null) {
-  try {
-    return s ? JSON.parse(s) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-function loadCache() {
-  try {
-    const raw = localStorage.getItem(LS_DASH_CACHE_V1);
-    return safeJsonParse(raw, null);
-  } catch {
-    return null;
-  }
-}
-function saveCache(payload) {
-  try {
-    localStorage.setItem(LS_DASH_CACHE_V1, JSON.stringify(payload));
-  } catch {}
 }
 
 // ============================
@@ -282,52 +288,115 @@ async function fetchForecast7Days(lat, lng) {
 }
 
 // ============================
-// ✅ DEMO fallback
+// ✅ Robust polygon parser (fix missing polygons)
 // ============================
-const DEMO_PLOT = {
-  id: "__demo__",
-  plotName: "แปลงตัวอย่าง (Demo)",
-  caretaker: "สมชาย ใจดี",
-  plantType: "ทุเรียน",
-  plantedAt: null,
-};
-const DEMO_POLYGON = [
-  [13.35, 101.0],
-  [13.35, 101.2],
-  [13.25, 101.2],
-  [13.25, 101.0],
-];
-const DEMO_PINS = [
-  { id: "demo-pin-1", number: 1, lat: 13.32, lng: 101.06 },
-  { id: "demo-pin-2", number: 2, lat: 13.31, lng: 101.14 },
-  { id: "demo-pin-3", number: 3, lat: 13.29, lng: 101.11 },
-];
-function getDemoGroups(pinNumber) {
-  let moistureItems;
-  if (pinNumber === 3) {
-    moistureItems = [
-      { name: "เซนเซอร์ความชื้นดิน #1", value: "ความชื้นดิน - 38 % (เกินเกณฑ์)", isAlert: true },
-      { name: "เซนเซอร์ความชื้นดิน #2", value: "ความชื้นดิน - 42 %", isAlert: false },
-    ];
-  } else {
-    const moist1 = pinNumber === 1 ? "32 %" : "35 %";
-    const moist2 = pinNumber === 1 ? "38 %" : "40 %";
-    moistureItems = [
-      { name: "เซนเซอร์ความชื้นดิน #1", value: `ความชื้นดิน - ${moist1}`, isAlert: false },
-      { name: "เซนเซอร์ความชื้นดิน #2", value: `ความชื้นดิน - ${moist2}`, isAlert: false },
-    ];
+function maybeSwapLngLat(pair) {
+  const a = Number(pair?.[0]);
+  const b = Number(pair?.[1]);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  if (Math.abs(a) > 90 && Math.abs(b) <= 90) return [b, a]; // swap if looks like [lng,lat]
+  return [a, b]; // assume [lat,lng]
+}
+function normalizePairList(list) {
+  if (!Array.isArray(list)) return null;
+
+  // [{lat,lng}, ...]
+  if (list.length && typeof list[0] === "object" && !Array.isArray(list[0])) {
+    const out = list
+      .map((p) => {
+        const lat = Number(p?.lat);
+        const lng = Number(p?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return [lat, lng];
+      })
+      .filter(Boolean);
+    return out.length >= 3 ? out : null;
   }
-  return [
-    { group: "เซนเซอร์ความชื้นดิน", items: moistureItems },
-    {
-      group: "เซนเซอร์ อุณหภูมิ",
-      items: [
-        { name: "เซนเซอร์ อุณหภูมิ #1", value: "อุณหภูมิอากาศ - 31 °C" },
-        { name: "เซนเซอร์ อุณหภูมิ #2", value: "อุณหภูมิอากาศ - 32 °C" },
-      ],
-    },
-    { group: "เซนเซอร์การให้น้ำ", items: [{ name: "เซนเซอร์การให้น้ำ #1", value: "การให้น้ำ 20 kPa" }] },
-  ];
+
+  // [[x,y], ...]
+  const out = list.map((p) => maybeSwapLngLat(p)).filter(Boolean);
+  return out.length >= 3 ? out : null;
+}
+function extractRingsFromAny(raw) {
+  if (!raw) return [];
+
+  // GeoJSON object
+  if (typeof raw === "object" && !Array.isArray(raw) && raw.type && raw.coordinates) {
+    raw = raw.coordinates;
+  }
+
+  if (!Array.isArray(raw)) return [];
+
+  // direct ring: [[lat,lng],...]
+  const direct = normalizePairList(raw);
+  if (direct) return [direct];
+
+  // Polygon: [ [ [lng,lat],... ], ... ]
+  if (Array.isArray(raw[0]) && Array.isArray(raw[0][0]) && typeof raw[0][0][0] === "number") {
+    const outer = normalizePairList(raw[0]);
+    return outer ? [outer] : [];
+  }
+
+  // MultiPolygon: [ [ [ [lng,lat],... ] ], ... ]
+  if (
+    Array.isArray(raw[0]) &&
+    Array.isArray(raw[0][0]) &&
+    Array.isArray(raw[0][0][0]) &&
+    typeof raw[0][0][0][0] === "number"
+  ) {
+    const rings = [];
+    for (const poly of raw) {
+      const outer = normalizePairList(poly?.[0]);
+      if (outer) rings.push(outer);
+    }
+    return rings;
+  }
+
+  // fallback: try each item
+  const rings = [];
+  for (const item of raw) {
+    const r1 = normalizePairList(item);
+    if (r1) rings.push(r1);
+    else if (Array.isArray(item?.[0])) {
+      const r2 = normalizePairList(item?.[0]);
+      if (r2) rings.push(r2);
+    }
+  }
+  return rings;
+}
+function normalizePolygons(items, plotId = "", plotName = "") {
+  const list = Array.isArray(items) ? items : [];
+  const out = [];
+
+  for (let idx = 0; idx < list.length; idx++) {
+    const p = list[idx];
+    const baseId = String(p?.id || p?._id || `poly-${plotId}-${idx}`);
+
+    const sources = [p?.coords, p?.coordinates, p?.latlngs, p?.points, p?.geometry, p?.geojson].filter(Boolean);
+    if (!sources.length) sources.push(p);
+
+    let rings = [];
+    for (const src of sources) {
+      const r = extractRingsFromAny(src);
+      if (r && r.length) {
+        rings = r;
+        break;
+      }
+    }
+
+    for (let r = 0; r < rings.length; r++) {
+      out.push({
+        id: rings.length > 1 ? `${baseId}-${r + 1}` : baseId,
+        plotId: String(plotId),
+        plotName: String(plotName || ""),
+        name: p?.name || p?.plotName || "",
+        color: p?.color || "#16a34a",
+        coords: rings[r],
+      });
+    }
+  }
+
+  return out;
 }
 
 // ============================
@@ -360,11 +429,11 @@ function buildGroupsFromSensors(sensors = [], sensorTypeMap = new Map()) {
   return out;
 }
 
-export default function DashboardPage() {
+export default function DashboardAllPlotsPage() {
   const router = useRouter();
 
-  const [pinIcon, setPinIcon] = useState(null);
   const [isClient, setIsClient] = useState(false);
+  const [pinIcon, setPinIcon] = useState(null);
 
   const [vw, setVw] = useState(1280);
   useEffect(() => {
@@ -391,7 +460,7 @@ export default function DashboardPage() {
     };
   }, [cardPad, cardRadius]);
 
-  const mapHeight = isMobile ? 220 : isTablet ? 260 : 260;
+  const mapHeight = isMobile ? 240 : isTablet ? 300 : 320;
 
   const gridTop = useMemo(() => {
     if (isMobile) {
@@ -416,7 +485,7 @@ export default function DashboardPage() {
   const gridPins = useMemo(() => {
     if (isMobile) return { display: "grid", gridTemplateColumns: "1fr", gap: 12 };
     if (isTablet) return { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 };
-    return { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16, alignItems: "stretch", gridAutoRows: "1fr" };
+    return { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16, alignItems: "stretch" };
   }, [isMobile, isTablet]);
 
   const gridWeather = useMemo(() => {
@@ -450,6 +519,7 @@ export default function DashboardPage() {
   const bigNum = { fontSize: isMobile ? 22 : 24, fontWeight: 800 };
 
   useEffect(() => setIsClient(true), []);
+
   useEffect(() => {
     if (!isClient) return;
     let mounted = true;
@@ -472,19 +542,15 @@ export default function DashboardPage() {
   // ✅ Auth + Data state
   // ============================
   const [token, setToken] = useState("");
-  const [me, setMe] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [cacheTs, setCacheTs] = useState(null);
 
   const [forecastDays, setForecastDays] = useState([]);
 
-  const [plots, setPlots] = useState([DEMO_PLOT]);
-  const [selectedPlotId, setSelectedPlotId] = useState("__demo__");
-  const selectedPlot = useMemo(() => plots.find((p) => String(p.id) === String(selectedPlotId)) || DEMO_PLOT, [plots, selectedPlotId]);
-
-  const [polygons, setPolygons] = useState([{ id: "demo-poly", coords: DEMO_POLYGON, color: "#16a34a" }]);
-  const [pins, setPins] = useState(DEMO_PINS);
+  // ✅ ALL PLOTS
+  const [plots, setPlots] = useState([]);
   const [sensorTypes, setSensorTypes] = useState([]);
   const sensorTypeMap = useMemo(() => {
     const m = new Map();
@@ -492,234 +558,143 @@ export default function DashboardPage() {
     return m;
   }, [sensorTypes]);
 
-  const [sensorsByPinId, setSensorsByPinId] = useState({});
-  const [mode, setMode] = useState("demo"); // demo | cache | live
-  const [cacheTs, setCacheTs] = useState(null);
+  // ✅ ALL polygons + ALL pins across all plots
+  const [polygonsAll, setPolygonsAll] = useState([]); // [{id, plotId, plotName, coords, color}]
+  const [pinsAll, setPinsAll] = useState([]); // [{id, plotId, plotName, number, lat, lng}]
+  const [sensorsByPinId, setSensorsByPinId] = useState({}); // pinId -> sensors[]
 
   // ============================
-  // ✅ Mount: token + cache + lastPlot
+  // ✅ Mount: token + redirect
   // ============================
   useEffect(() => {
     if (!isClient) return;
-
     const tk = getStoredToken();
-    if (tk) setToken(tk);
-
-    const lastPlot = (() => {
-      try {
-        return localStorage.getItem(LS_LAST_PLOT_ID) || "";
-      } catch {
-        return "";
-      }
-    })();
-
-    const cache = loadCache();
-    if (cache?.data) {
-      setCacheTs(cache.ts || null);
-      const cachedPlots = Array.isArray(cache.data.plots) ? cache.data.plots : [];
-      const mergedPlots = [DEMO_PLOT, ...cachedPlots.filter((p) => p && p.id)];
-      setPlots(mergedPlots.length ? mergedPlots : [DEMO_PLOT]);
-
-      const nextId =
-        (lastPlot && mergedPlots.some((p) => String(p.id) === String(lastPlot)) && lastPlot) ||
-        (cachedPlots?.[0]?.id || "__demo__");
-
-      setSelectedPlotId(nextId);
-
-      setSensorTypes(Array.isArray(cache.data.sensorTypes) ? cache.data.sensorTypes : []);
-
-      const perPlot = cache.data.byPlot?.[String(nextId)] || null;
-      if (perPlot) {
-        setPolygons(perPlot.polygons || []);
-        setPins(perPlot.pins || []);
-        setSensorsByPinId(perPlot.sensorsByPinId || {});
-      }
-
-      setMode("cache");
-    } else {
-      setMode("demo");
-    }
-
-    if (lastPlot) setSelectedPlotId(lastPlot);
-  }, [isClient]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_LAST_PLOT_ID, String(selectedPlotId));
-    } catch {}
-  }, [selectedPlotId]);
-
-  // verify /me
-  useEffect(() => {
-    if (!token) {
-      setMe(null);
+    if (!tk) {
+      router.replace("/login");
       return;
     }
-    let cancelled = false;
-    apiFetch("/me", { token })
-      .then((d) => {
-        if (!cancelled) setMe(d?.user || null);
-      })
-      .catch(() => {
-        if (!cancelled) setMe(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+    setToken(tk);
+  }, [isClient, router]);
 
   // ============================
-  // ✅ Redirect if no token (optional)
-  // ถ้าคุณอยากให้ dashboard เข้าได้เฉพาะ login ให้เปิดบรรทัดนี้
-  // ============================
-  // useEffect(() => {
-  //   if (isClient && !token) router.replace("/login");
-  // }, [isClient, token, router]);
-
-  function onLogout() {
-    clearStoredToken();
-    setToken("");
-    setMe(null);
-    setLoadError("");
-    router.push("/login"); // ✅ logout แล้วเด้งไป login
-  }
-
-  // ============================
-  // ✅ Load plots + sensor-types after login
+  // ✅ Load everything (ALL plots)
   // ============================
   useEffect(() => {
     if (!token) return;
-    let cancelled = false;
 
-    async function loadAfterLogin() {
+    let cancelled = false;
+    async function loadAll() {
       setLoading(true);
       setLoadError("");
       try {
+        // 1) sensor types
         const st = await apiFetch("/api/sensor-types", { token });
         if (cancelled) return;
         setSensorTypes(st?.items || []);
 
+        // 2) plots
         const pl = await apiFetch("/api/plots", { token });
         if (cancelled) return;
-        const items = (pl?.items || []).map((p) => ({ ...p, id: String(p.id || p._id || "") }));
+        const plotItems = (pl?.items || [])
+          .map((p) => ({
+            ...p,
+            id: String(p.id || p._id || ""),
+            plotName: p.plotName || p.name || p.alias || "",
+          }))
+          .filter((p) => p.id);
+        setPlots(plotItems);
 
-        setPlots([DEMO_PLOT, ...items]);
+        // 3) polygons + pins + sensors for each plot (Promise.all)
+        const polyPromises = plotItems.map((p) =>
+          apiFetch(`/api/plots/${p.id}/polygons`, { token }).then((res) => ({
+            plotId: p.id,
+            plotName: p.plotName,
+            items: res?.items || [],
+          }))
+        );
 
-        const valid = items.some((p) => String(p.id) === String(selectedPlotId));
-        if (!valid) setSelectedPlotId(items?.[0]?.id || "__demo__");
+        const pinPromises = plotItems.map((p) =>
+          apiFetch(`/api/dashboard/pins?plotId=${encodeURIComponent(p.id)}`, { token }).then((res) => ({
+            plotId: p.id,
+            plotName: p.plotName,
+            items: res?.items || [],
+          }))
+        );
 
-        setMode("live");
+        const sensorPromises = plotItems.map((p) =>
+          apiFetch(`/api/sensors?plotId=${encodeURIComponent(p.id)}&sensorType=all`, { token }).then((res) => ({
+            plotId: p.id,
+            plotName: p.plotName,
+            items: res?.items || [],
+          }))
+        );
 
-        const cache = loadCache()?.data || { plots: [], byPlot: {}, sensorTypes: [] };
-        const ts = new Date().toISOString();
-        saveCache({ ts, data: { ...cache, plots: items, sensorTypes: st?.items || [] } });
-        setCacheTs(ts);
-      } catch (e) {
-        if (!cancelled) {
-          setLoadError(e?.message || "โหลดข้อมูลไม่สำเร็จ");
-          setMode(loadCache()?.data ? "cache" : "demo");
+        const [polysByPlot, pinsByPlot, sensorsByPlot] = await Promise.all([
+          Promise.all(polyPromises),
+          Promise.all(pinPromises),
+          Promise.all(sensorPromises),
+        ]);
+        if (cancelled) return;
+
+        // normalize polygons
+        const allPolys = [];
+        for (const pp of polysByPlot) {
+          const normalized = normalizePolygons(pp.items, pp.plotId, pp.plotName);
+          allPolys.push(...normalized);
         }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
+        setPolygonsAll(allPolys);
 
-    loadAfterLogin();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
-
-  // ============================
-  // ✅ Load plot data (polygons/pins/sensors)
-  // ============================
-  useEffect(() => {
-    if (selectedPlotId === "__demo__") {
-      setPolygons([{ id: "demo-poly", coords: DEMO_POLYGON, color: "#16a34a" }]);
-      setPins(DEMO_PINS);
-      setSensorsByPinId({});
-      if (!token) setMode(loadCache()?.data ? "cache" : "demo");
-      return;
-    }
-
-    if (!token) {
-      const cache = loadCache();
-      const perPlot = cache?.data?.byPlot?.[String(selectedPlotId)] || null;
-      if (perPlot) {
-        setPolygons(perPlot.polygons || []);
-        setPins(perPlot.pins || []);
-        setSensorsByPinId(perPlot.sensorsByPinId || {});
-        setCacheTs(cache.ts || null);
-        setMode("cache");
-      } else {
-        setSelectedPlotId("__demo__");
-      }
-      return;
-    }
-
-    let cancelled = false;
-    async function loadPlotLive() {
-      setLoading(true);
-      setLoadError("");
-      try {
-        const poly = await apiFetch(`/api/plots/${selectedPlotId}/polygons`, { token });
-        if (cancelled) return;
-        const polyItems = poly?.items || [];
-        setPolygons(polyItems);
-
-        const pinsRes = await apiFetch(`/api/dashboard/pins?plotId=${encodeURIComponent(selectedPlotId)}`, { token });
-        if (cancelled) return;
-        const pinsRaw = (pinsRes?.items || []).map((x) => ({
-          ...x,
-          id: String(x.id || x._id || ""),
-          number: safeNum(x.number, 0),
-          lat: Number(x.lat),
-          lng: Number(x.lng),
-          nodeId: x.nodeId ? String(x.nodeId) : null,
-        }));
-        setPins(pinsRaw);
-
-        const sensorsRes = await apiFetch(`/api/sensors?plotId=${encodeURIComponent(selectedPlotId)}&sensorType=all`, { token });
-        if (cancelled) return;
-        const sensors = (sensorsRes?.items || []).map((x) => ({
-          ...x,
-          id: String(x.id || x._id || ""),
-          pinId: x.pinId ? String(x.pinId) : null,
-        }));
-
-        const map = {};
-        for (const ss of sensors) {
-          const pid = ss.pinId || "__no_pin__";
-          if (!map[pid]) map[pid] = [];
-          map[pid].push(ss);
+        // normalize pins
+        const allPins = [];
+        for (const pr of pinsByPlot) {
+          const pinsNorm = (pr.items || [])
+            .map((x) => ({
+              ...x,
+              id: String(x.id || x._id || ""),
+              plotId: pr.plotId,
+              plotName: pr.plotName,
+              number: safeNum(x.number, 0),
+              lat: Number(x.lat),
+              lng: Number(x.lng),
+              nodeId: x.nodeId ? String(x.nodeId) : null,
+            }))
+            .filter((p) => p.id && Number.isFinite(p.lat) && Number.isFinite(p.lng));
+          allPins.push(...pinsNorm);
         }
-        setSensorsByPinId(map);
+        setPinsAll(allPins);
 
-        setMode("live");
+        // normalize sensors map by pin
+        const pinMap = {};
+        for (const sr of sensorsByPlot) {
+          const sensors = (sr.items || []).map((x) => ({
+            ...x,
+            id: String(x.id || x._id || ""),
+            pinId: x.pinId ? String(x.pinId) : null,
+          }));
+          for (const s of sensors) {
+            const pid = s.pinId || "__no_pin__";
+            if (!pinMap[pid]) pinMap[pid] = [];
+            pinMap[pid].push(s);
+          }
+        }
+        setSensorsByPinId(pinMap);
 
-        const cache = loadCache()?.data || { plots: [], byPlot: {}, sensorTypes: sensorTypes || [] };
-        const newByPlot = { ...(cache.byPlot || {}) };
-        newByPlot[String(selectedPlotId)] = { polygons: polyItems, pins: pinsRaw, sensorsByPinId: map };
-        const ts = new Date().toISOString();
-        saveCache({ ts, data: { ...cache, byPlot: newByPlot, sensorTypes: sensorTypes || cache.sensorTypes || [] } });
-        setCacheTs(ts);
+        setCacheTs(new Date().toISOString());
       } catch (e) {
         if (!cancelled) {
           if (e?.status === 401) router.replace("/login");
-          setLoadError(e?.message || "โหลดข้อมูลแปลงไม่สำเร็จ");
-          setMode(loadCache()?.data ? "cache" : "demo");
+          setLoadError(e?.message || "โหลดข้อมูลไม่สำเร็จ");
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
 
-    loadPlotLive();
+    loadAll();
     return () => {
       cancelled = true;
     };
-  }, [token, selectedPlotId, sensorTypes, router]);
+  }, [token, router]);
 
   // ============================
   // ✅ Weather effect
@@ -728,14 +703,22 @@ export default function DashboardPage() {
     let cancelled = false;
     async function loadWeather() {
       try {
-        const latestPoly = polygons?.[0];
-        let latLng = centroidOfPolygon(latestPoly?.coords);
+        let latLng = null;
+
+        for (const p of polygonsAll || []) {
+          const c = centroidOfPolygon(p?.coords);
+          if (c) {
+            latLng = c;
+            break;
+          }
+        }
 
         if (!latLng) {
-          const firstPin = (pins || []).find((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)));
+          const firstPin = (pinsAll || []).find((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)));
           if (firstPin) latLng = [Number(firstPin.lat), Number(firstPin.lng)];
         }
-        if (!latLng) latLng = centroidOfPolygon(DEMO_POLYGON) || [13.3, 101.1];
+
+        if (!latLng) latLng = [13.736717, 100.523186]; // fallback only for weather
 
         const days = await fetchForecast7Days(latLng[0], latLng[1]);
         if (!cancelled) setForecastDays(days);
@@ -747,44 +730,47 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [polygons, pins, selectedPlotId]);
+  }, [polygonsAll, pinsAll]);
 
   // ============================
-  // ✅ Derived UI
+  // ✅ Derived UI (ALL)
   // ============================
-  const mapPolygonPositions = useMemo(() => {
-    const latest = polygons?.[0];
-    const coords = latest?.coords;
-    if (Array.isArray(coords) && coords.length >= 3) return coords;
-    return DEMO_POLYGON;
-  }, [polygons]);
+  const allMapPoints = useMemo(() => {
+    const pts = [];
+    for (const poly of polygonsAll || []) {
+      for (const c of poly?.coords || []) pts.push(c);
+    }
+    for (const p of pinsAll || []) pts.push([Number(p.lat), Number(p.lng)]);
+    return pts.filter((x) => Array.isArray(x) && x.length === 2);
+  }, [polygonsAll, pinsAll]);
+
+  const mapCenter = useMemo(() => {
+    const any = allMapPoints?.[0];
+    if (any && Number.isFinite(Number(any[0])) && Number.isFinite(Number(any[1]))) return [Number(any[0]), Number(any[1])];
+    return [13.736717, 100.523186];
+  }, [allMapPoints]);
 
   const mapPinsForMap = useMemo(() => {
-    const list = (pins || []).filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)));
-    if (list.length) {
-      return list
-        .slice()
-        .sort((a, b) => safeNum(a.number, 0) - safeNum(b.number, 0))
-        .map((p) => ({
-          id: p.id,
-          position: [Number(p.lat), Number(p.lng)],
-          label: `Pin ${safeNum(p.number, 0)}`,
-          number: safeNum(p.number, 0),
-        }));
-    }
-    return DEMO_PINS.map((p) => ({ id: p.id, position: [p.lat, p.lng], label: `Pin ${p.number}`, number: p.number }));
-  }, [pins]);
+    return (pinsAll || [])
+      .slice()
+      .sort((a, b) => safeNum(a.number, 0) - safeNum(b.number, 0))
+      .map((p) => ({
+        id: p.id,
+        position: [Number(p.lat), Number(p.lng)],
+        label: `${p.plotName || p.plotId} • Pin ${safeNum(p.number, 0)}`,
+        number: safeNum(p.number, 0),
+      }));
+  }, [pinsAll]);
 
+  // ✅ show ALL pins as cards (no slice)
   const pinCards = useMemo(() => {
-    const list = (pins || []).filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)));
-    if (list.length) return list.slice().sort((a, b) => safeNum(a.number, 0) - safeNum(b.number, 0)).slice(0, 3);
-    return DEMO_PINS;
-  }, [pins]);
+    return (pinsAll || []).slice().sort((a, b) => safeNum(a.number, 0) - safeNum(b.number, 0));
+  }, [pinsAll]);
 
-  // Correct top cards
   const today = forecastDays?.[0] || null;
   const tempRangeText = today ? `${safeNum(today.tempMin, 0)} – ${safeNum(today.tempMax, 0)} °C` : "—";
   const rainChanceToday = today ? safeNum(today.rainChance, 0) : 0;
+
   const rainSum7 = useMemo(() => {
     if (!forecastDays?.length) return null;
     const sum = forecastDays.reduce((acc, d) => acc + safeNum(d.rainSum, 0), 0);
@@ -800,7 +786,9 @@ export default function DashboardPage() {
     return "ฝนค่อนข้างน้อย เหมาะกับการจัดการให้น้ำตามแผน และตรวจความชื้นดินเป็นระยะ";
   }, [forecastDays]);
 
-  const pinCount = (pins || []).length;
+  const pinCount = (pinsAll || []).length;
+  const plotCount = (plots || []).length;
+  const polyCount = (polygonsAll || []).length;
 
   const issueCount = useMemo(() => {
     const allPins = Object.keys(sensorsByPinId || {});
@@ -815,10 +803,8 @@ export default function DashboardPage() {
   }, [sensorsByPinId]);
 
   const statusText = useMemo(() => {
-    if (mode === "live") return "อัปเดตจากระบบ";
-    if (mode === "cache") return `แสดงข้อมูลล่าสุดจากเครื่อง${cacheTs ? ` • อัปเดต: ${prettyTs(cacheTs)}` : ""}`;
-    return "โหมด Demo";
-  }, [mode, cacheTs]);
+    return `อัปเดตจากระบบ${cacheTs ? ` • อัปเดต: ${prettyTs(cacheTs)}` : ""}`;
+  }, [cacheTs]);
 
   const daysUI = useMemo(() => {
     if (forecastDays?.length) {
@@ -829,15 +815,7 @@ export default function DashboardPage() {
         emoji: weatherEmoji(d.rainChance),
       }));
     }
-    return [
-      { day: "จันทร์", temp: "32°", rain: "40%", emoji: "🌤️" },
-      { day: "อังคาร", temp: "31°", rain: "60%", emoji: "🌦️" },
-      { day: "พุธ", temp: "30°", rain: "80%", emoji: "🌧️" },
-      { day: "พฤหัส", temp: "32°", rain: "20%", emoji: "🌤️" },
-      { day: "ศุกร์", temp: "34°", rain: "10%", emoji: "🌤️" },
-      { day: "เสาร์", temp: "31°", rain: "50%", emoji: "🌦️" },
-      { day: "อาทิตย์", temp: "32°", rain: "30%", emoji: "🌤️" },
-    ];
+    return [];
   }, [forecastDays]);
 
   return (
@@ -852,72 +830,7 @@ export default function DashboardPage() {
           }}
           className="du-dashboard"
         >
-          {/* ===== Header Bar ===== */}
-          <div style={{ ...cardBaseR, marginBottom: 16 }} className="du-card">
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-              <div style={{ fontSize: 14, fontWeight: 700, marginRight: 6 }}>
-                เชื่อม Backend:{" "}
-                <span style={{ fontWeight: 800, color: token ? "#16a34a" : "#ef4444" }}>
-                  {token ? "พร้อมใช้งาน" : mode === "cache" ? "ออฟไลน์ (ใช้ข้อมูลเก่า)" : "โหมด Demo"}
-                </span>
-              </div>
-
-              <div style={{ flex: 1, minWidth: 220, color: "#6b7280", fontSize: 12 }}>
-                API: {API_BASE_URL}
-                {loading ? " • กำลังโหลด..." : ""}
-                {loadError ? ` • ${loadError}` : ""}
-                {" • Weather: Open-Meteo (frontend)"}
-              </div>
-
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <div style={{ fontSize: 12, color: "#374151" }}>{me?.email ? `ผู้ใช้: ${me.email}` : "ผู้ใช้: -"}</div>
-                <button
-                  onClick={onLogout}
-                  style={{
-                    border: "none",
-                    borderRadius: 999,
-                    padding: "8px 12px",
-                    background: "#111827",
-                    color: "#fff",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Logout
-                </button>
-              </div>
-            </div>
-
-            {/* ✅ Select plot */}
-            <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-              <div style={{ fontSize: 12, color: "#374151", fontWeight: 700 }}>แปลง:</div>
-              <select
-                value={selectedPlotId}
-                onChange={(e) => setSelectedPlotId(e.target.value)}
-                style={{
-                  borderRadius: 999,
-                  border: "1px solid rgba(148,163,184,0.6)",
-                  padding: "8px 12px",
-                  outline: "none",
-                  background: "#fff",
-                  fontWeight: 700,
-                  minWidth: 260,
-                }}
-              >
-                {plots.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.plotName || p.name || p.alias || p.id}
-                  </option>
-                ))}
-              </select>
-
-              <div style={{ fontSize: 12, color: "#6b7280" }}>
-                ผู้ดูแล: {selectedPlot?.caretaker || selectedPlot?.ownerName || "-"} • พืช:{" "}
-                {selectedPlot?.plantType || selectedPlot?.cropType || "-"} • เริ่มปลูก:{" "}
-                {formatThaiDate(selectedPlot?.plantedAt) || "-"}
-              </div>
-            </div>
-          </div>
+          {/* ===== Header Bar REMOVED (ผู้ใช้/แปลง/Logout ถูกลบออกทั้งหมด) ===== */}
 
           {/* ===== Top Row ===== */}
           <div style={{ ...gridTop, marginBottom: 16 }}>
@@ -948,6 +861,11 @@ export default function DashboardPage() {
                       <div style={{ fontSize: 11, color: "#4b5563", marginTop: 4 }}>โอกาสฝนตก {d.rain}</div>
                     </div>
                   ))}
+                  {!daysUI.length && (
+                    <div style={{ padding: 10, color: "#6b7280", fontSize: 12 }}>
+                      {loading ? "กำลังโหลด..." : loadError ? loadError : "กำลังโหลดข้อมูลพยากรณ์อากาศ..."}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1001,16 +919,31 @@ export default function DashboardPage() {
           <div style={{ ...gridMiddle, marginBottom: 16 }} className="du-grid-3">
             <div style={{ ...cardBaseR, gridArea: "map" }} className="du-card">
               <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
-                แผนที่และทรัพยากร
+                แผนที่และทรัพยากร (ทุกแปลง)
               </div>
               <div style={{ borderRadius: isMobile ? 18 : 22, overflow: "hidden", boxShadow: "0 8px 18px rgba(15,23,42,0.18)" }}>
                 {isClient && (
-                  <MapContainer center={[13.3, 101.1]} zoom={11} scrollWheelZoom={true} style={{ height: mapHeight, width: "100%" }}>
-                    <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
-                      url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
-                    <Polygon positions={mapPolygonPositions} pathOptions={{ color: "#16a34a", weight: 2, fillColor: "#86efac", fillOpacity: 0.4 }} />
+                  <MapContainer center={mapCenter} zoom={12} scrollWheelZoom={true} style={{ height: mapHeight, width: "100%" }}>
+                    <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors' url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
+
+                    {/* ✅ Fit ให้เห็นทุกแปลงทั้งหมด */}
+                    <FitToAll points={allMapPoints} />
+
+                    {/* ✅ polygons ทุกแปลง */}
+                    {(polygonsAll || []).map((poly) => (
+                      <Polygon
+                        key={poly.id}
+                        positions={poly.coords}
+                        pathOptions={{
+                          color: poly.color || "#16a34a",
+                          weight: 2,
+                          fillColor: "#86efac",
+                          fillOpacity: 0.4,
+                        }}
+                      />
+                    ))}
+
+                    {/* ✅ pins ทุกแปลง */}
                     {pinIcon &&
                       mapPinsForMap.map((p) => (
                         <Marker key={p.id} position={p.position} icon={pinIcon}>
@@ -1024,63 +957,64 @@ export default function DashboardPage() {
 
             <div style={{ ...cardBaseR, gridArea: "status", background: "#dcfce7" }} className="du-card">
               <div className="du-card-title" style={{ ...title18, marginBottom: 10 }}>
-                สถานะการทำงานของอุปกรณ์
+                สถานะรวม (ทุกแปลง)
               </div>
               <div style={{ fontSize: 12, color: "#166534", marginBottom: 6 }}>{statusText}</div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 8 }}>
-                <span style={{ fontSize: isMobile ? 28 : 32, fontWeight: 800, color: "#15803d" }}>{pinCount}</span>
-                <span style={{ fontSize: 14 }}>จุดวัด (Pins) ในแปลง</span>
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <span style={{ padding: "4px 10px", borderRadius: 999, background: "#22c55e", color: "#fff", fontSize: 12, fontWeight: 600 }}>
-                  พบ {pinCount} จุด
+                  แปลง {plotCount}
                 </span>
-                <span style={{ padding: "4px 10px", borderRadius: 999, background: "#e5e7eb", fontSize: 12, fontWeight: 500 }}>
-                  (Online/Offline จริงต้องมีข้อมูลจาก Node)
+                <span style={{ padding: "4px 10px", borderRadius: 999, background: "#22c55e", color: "#fff", fontSize: 12, fontWeight: 600 }}>
+                  Pins {pinCount}
                 </span>
+                <span style={{ padding: "4px 10px", borderRadius: 999, background: "#22c55e", color: "#fff", fontSize: 12, fontWeight: 600 }}>
+                  Polygons {polyCount}
+                </span>
+              </div>
+
+              <div style={{ marginTop: 10, fontSize: 12, color: "#166534" }}>
+                {loading ? "กำลังโหลดข้อมูลทุกแปลง..." : loadError ? `ผิดพลาด: ${loadError}` : "พร้อมใช้งาน"}
               </div>
             </div>
 
             <div style={{ ...cardBaseR, gridArea: "issue", background: "#fed7aa" }} className="du-card">
               <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
-                ปัญหาพื้นที่
+                ปัญหารวม (ทุกแปลง)
               </div>
               <p style={{ fontSize: 13, marginBottom: 6, lineHeight: 1.55 }}>
-                {mode === "demo"
-                  ? "โหมดตัวอย่าง (ยังไม่ได้ดึงข้อมูลเซนเซอร์จริง)"
-                  : issueCount > 0
-                  ? `พบเซนเซอร์ผิดปกติ ${issueCount} รายการ`
-                  : "ยังไม่พบปัญหา (ทุกเซนเซอร์สถานะ OK)"}
+                {issueCount > 0 ? `พบเซนเซอร์ผิดปกติ ${issueCount} รายการ` : "ยังไม่พบปัญหา (ทุกเซนเซอร์สถานะ OK)"}
               </p>
               <span
                 style={{
                   display: "inline-block",
                   padding: "4px 10px",
                   borderRadius: 999,
-                  background: mode === "demo" ? "#9ca3af" : issueCount > 0 ? "#f97316" : "#22c55e",
+                  background: issueCount > 0 ? "#f97316" : "#22c55e",
                   color: "#fff",
                   fontSize: 12,
                   fontWeight: 600,
                 }}
               >
-                {mode === "demo" ? "ℹ️ DEMO" : issueCount > 0 ? "⚠️ ต้องตรวจสอบ" : "✅ ปกติ"}
+                {issueCount > 0 ? "⚠️ ต้องตรวจสอบ" : "✅ ปกติ"}
               </span>
             </div>
           </div>
 
-          {/* ===== Bottom Row: Pin Cards ===== */}
+          {/* ===== Bottom Row: Pin Cards (ALL PLOTS, ALL PINS) ===== */}
           <div style={gridPins} className="du-grid-3">
             {pinCards.map((pin) => {
               const pinId = String(pin.id || "__no_pin__");
               const pinNumber = safeNum(pin.number, 0);
 
               const sensors = sensorsByPinId?.[pinId] || [];
-              const groups = mode === "demo" ? getDemoGroups(pinNumber) : buildGroupsFromSensors(sensors, sensorTypeMap);
+              const groups = buildGroupsFromSensors(sensors, sensorTypeMap);
 
-              const hasAlert = mode !== "demo" && sensors.some((s) => String(s.status || "").toUpperCase() !== "OK");
+              const hasAlert = sensors.some((s) => String(s.status || "").toUpperCase() !== "OK");
               const backgroundColor = hasAlert ? "#FFBABA" : "#dfffee";
+              const sensorTypeCount = new Set(sensors.map((s) => s.sensorType).filter(Boolean)).size;
 
-              const sensorTypeCount = mode === "demo" ? 6 : new Set(sensors.map((s) => s.sensorType).filter(Boolean)).size;
+              const plotMeta = plots.find((p) => String(p.id) === String(pin.plotId)) || null;
 
               return (
                 <div
@@ -1097,50 +1031,56 @@ export default function DashboardPage() {
                 >
                   <div style={pinHeaderRow}>
                     <div style={pinTitleBlock}>
-                      <span style={{ ...pinTitle, fontSize: isMobile ? 16 : 18 }}>ข้อมูล : Pin {pinNumber}</span>
+                      <span style={{ ...pinTitle, fontSize: isMobile ? 16 : 18 }}>
+                        {pin.plotName ? `${pin.plotName} • ` : ""}Pin {pinNumber}
+                      </span>
                       <span style={pinSubtitle}>
                         พิกัด {Number(pin.lat).toFixed ? Number(pin.lat).toFixed(5) : pin.lat},{" "}
                         {Number(pin.lng).toFixed ? Number(pin.lng).toFixed(5) : pin.lng}
                       </span>
                     </div>
-                    <span style={{ ...pinStatus, fontSize: isMobile ? 16 : 18 }}>{mode === "demo" ? "DEMO" : hasAlert ? "WARN" : "ON"}</span>
+                    <span style={{ ...pinStatus, fontSize: isMobile ? 16 : 18 }}>{hasAlert ? "WARN" : "ON"}</span>
                   </div>
 
                   <div style={pinPillRow}>
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>ผู้ดูแล</div>
-                      <div style={pinInfoValue}>{selectedPlot?.caretaker || selectedPlot?.ownerName || "—"}</div>
+                      <div style={pinInfoLabel}>แปลง</div>
+                      <div style={pinInfoValue}>{pin.plotName || pin.plotId || "—"}</div>
                     </div>
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>ประเภทพืช</div>
-                      <div style={pinInfoValue}>{selectedPlot?.plantType || selectedPlot?.cropType || "—"}</div>
+                      <div style={pinInfoLabel}>พืช</div>
+                      <div style={pinInfoValue}>{plotMeta?.plantType || plotMeta?.cropType || "—"}</div>
                     </div>
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>วันที่เริ่มปลูก</div>
-                      <div style={pinInfoValue}>{formatThaiDate(selectedPlot?.plantedAt) || "-"}</div>
+                      <div style={pinInfoLabel}>เริ่มปลูก</div>
+                      <div style={pinInfoValue}>{formatThaiDate(plotMeta?.plantedAt) || "-"}</div>
                     </div>
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>จำนวนเซนเซอร์</div>
-                      <div style={pinInfoValue}>{mode === "demo" ? "6 ชนิด" : `${sensorTypeCount} ชนิด`}</div>
+                      <div style={pinInfoLabel}>ชนิดเซนเซอร์</div>
+                      <div style={pinInfoValue}>{`${sensorTypeCount || 0} ชนิด`}</div>
                     </div>
                   </div>
 
                   <div style={{ flex: 1, overflow: "auto" }}>
                     {groups.map((g) => (
-                      <div key={g.group} style={pinGroupContainer}>
+                      <div key={`${pinId}-${g.group}`} style={pinGroupContainer}>
                         <div style={pinGroupLabel}>{g.group}</div>
                         <div style={pinGroupGrid}>
                           {g.items.map((it) => {
-                            const isAlert = !!it.isAlert;
+                            const isAlertItem = !!it.isAlert;
                             const itemStyle = {
                               ...pinGroupItem,
-                              background: isAlert ? "#fef9c3" : "#f9fafb",
-                              boxShadow: isAlert ? "0 0 0 1px #facc15" : pinGroupItem.boxShadow,
+                              background: isAlertItem ? "#fef9c3" : "#f9fafb",
+                              boxShadow: isAlertItem ? "0 0 0 1px #facc15" : pinGroupItem.boxShadow,
                             };
-                            const nameStyle = { ...pinSensorName, color: isAlert ? "#b91c1c" : "#111827" };
-                            const valueStyle = { ...pinSensorValue, color: isAlert ? "#b91c1c" : "#6b7280", fontWeight: isAlert ? 600 : 400 };
+                            const nameStyle = { ...pinSensorName, color: isAlertItem ? "#b91c1c" : "#111827" };
+                            const valueStyle = {
+                              ...pinSensorValue,
+                              color: isAlertItem ? "#b91c1c" : "#6b7280",
+                              fontWeight: isAlertItem ? 600 : 400,
+                            };
                             return (
-                              <div key={it.name} style={itemStyle}>
+                              <div key={`${pinId}-${g.group}-${it.name}`} style={itemStyle}>
                                 <div style={nameStyle}>{it.name}</div>
                                 <div style={valueStyle}>{it.value}</div>
                               </div>
@@ -1153,6 +1093,12 @@ export default function DashboardPage() {
                 </div>
               );
             })}
+
+            {!pinCards.length && (
+              <div style={{ ...cardBaseR, gridColumn: "1 / -1", color: "#6b7280", fontSize: 13 }} className="du-card">
+                ยังไม่มี Pin ในระบบ
+              </div>
+            )}
           </div>
         </main>
       </div>
