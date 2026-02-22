@@ -35,8 +35,6 @@ const LeafletMap = dynamic(
       const map = RL.useMap();
       useEffect(() => {
         if (!polygons || !polygons.length) return;
-
-        // polygons: array of LatLng tuples [[lat,lng], ...]
         const allPts = polygons.flat().filter((p) => Array.isArray(p) && p.length === 2);
         if (!allPts.length) return;
 
@@ -107,7 +105,9 @@ const LeafletMap = dynamic(
 // =========================
 // ✅ API helpers (matches server.js)
 // =========================
-const API_BASE = (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE_URL) || "http://localhost:3001";
+const API_BASE =
+  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE_URL) ||
+  "http://localhost:3001";
 
 const TOKEN_KEYS = ["AUTH_TOKEN_V1", "token", "authToken", "pmtool_token", "duwims_token"];
 
@@ -192,7 +192,6 @@ function normalizeLatLngPoint(p) {
 
 function normalizePolygonCoords(coords) {
   if (!Array.isArray(coords)) return [];
-  // If GeoJSON rings [[[...]]], take first ring
   const ring = Array.isArray(coords[0]) && Array.isArray(coords[0][0]) ? coords[0] : coords;
 
   const out = [];
@@ -241,8 +240,6 @@ export default function AddSensor() {
     };
   }, []);
 
-  const [mapReady, setMapReady] = useState(false);
-
   // ===== responsive =====
   const [width, setWidth] = useState(1200);
   useEffect(() => {
@@ -266,7 +263,6 @@ export default function AddSensor() {
           iconAnchor: [12, 41],
           popupAnchor: [1, -34],
           shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-          shadowSize: [41, 41],
         })
       );
     });
@@ -286,11 +282,7 @@ export default function AddSensor() {
   const [selectedNode, setSelectedNode] = useState("all"); // all | soil | air
   const [selectedSensorType, setSelectedSensorType] = useState("all");
 
-  // รีเซ็ต mapReady เมื่อเปลี่ยน plot/node
-  useEffect(() => {
-    setMapReady(false);
-  }, [selectedPlot, selectedNode]);
-
+  // ✅ เปลี่ยน key เพื่อบังคับ remount MapContainer (กัน Leaflet init ซ้อน)
   const mapKey = useMemo(() => `${selectedPlot}__${selectedNode}`, [selectedPlot, selectedNode]);
 
   const readOnlyAllPlots = false;
@@ -300,7 +292,7 @@ export default function AddSensor() {
   const [nodes, setNodes] = useState([]);
   const [sensorTypes, setSensorTypes] = useState([]);
   const [plotMeta, setPlotMeta] = useState(null);
-  const [plotPolygons, setPlotPolygons] = useState([]);
+  const [plotPolygons, setPlotPolygons] = useState([]); // array coords
 
   // ✅ PINS
   const [pins, setPins] = useState([]);
@@ -399,14 +391,12 @@ export default function AddSensor() {
   const groupChoices = useMemo(() => {
     const soilIds = new Set(["soil", "npk", "irrigation"]);
     const airIds = new Set(["temp", "wind", "ppfd", "rain"]);
-
     const filtered =
       selectedNode === "soil"
         ? (sensorGroups || []).filter((g) => soilIds.has(g.id))
         : selectedNode === "air"
         ? (sensorGroups || []).filter((g) => airIds.has(g.id))
         : sensorGroups || [];
-
     return filtered.map((g) => ({ id: g.id, title: g.title }));
   }, [sensorGroups, selectedNode]);
 
@@ -472,11 +462,12 @@ export default function AddSensor() {
   }, []);
 
   // =========================
-  // ✅ Load plot meta + polygons + pins (per plot / all plots)
+  // ✅ Load polygons + pins + nodes
+  // - all plots => polygons all + pins all
+  // - one plot => polygons + pins + nodes
   // =========================
   useEffect(() => {
     const controller = new AbortController();
-
     const run = async () => {
       try {
         setPlotMeta(null);
@@ -484,7 +475,6 @@ export default function AddSensor() {
 
         const token = getToken();
 
-        // helper
         const loadNodesForPlot = async (plotId) => {
           const r = await apiFetch(`/api/nodes?plotId=${encodeURIComponent(String(plotId))}&category=all`, {
             token,
@@ -497,12 +487,16 @@ export default function AddSensor() {
           const qs = new URLSearchParams();
           qs.set("plotId", String(plotId));
           qs.set("nodeCategory", selectedNodeCategory);
-          qs.set("sensorType", "all");
-          const pr = await apiFetch(`/api/pins?${qs.toString()}`, { token, signal: controller.signal });
+          qs.set("sensorType", "all"); // ✅ pins ต้องมาครบ
+          const pr = await apiFetch(`/api/pins?${qs.toString()}`, {
+            token,
+            signal: controller.signal,
+          });
           return Array.isArray(pr?.items) ? pr.items : [];
         };
 
         if (selectedPlot === "all") {
+          // ✅ all polygons
           const pr = await apiFetch("/api/plots", { token, signal: controller.signal });
           const plotItems = Array.isArray(pr?.items) ? pr.items : [];
 
@@ -533,7 +527,7 @@ export default function AddSensor() {
             } catch {}
           }
 
-          // dedupe nodes/pins
+          // dedupe nodes
           const nodeUniq = new Map();
           for (const n of allNodes) {
             const id = String(n.id || n._id || "");
@@ -542,6 +536,7 @@ export default function AddSensor() {
           }
           setNodes(Array.from(nodeUniq.values()));
 
+          // dedupe pins
           const pinUniq = new Map();
           for (const p of allPins) {
             const id = String(p.id || p._id || "");
@@ -557,14 +552,20 @@ export default function AddSensor() {
         }
 
         // selected plot only
-        const r = await apiFetch(`/api/plots/${encodeURIComponent(String(selectedPlot))}`, { token, signal: controller.signal });
+        const r = await apiFetch(`/api/plots/${encodeURIComponent(String(selectedPlot))}`, {
+          token,
+          signal: controller.signal,
+        });
         const item = r?.item || null;
         setPlotMeta(item);
 
         // polygons (multi)
         let polys = [];
         try {
-          const rr = await apiFetch(`/api/plots/${encodeURIComponent(String(selectedPlot))}/polygons`, { token, signal: controller.signal });
+          const rr = await apiFetch(`/api/plots/${encodeURIComponent(String(selectedPlot))}/polygons`, {
+            token,
+            signal: controller.signal,
+          });
           polys = (Array.isArray(rr?.items) ? rr.items : [])
             .map((x) => normalizePolygonCoords(x.coords))
             .filter((c) => Array.isArray(c) && c.length >= 3);
@@ -575,7 +576,7 @@ export default function AddSensor() {
         if ((!polys || polys.length === 0) && Array.isArray(one) && one.length >= 3) polys = [one];
         setPlotPolygons(polys);
 
-        // nodes + pins for this plot
+        // nodes + pins
         try {
           const nitems = await loadNodesForPlot(selectedPlot);
           setNodes(nitems);
@@ -610,6 +611,7 @@ export default function AddSensor() {
         const token = getToken();
 
         if (selectedPlot === "all") {
+          // โหมดทุกแปลง: หน้านี้โฟกัสการจัดการ pin/sensor รายแปลง -> เคลียร์ list
           setSensorGroups((prev) => prev.map((g) => ({ ...g, items: [] })));
           return;
         }
@@ -619,7 +621,10 @@ export default function AddSensor() {
         q.set("nodeCategory", String(selectedNodeCategory || "all"));
         q.set("sensorType", String(selectedSensorType || "all"));
 
-        const r = await apiFetch(`/api/sensors?${q.toString()}`, { token, signal: controller.signal });
+        const r = await apiFetch(`/api/sensors?${q.toString()}`, {
+          token,
+          signal: controller.signal,
+        });
         const items = Array.isArray(r?.items) ? r.items : [];
 
         setSensorGroups((prev) =>
@@ -674,7 +679,13 @@ export default function AddSensor() {
 
     const node = created?.item || created;
     const newId = String(node?.id || node?._id);
-    if (newId) return newId;
+    if (newId) {
+      setNodes((prev) => {
+        const arr = Array.isArray(prev) ? prev : [];
+        return arr.some((x) => String(x.id || x._id) === newId) ? arr : [node, ...arr];
+      });
+      return newId;
+    }
     throw new Error("สร้าง Node ไม่สำเร็จ");
   };
 
@@ -702,6 +713,7 @@ export default function AddSensor() {
       return;
     }
 
+    // หา number ถัดไป
     let nextNumber = 1;
     try {
       const token = getToken();
@@ -712,18 +724,34 @@ export default function AddSensor() {
         return Number.isFinite(n) ? Math.max(mx, n) : mx;
       }, 0);
       nextNumber = maxNum + 1;
-    } catch {}
+    } catch {
+      const used = new Set((pins || []).map((p) => Number(p.number)));
+      while (used.has(nextNumber)) nextNumber += 1;
+    }
 
     const tempId = `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setPins((prev) => [...(Array.isArray(prev) ? prev : []), { id: tempId, _tmp: true, number: nextNumber, lat: null, lng: null, nodeId, plotId: targetPlotId }]);
+    setPins((prev) => [
+      ...(Array.isArray(prev) ? prev : []),
+      { id: tempId, _tmp: true, number: nextNumber, lat: null, lng: null, nodeId, plotId: targetPlotId },
+    ]);
     setActivePinId(tempId);
   };
 
   const removePinById = async (pinId) => {
     if (!pinId) return;
 
-    setPins((prev) => (Array.isArray(prev) ? prev : []).filter((p) => String(p.id) !== String(pinId)));
-    if (String(pinId) === String(activePinId)) setActivePinId(null);
+    setPins((prev) => {
+      const arr = Array.isArray(prev) ? prev : [];
+      const idx = arr.findIndex((p) => String(p.id) === String(pinId));
+      if (idx === -1) return arr;
+      const next = arr.filter((p) => String(p.id) !== String(pinId));
+      if (String(pinId) === String(activePinId)) {
+        const pick = next[idx] || next[idx - 1] || next[0];
+        if (pick) setActivePinId(String(pick.id));
+        else setActivePinId(null);
+      }
+      return next;
+    });
 
     try {
       const token = getToken();
@@ -745,45 +773,65 @@ export default function AddSensor() {
     const pin = pins.find((p) => String(p.id) === String(activePinId));
     if (!pin) return;
 
-    // UI update
     setPins((prev) => prev.map((p) => (String(p.id) === String(activePinId) ? { ...p, lat, lng } : p)));
 
-    // create
+    // temp -> POST
     if (pin._tmp || !isLikelyObjectId(String(pin.id))) {
-      const targetPlotId = String(pin.plotId || selectedPlot);
-      if (!targetPlotId || targetPlotId === "all") return alert("กรุณาเลือกแปลงก่อนปักหมุด");
+      if (selectedPlot === "all") {
+        alert("กรุณาเลือกแปลงก่อนปักหมุด");
+        return;
+      }
 
       const token = getToken();
       const category = selectedNode === "air" ? "air" : "soil";
-      const nodeToUse = await ensureNodeId(targetPlotId, category);
+      const nodeToUse = await ensureNodeId(String(pin.plotId || selectedPlot), category);
 
       try {
         const r = await apiFetch("/api/pins", {
           method: "POST",
           token,
-          body: { plotId: targetPlotId, lat, lng, nodeId: nodeToUse },
+          body: (() => {
+            const payload = { plotId: String(pin.plotId || selectedPlot), lat, lng };
+            if (nodeToUse) payload.nodeId = nodeToUse;
+            return payload;
+          })(),
         });
 
-        const created = r?.item || r;
+        const created = (r?.item || r) || null;
         const createdId = created?.id || created?._id;
-        if (!createdId) throw new Error("ไม่ได้รับ id จาก API");
 
-        setPins((prev) =>
-          prev.map((p) =>
-            String(p.id) === String(activePinId)
-              ? { ...p, _tmp: false, id: String(createdId), number: created.number ?? pin.number, lat: created.lat ?? lat, lng: created.lng ?? lng, nodeId: nodeToUse, plotId: targetPlotId }
-              : p
-          )
-        );
-        setActivePinId(String(createdId));
+        if (createdId) {
+          setPins((prev) =>
+            prev.map((p) =>
+              String(p.id) === String(activePinId)
+                ? {
+                    ...p,
+                    _tmp: false,
+                    id: String(createdId),
+                    number: created.number ?? pin.number,
+                    lat: created.lat ?? lat,
+                    lng: created.lng ?? lng,
+                    nodeId: nodeToUse,
+                  }
+                : p
+            )
+          );
+          setActivePinId(String(createdId));
+        } else {
+          setPins((prev) => prev.filter((p) => String(p.id) !== String(activePinId)));
+          setActivePinId(null);
+          alert("ปักหมุดไม่สำเร็จ (ไม่ได้รับ id จาก API)");
+        }
       } catch (e) {
         console.warn("[AddSensor] create pin failed:", e?.message || e);
+        setPins((prev) => prev.filter((p) => String(p.id) !== String(activePinId)));
+        setActivePinId(null);
         alert(`ปักหมุดไม่สำเร็จ: ${e?.message || e}`);
       }
       return;
     }
 
-    // patch
+    // real pin -> PATCH
     try {
       const token = getToken();
       await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, { method: "PATCH", token, body: { lat, lng } });
@@ -827,7 +875,6 @@ export default function AddSensor() {
     const name = (addName || "").trim();
     const value = (addValue || "").trim();
     if (!name || !value) return;
-
     if (!activePinId) return alert("กรุณาเลือก Pin ก่อนเพิ่ม Sensor");
 
     const tempId = uid();
@@ -835,7 +882,12 @@ export default function AddSensor() {
 
     setSensorGroups((prev) =>
       prev.map((g) =>
-        g.id !== selectedGroupId ? g : { ...g, items: [...g.items, { id: tempId, pinId: String(activePinId), nodeId: String(activePin?.nodeId || ""), sensorType, name, value }] }
+        g.id !== selectedGroupId
+          ? g
+          : {
+              ...g,
+              items: [...g.items, { id: tempId, pinId: String(activePinId), sensorType, name, value }],
+            }
       )
     );
     setAddName("");
@@ -863,7 +915,11 @@ export default function AddSensor() {
       const created = r?.item || r;
       const createdId = created?.id || created?._id;
       if (createdId) {
-        setSensorGroups((prev) => prev.map((g) => (g.id !== selectedGroupId ? g : { ...g, items: g.items.map((it) => (it.id === tempId ? { ...it, id: String(createdId) } : it)) })));
+        setSensorGroups((prev) =>
+          prev.map((g) =>
+            g.id !== selectedGroupId ? g : { ...g, items: g.items.map((it) => (it.id === tempId ? { ...it, id: String(createdId) } : it)) }
+          )
+        );
       }
     } catch (e) {
       console.warn("[AddSensor] create sensor failed:", e?.message || e);
@@ -893,7 +949,11 @@ export default function AddSensor() {
 
     const { groupId, itemId } = editingItem;
 
-    setSensorGroups((prev) => prev.map((g) => (g.id !== groupId ? g : { ...g, items: g.items.map((it) => (it.id === itemId ? { ...it, name, value } : it)) })));
+    setSensorGroups((prev) =>
+      prev.map((g) =>
+        g.id !== groupId ? g : { ...g, items: g.items.map((it) => (it.id === itemId ? { ...it, name, value } : it)) }
+      )
+    );
 
     try {
       const token = getToken();
@@ -967,14 +1027,43 @@ export default function AddSensor() {
       filterLabel: { fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 },
       filterSelect: { width: "100%", borderRadius: 12, border: "none", padding: "5px 8px", fontSize: 12, background: "#e0f2fe" },
 
-      plotPanel: { borderRadius: 26, background: "#dffff3", padding: "18px 20px 20px", marginBottom: 18, boxShadow: "0 14px 32px rgba(15,23,42,0.12)" },
-      plotHeaderRow: { display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", gap: isMobile ? 6 : 0, marginBottom: 6 },
+      plotPanel: {
+        borderRadius: 26,
+        background: "#dffff3",
+        padding: "18px 20px 20px",
+        marginBottom: 18,
+        boxShadow: "0 14px 32px rgba(15,23,42,0.12)",
+      },
+      plotHeaderRow: {
+        display: "flex",
+        flexDirection: isMobile ? "column" : "row",
+        justifyContent: "space-between",
+        alignItems: isMobile ? "flex-start" : "center",
+        gap: isMobile ? 6 : 0,
+        marginBottom: 6,
+      },
       plotTitle: { fontSize: 14, fontWeight: 600 },
       plotSub: { fontSize: 11, color: "#6b7280", marginBottom: 10 },
 
-      editBtn: { borderRadius: 999, border: "none", padding: "7px 14px", fontSize: 12, fontWeight: 700, background: editOpen ? "#fb7185" : "#facc15", color: "#111827", cursor: "pointer", width: isMobile ? "100%" : "auto", boxShadow: "0 10px 18px rgba(15,23,42,0.12)" },
+      editBtn: {
+        borderRadius: 999,
+        border: "none",
+        padding: "7px 14px",
+        fontSize: 12,
+        fontWeight: 700,
+        background: editOpen ? "#fb7185" : "#facc15",
+        color: "#111827",
+        cursor: "pointer",
+        width: isMobile ? "100%" : "auto",
+        boxShadow: "0 10px 18px rgba(15,23,42,0.12)",
+      },
 
-      infoGrid: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,minmax(0,1fr))" : "repeat(4,minmax(0,1fr))", gap: 10, marginBottom: 14 },
+      infoGrid: {
+        display: "grid",
+        gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,minmax(0,1fr))" : "repeat(4,minmax(0,1fr))",
+        gap: 10,
+        marginBottom: 14,
+      },
       infoLabel: { fontSize: 11, color: "#6b7280", marginBottom: 3 },
       infoBox: { borderRadius: 12, background: "#ffffff", border: "1px solid #c7f0df", padding: "6px 10px", fontSize: 12 },
 
@@ -987,11 +1076,20 @@ export default function AddSensor() {
       pinMetaBtn: { borderRadius: 999, width: 34, height: 34, border: "1px solid rgba(15,23,42,0.12)", background: "#ffffff", cursor: "pointer", fontSize: 18, fontWeight: 800, lineHeight: "34px" },
 
       pinList: { marginTop: 10, display: "grid", gap: 10 },
-      pinCard: (active) => ({ borderRadius: 16, background: active ? "#fde68a" : "#fef9c3", padding: 10, border: active ? "2px solid rgba(15,23,42,0.25)" : "1px solid rgba(15,23,42,0.10)", boxShadow: "0 10px 18px rgba(15,23,42,0.06)", cursor: "pointer" }),
+      pinCard: (active) => ({
+        borderRadius: 16,
+        background: active ? "#fde68a" : "#fef9c3",
+        padding: 10,
+        border: active ? "2px solid rgba(15,23,42,0.25)" : "1px solid rgba(15,23,42,0.10)",
+        boxShadow: "0 10px 18px rgba(15,23,42,0.06)",
+        cursor: "pointer",
+      }),
       pinCardGrid: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 },
       pinMetaBox: { borderRadius: 14, background: "rgba(255,255,255,0.78)", border: "1px solid rgba(15,23,42,0.10)", padding: "10px 10px" },
       pinMetaLabel: { fontSize: 10, fontWeight: 800, color: "#6b7280", marginBottom: 3 },
       pinMetaValue: { fontSize: 12, fontWeight: 800, color: "#0f172a" },
+
+      pinMetaGrid: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 12 },
 
       pinPanel: { borderRadius: 26, background: "#ffd9f1", padding: isMobile ? "16px 12px 18px" : "18px 16px 20px", boxShadow: "0 14px 32px rgba(244,114,182,0.25)", marginBottom: 16 },
       pinHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12 },
@@ -1002,15 +1100,28 @@ export default function AddSensor() {
       pinField: { display: "grid", gap: 6 },
       pinFieldLabel: { fontSize: 11, fontWeight: 900, color: "#475569" },
 
-      pinHint: { borderRadius: 14, background: "rgba(255,255,255,0.72)", border: "1px solid rgba(15,23,42,0.10)", padding: "10px 12px", fontSize: 12, fontWeight: 900, color: "#ef4444", lineHeight: 1.35, display: "flex", alignItems: "center", gap: 8 },
+      pinHint: {
+        borderRadius: 14,
+        background: "rgba(255,255,255,0.72)",
+        border: "1px solid rgba(15,23,42,0.10)",
+        padding: "10px 12px",
+        fontSize: 12,
+        fontWeight: 800,
+        color: "#334155",
+        lineHeight: 1.35,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+      },
       hintDot: { width: 10, height: 10, borderRadius: 3, background: "#22c55e", boxShadow: "0 0 0 3px rgba(34,197,94,0.20)", flex: "0 0 auto" },
 
-      groupPick: { width: "100%", height: 44, borderRadius: 14, border: "1px solid rgba(15,23,42,0.12)", background: "#dbeafe", padding: "0 12px", fontSize: 12, outline: "none", fontWeight: 900, color: "#0f172a" },
+      groupRowTop: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(220px, 360px) auto", gap: 10, alignItems: "center" },
+      groupPick: { width: "100%", height: 44, borderRadius: 14, border: "1px solid rgba(15,23,42,0.12)", background: "#fff", padding: "0 12px", fontSize: 12, outline: "none" },
 
-      addRow: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr auto", gap: 10, alignItems: "stretch" },
+      addRow: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, alignItems: "stretch" },
       inputField: { width: "100%", height: 44, boxSizing: "border-box", outline: "none", fontSize: 12, padding: "0 12px", borderRadius: 14, background: "#fff", border: "1px solid rgba(15,23,42,0.12)", boxShadow: "0 6px 14px rgba(15,23,42,0.05)" },
 
-      actionBtn: { borderRadius: 999, border: "none", height: 44, padding: "0 16px", fontSize: 12, fontWeight: 900, cursor: "pointer", boxShadow: "0 10px 18px rgba(15,23,42,0.10)", display: "inline-flex", alignItems: "center", justifyContent: "center", whiteSpace: "nowrap" },
+      actionBtn: { borderRadius: 999, border: "none", height: 44, padding: "0 16px", fontSize: 12, fontWeight: 900, cursor: "pointer", boxShadow: "0 10px 18px rgba(15,23,42,0.10)", display: "inline-flex", alignItems: "center", justifyContent: "center" },
       addBtn: { background: "#a7f3d0", color: "#064e3b" },
       saveEditBtn: { background: "#fde68a", color: "#78350f" },
       cancelBtn: { background: "#e2e8f0", color: "#0f172a" },
@@ -1030,7 +1141,21 @@ export default function AddSensor() {
       inlineEditBox: { marginTop: 10, borderRadius: 14, background: "#f1f5f9", padding: 10, border: "1px solid rgba(15,23,42,0.10)" },
       inlineRow: { display: "grid", gridTemplateColumns: "1fr", gap: 8 },
 
-      saveBtn: { marginTop: 14, display: "block", marginLeft: "auto", marginRight: "auto", borderRadius: 999, border: "none", padding: "10px 44px", fontSize: 13, fontWeight: 800, background: "linear-gradient(135deg,#6366f1,#a855f7)", color: "#fff", cursor: "pointer", width: isMobile ? "100%" : "auto" },
+      saveBtn: {
+        marginTop: 14,
+        display: "block",
+        marginLeft: "auto",
+        marginRight: "auto",
+        borderRadius: 999,
+        border: "none",
+        padding: "10px 44px",
+        fontSize: 13,
+        fontWeight: 800,
+        background: "linear-gradient(135deg,#6366f1,#a855f7)",
+        color: "#fff",
+        cursor: "pointer",
+        width: isMobile ? "100%" : "auto",
+      },
     }),
     [editOpen, isMobile, isTablet]
   );
@@ -1039,12 +1164,13 @@ export default function AddSensor() {
   const plantTypeText = plotMeta?.plantType || plotMeta?.cropType || "-";
   const plantedAtText = plotMeta?.plantedAt || "-";
 
-  // ✅ แสดง polygon จริงเท่านั้น (ถ้าไม่มี ให้เป็น [])
+  // ✅ แสดง polygon จริงเท่านั้น
   const polygonsToRender = plotPolygons;
 
   return (
     <div style={styles.page}>
       <div style={styles.body} className="du-add-sensor">
+        {/* TOP gradient filter panel */}
         <section style={styles.topPanel}>
           <div style={styles.topHeaderRow}>
             <div style={styles.topTitle}>การจัดการ PIN และ Sensor</div>
@@ -1087,6 +1213,7 @@ export default function AddSensor() {
           </div>
         </section>
 
+        {/* PANEL ข้อมูลแปลง + แผนที่ + PIN meta */}
         <section style={styles.plotPanel}>
           <div style={styles.plotHeaderRow}>
             <div style={styles.plotTitle}>ข้อมูลแปลง: {plotLabel}</div>
@@ -1135,19 +1262,31 @@ export default function AddSensor() {
                   onCreated={(map) => {
                     mapRef.current = map;
                   }}
-                  onReady={() => setMapReady(true)}
+                  onReady={() => {}}
                 />
               </div>
             )}
           </div>
 
           <div style={styles.pinActionsRow}>
-            <button style={styles.pinMetaBtn} type="button" onClick={addPin}>
+            <button
+              style={{
+                ...styles.pinMetaBtn,
+                opacity: selectedPlot === "all" ? 0.5 : 1,
+                cursor: selectedPlot === "all" ? "not-allowed" : "pointer",
+              }}
+              type="button"
+              onClick={addPin}
+              disabled={selectedPlot === "all"}
+              title={selectedPlot === "all" ? "กรุณาเลือกแปลงก่อนเพิ่ม pin" : "เพิ่ม pin"}
+            >
               +
             </button>
+
             <button style={styles.pinMetaBtn} type="button" onClick={() => removePinById(activePinId)} disabled={filteredPins.length === 0}>
               −
             </button>
+
             <div style={{ fontSize: 12, color: "#0f172a", fontWeight: 700 }}>
               รวม {filteredPins.length} จุด (กำลังเลือก: #{activePin?.number ?? "-"})
             </div>
@@ -1185,6 +1324,7 @@ export default function AddSensor() {
                         background: "#ef4444",
                         color: "#fff",
                       }}
+                      title={`ลบ Pin #${p.number}`}
                     >
                       ลบ
                     </button>
@@ -1210,12 +1350,34 @@ export default function AddSensor() {
           </div>
         </section>
 
+        {/* PANEL แก้ไข Pin + Sensor */}
         <section style={styles.pinPanel}>
           <div style={styles.pinHeaderRow}>
             <div style={styles.pinTitle}>Pin: {activePin ? `#${activePin.number}` : "ยังไม่เลือก Pin"}</div>
           </div>
 
           <div style={styles.pinStack}>
+            <div style={styles.pinMetaGrid}>
+              <div style={styles.pinMetaBox}>
+                <div style={styles.pinMetaLabel}>plotId</div>
+                <div style={styles.pinMetaValue}>{activePin?.plotId || "-"}</div>
+              </div>
+              <div style={styles.pinMetaBox}>
+                <div style={styles.pinMetaLabel}>nodeId</div>
+                <div style={styles.pinMetaValue}>{activePin?.nodeId || "-"}</div>
+              </div>
+              <div style={styles.pinMetaBox}>
+                <div style={styles.pinMetaLabel}>จำนวน Sensor</div>
+                <div style={styles.pinMetaValue}>{activePinSensors.length}</div>
+              </div>
+              <div style={styles.pinMetaBox}>
+                <div style={styles.pinMetaLabel}>ชนิดที่มี</div>
+                <div style={{ ...styles.pinMetaValue, whiteSpace: "normal" }}>
+                  {activePinSensors.length ? Array.from(new Set(activePinSensors.map((x) => x.sensorType))).join(", ") : "-"}
+                </div>
+              </div>
+            </div>
+
             <div style={styles.pinFormGrid}>
               <div style={styles.pinField}>
                 <div style={styles.pinFieldLabel}>ละติจูด (Latitude)</div>
@@ -1235,7 +1397,7 @@ export default function AddSensor() {
               </span>
             </div>
 
-            <div>
+            <div style={styles.groupRowTop}>
               <select style={styles.groupPick} value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)}>
                 {groupChoices.map((g) => (
                   <option key={g.id} value={g.id}>
@@ -1244,14 +1406,14 @@ export default function AddSensor() {
                 ))}
               </select>
 
-              <div style={{ height: 10 }} />
-              <div style={styles.addRow}>
-                <input style={styles.inputField} value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="ชื่อเซนเซอร์" />
-                <input style={styles.inputField} value={addValue} onChange={(e) => setAddValue(e.target.value)} placeholder="ค่า/คำอธิบาย" />
-                <button type="button" style={{ ...styles.actionBtn, ...styles.addBtn }} onClick={onAddSensor}>
-                  เพิ่มรายการ
-                </button>
-              </div>
+              <button type="button" style={{ ...styles.actionBtn, ...styles.addBtn }} onClick={onAddSensor}>
+                เพิ่มรายการ
+              </button>
+            </div>
+
+            <div style={styles.addRow}>
+              <input style={styles.inputField} value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="ชื่อเซนเซอร์ (เช่น เซนเซอร์ความชื้นดิน #1)" />
+              <input style={styles.inputField} value={addValue} onChange={(e) => setAddValue(e.target.value)} placeholder="ค่า/คำอธิบาย (เช่น ความชื้นดิน ~ 32 %)" />
             </div>
 
             <div style={styles.groupList}>
@@ -1262,7 +1424,6 @@ export default function AddSensor() {
                   <div style={styles.itemsGrid}>
                     {g.items.map((it) => {
                       const isEditing = editingItem?.groupId === g.id && String(editingItem?.itemId) === String(it.id);
-
                       return (
                         <div key={it.id} style={styles.itemCard}>
                           <div style={styles.itemTitle}>{it.name}</div>
