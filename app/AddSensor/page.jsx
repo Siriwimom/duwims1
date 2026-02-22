@@ -1627,8 +1627,7 @@ export default function AddSensor() {
               </div>
               <div style={styles.pinMetaBox}>
                 <div style={styles.pinMetaLabel}>ชนิดที่มี</div>
-                <div style={styles.pinMetaValue} 
-                style={{...styles.pinMetaValue, whiteSpace:"normal"}}>
+                <div style={{...styles.pinMetaValue, whiteSpace:"normal"}}>
                   {activePinSensors.length ? Array.from(new Set(activePinSensors.map((x)=>x.sensorType))).join(", ") : "-"}
                 </div>
               </div>

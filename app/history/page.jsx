@@ -145,6 +145,50 @@ function formatTick(v, sensorKey) {
   return Number.isInteger(vv) ? String(vv) : vv.toFixed(1);
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
+
+// ใช้กับ backend ใน server.js (ต้องแนบ Bearer token เพราะ /api/* มี auth middleware)
+async function apiFetch(path, opts = {}) {
+  const method = opts.method || "GET";
+  const body = opts.body;
+  // รองรับ key หลายแบบ (กันคนละหน้าเก็บ token คนละชื่อ)
+  const token =
+    opts.token ||
+    (typeof window !== "undefined" &&
+      (localStorage.getItem("token") ||
+        localStorage.getItem("access_token") ||
+        localStorage.getItem("jwt"))) ||
+    null;
+
+  const res = await fetch(API_BASE + path, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+
+  if (!res.ok) {
+    const msg =
+      (data && (data.message || data.error)) ||
+      `HTTP ${res.status} ${res.statusText}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
 export default function HistoryPage() {
   const sensorDropdownRef = useRef(null);
   const plotDropdownRef = useRef(null);
@@ -169,13 +213,169 @@ export default function HistoryPage() {
 
   const [plotDropdownOpen, setPlotDropdownOpen] = useState(false);
 
-  // ✅ เริ่มต้นเป็น "ทุกแปลง"
-  const [selectedPlots, setSelectedPlots] = useState(() =>
-    PLOT_OPTIONS.map((p) => p.id)
-  );
+// ====== plots (ดึงจาก backend) ======
+const [plotOptions, setPlotOptions] = useState([]);
+const [plotsLoading, setPlotsLoading] = useState(false);
+const [plotsError, setPlotsError] = useState("");
+
+// ✅ รายการแปลงที่ใช้จริง: ถ้าโหลดจาก API ได้ใช้ API, ไม่งั้น fallback เป็น mock
+const plotList = useMemo(() => {
+  return plotOptions.length ? plotOptions : PLOT_OPTIONS;
+}, [plotOptions]);
+
+// ✅ เริ่มต้นเป็น "ทุกแปลง" (default = เลือกครบ)
+const [selectedPlots, setSelectedPlots] = useState(() =>
+  PLOT_OPTIONS.map((p) => p.id)
+);
+
+// โหลด plots จาก API (GET /api/plots)
+useEffect(() => {
+  let cancelled = false;
+  (async () => {
+    try {
+      setPlotsLoading(true);
+      setPlotsError("");
+      const data = await apiFetch("/api/plots");
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const mapped = items.map((p, i) => ({
+        id: String(p.id || p._id || i),
+        // server.js เก็บชื่อแปลงไว้ที่ plotName/alias และมี backward compat name
+        name: p.alias || p.plotName || p.name || `แปลง ${i + 1}`,
+        raw: p,
+      }));
+      if (!cancelled) {
+        setPlotOptions(mapped);
+        // ถ้าเคยเป็นค่า default เลือกครบ (จาก mock) ให้ sync ไปเป็นเลือกครบของ API ด้วย
+        setSelectedPlots(
+          mapped.length ? mapped.map((x) => x.id) : PLOT_OPTIONS.map((p) => p.id)
+        );
+      }
+    } catch (e) {
+      if (!cancelled) setPlotsError(String(e?.message || e));
+    } finally {
+      if (!cancelled) setPlotsLoading(false);
+    }
+  })();
+  return () => {
+    cancelled = true;
+  };
+}, []);
 
   const [startDate, setStartDate] = useState("2025-09-01");
   const [endDate, setEndDate] = useState("2025-09-30");
+
+  // ====== sensor-types (ดึงจาก backend เพื่อใช้ label/unit) ======
+  const [sensorTypeItems, setSensorTypeItems] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiFetch("/api/sensor-types");
+        const items = Array.isArray(data?.items) ? data.items : [];
+        if (!cancelled) setSensorTypeItems(items);
+      } catch {
+        // ไม่ critical: ถ้าดึงไม่ได้ จะ fallback ใช้ SENSOR_OPTIONS ด้านบน
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ====== history data (ใช้จริง: summary + readings) ======
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  // summaryByPlot[plotId] = summary.items จาก GET /api/plots/:plotId/summary
+  const [summaryByPlot, setSummaryByPlot] = useState({});
+  // readingsByPlot[plotId] = readings.items จาก GET /api/readings?plotId=...&from=...&to=...
+  const [readingsByPlot, setReadingsByPlot] = useState({});
+
+  const toIsoFromDate = (d, endOfDay = false) => {
+    if (!d) return "";
+    return endOfDay ? `${d}T23:59:59.999Z` : `${d}T00:00:00.000Z`;
+  };
+
+  // map sensor meta -> column key ที่ UI ใช้ (soil/temp/rh/npk/light/rain/wind/water)
+  const sensorMetaToKey = (meta) => {
+    const st = String(meta?.sensorType || "");
+    const name = String(meta?.name || "");
+    const unit = String(meta?.unit || "");
+    if (st === "soil_moisture") return "soil";
+    if (st === "wind") return "wind";
+    if (st === "ppfd") return "light";
+    if (st === "rain") return "rain";
+    if (st === "npk") return "npk";
+    if (st === "irrigation") return "water";
+    if (st === "temp_rh") {
+      if (unit.includes("°") || name.includes("อุณหภูมิ") || name.toLowerCase().includes("temp")) return "temp";
+      return "rh";
+    }
+    // เผื่อ backend มี key ตรง ๆ
+    if (st === "temp") return "temp";
+    if (st === "rh") return "rh";
+    if (st === "light") return "light";
+    if (st === "water") return "water";
+    return null;
+  };
+
+  // โหลด summary + readings ตามแปลงที่เลือกและช่วงวันที่
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setHistoryLoading(true);
+        setHistoryError("");
+
+        const plots = (selectedPlots.length ? selectedPlots : plotList.map((p) => p.id))
+          .filter(Boolean);
+
+        // ถ้าไม่มี plot จาก API (เช่นยังโหลดไม่เสร็จ) ให้หยุดก่อน
+        if (!plots.length) {
+          if (!cancelled) {
+            setSummaryByPlot({});
+            setReadingsByPlot({});
+          }
+          return;
+        }
+
+        const fromIso = toIsoFromDate(startDate, false);
+        const toIso = toIsoFromDate(endDate, true);
+
+        // 1) summary
+        const summaries = await Promise.all(
+          plots.map((pid) => apiFetch(`/api/plots/${encodeURIComponent(pid)}/summary`))
+        );
+
+        // 2) readings (ตามช่วงเวลา)
+        const readingsList = await Promise.all(
+          plots.map((pid) =>
+            apiFetch(
+              `/api/readings?plotId=${encodeURIComponent(pid)}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
+            )
+          )
+        );
+
+        if (cancelled) return;
+
+        const nextSummary = {};
+        plots.forEach((pid, i) => {
+          nextSummary[pid] = Array.isArray(summaries[i]?.items) ? summaries[i].items : [];
+        });
+
+        const nextReadings = {};
+        plots.forEach((pid, i) => {
+          nextReadings[pid] = Array.isArray(readingsList[i]?.items) ? readingsList[i].items : [];
+        });
+
+        setSummaryByPlot(nextSummary);
+        setReadingsByPlot(nextReadings);
+      } catch (e) {
+        if (!cancelled) setHistoryError(String(e?.message || e));
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedPlots, plotList, startDate, endDate]);
+
 
   const toggleSensor = (key) => {
     setSelectedSensors((prev) => {
@@ -190,7 +390,7 @@ export default function HistoryPage() {
       const next = prev.includes(id)
         ? prev.filter((p) => p !== id)
         : [...prev, id];
-      if (next.length === 0) return PLOT_OPTIONS.map((p) => p.id);
+      if (next.length === 0) return plotList.map((p) => p.id);
       return next;
     });
   };
@@ -229,13 +429,13 @@ export default function HistoryPage() {
 
   const selectedPlotNames = useMemo(() => {
     return selectedPlots
-      .map((id) => PLOT_OPTIONS.find((p) => p.id === id)?.name)
+      .map((id) => plotList.find((p) => p.id === id)?.name)
       .filter(Boolean);
   }, [selectedPlots]);
 
   // ✅ เลือกครบ = "ทุกแปลง"
   const plotDropdownLabel = useMemo(() => {
-    if (selectedPlots.length === PLOT_OPTIONS.length) return "ทุกแปลง";
+    if (selectedPlots.length === plotList.length) return "ทุกแปลง";
     if (selectedPlotNames.length === 0) return "ทุกแปลง";
     if (selectedPlotNames.length === 1) return selectedPlotNames[0];
     return `${selectedPlotNames[0]} +${selectedPlotNames.length - 1}`;
@@ -292,62 +492,128 @@ export default function HistoryPage() {
   // =========================
   // MOCK SERIES (พร้อมเสียบ API)
   // =========================
-  const baseTimes = useMemo(() => {
-    const days = [
-      "2025-09-21",
-      "2025-09-22",
-      "2025-09-23",
-      "2025-09-24",
-      "2025-09-25",
-      "2025-09-26",
-      "2025-09-27",
-      "2025-09-28",
-    ];
-    return days.map((d) => ({ ts: d + "T12:00:00", label: formatDateLabel(d) }));
-  }, []);
 
-  // สร้าง series ต่อ plot ต่อ sensor (deterministic)
+  // =========================
+  // สร้างแกนเวลา (baseTimes) ตามช่วงวันที่จริง
+  // =========================
+  const baseTimes = useMemo(() => {
+    // ถ้า range สั้น (<= 12 วัน) ใช้ทุกวัน
+    const start = new Date(`${startDate}T00:00:00Z`);
+    const end = new Date(`${endDate}T00:00:00Z`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return [];
+    }
+    const days = Math.max(0, Math.round((end - start) / 86400000)) + 1;
+    const points = [];
+
+    if (days <= 12) {
+      for (let i = 0; i < days; i++) {
+        const d = new Date(start.getTime() + i * 86400000);
+        const ds = d.toISOString().slice(0, 10);
+        points.push({ ts: `${ds}T12:00:00Z`, label: formatDateLabel(ds), day: ds });
+      }
+      return points;
+    }
+
+    // range ยาว: sample 8 จุดเพื่อให้กราฟอ่านง่าย
+    const N = 8;
+    for (let i = 0; i < N; i++) {
+      const t = i / (N - 1);
+      const d = new Date(start.getTime() + t * (end.getTime() - start.getTime()));
+      const ds = d.toISOString().slice(0, 10);
+      points.push({ ts: `${ds}T12:00:00Z`, label: formatDateLabel(ds), day: ds });
+    }
+    // กันวันซ้ำจากการปัด
+    const uniq = [];
+    const seen = new Set();
+    for (const p of points) {
+      if (seen.has(p.day)) continue;
+      seen.add(p.day);
+      uniq.push(p);
+    }
+    return uniq;
+  }, [startDate, endDate]);
+
+  // =========================
+  // seriesByPlot: ใช้ข้อมูลจริงจาก backend
+  // - ใช้ summary เพื่อรู้ว่า sensorId ไหนเป็นคอลัมน์อะไร
+  // - ใช้ readings ในช่วงวันที่เพื่อคำนวณค่าเฉลี่ยของแต่ละ "จุด" ในกราฟ
+  // =========================
   const seriesByPlot = useMemo(() => {
-    const plots = selectedPlots.length
-      ? selectedPlots
-      : PLOT_OPTIONS.map((p) => p.id);
+    const plots = selectedPlots.length ? selectedPlots : plotList.map((p) => p.id);
     const sensors = selectedSensors.length ? selectedSensors : ["soil"];
-    const map = {};
+    const out = {};
 
     for (const pid of plots) {
-      map[pid] = {};
+      const metaItems = Array.isArray(summaryByPlot?.[pid]) ? summaryByPlot[pid] : [];
+      const readings = Array.isArray(readingsByPlot?.[pid]) ? readingsByPlot[pid] : [];
+
+      // sensorId -> meta
+      const metaBySensorId = new Map(metaItems.map((m) => [String(m.sensorId), m]));
+
+      // day -> sensorId -> {sum,count}
+      const bucket = new Map();
+      for (const r of readings) {
+        const sid = String(r.sensorId || "");
+        if (!sid) continue;
+        const day = String(r.ts || "").slice(0, 10);
+        if (!day) continue;
+        const v = Number(r.value);
+        if (Number.isNaN(v)) continue;
+
+        const byDay = bucket.get(day) || new Map();
+        const acc = byDay.get(sid) || { sum: 0, count: 0 };
+        acc.sum += v;
+        acc.count += 1;
+        byDay.set(sid, acc);
+        bucket.set(day, byDay);
+      }
+
+      out[pid] = {};
       for (const sk of sensors) {
-        const seed = hashTo01(
-          `${pid}-${sk}-${startDate}-${endDate}-${quickRange}`
-        );
+        // sensorIds ที่ map เข้าคอลัมน์นี้
+        const sensorIds = metaItems
+          .filter((m) => sensorMetaToKey(m) === sk)
+          .map((m) => String(m.sensorId));
 
-        const spec =
-          {
-            soil: { base: 62, amp: 22, min: 0, max: 100 },
-            temp: { base: 30, amp: 4, min: 0, max: 60 },
-            rh: { base: 72, amp: 18, min: 0, max: 100 },
-            npk: { base: 18, amp: 8, min: 0, max: 50 },
-            light: { base: 18000, amp: 9000, min: 0, max: 60000 },
-            rain: { base: 2.2, amp: 7, min: 0, max: 60 },
-            wind: { base: 1.8, amp: 1.6, min: 0, max: 20 },
-            water: { base: 90, amp: 60, min: 0, max: 500 },
-          }[sk] || { base: 50, amp: 20, min: 0, max: 100 };
+        const pts = baseTimes.map((t) => {
+          let sum = 0;
+          let count = 0;
 
-        const points = baseTimes.map((t, i) => {
-          const wave = Math.sin(
-            (i / Math.max(1, baseTimes.length - 1)) * Math.PI * 2 + seed * 6.28
-          );
-          const wobble = (hashTo01(`${pid}-${sk}-${i}`) - 0.5) * 0.35;
-          const v = spec.base + spec.amp * (0.55 * wave + wobble);
-          const val = Math.round(clamp(v, spec.min, spec.max) * 10) / 10;
-          return { ...t, value: val };
+          const byDay = bucket.get(t.day);
+          if (byDay && sensorIds.length) {
+            for (const sid of sensorIds) {
+              const acc = byDay.get(sid);
+              if (acc && acc.count) {
+                sum += acc.sum;
+                count += acc.count;
+              }
+            }
+          }
+
+          // fallback: ถ้าไม่มี reading ในวันนั้น ใช้ last/avg จาก summary (เป็นค่า "ภาพรวม")
+          let value = null;
+          if (count > 0) value = Math.round((sum / count) * 10) / 10;
+          else if (sensorIds.length) {
+            // รวม avg ของแต่ละ sensor ในคอลัมน์นั้น
+            const avgs = sensorIds
+              .map((sid) => metaBySensorId.get(String(sid)))
+              .filter(Boolean)
+              .map((m) => Number(m.avg ?? m.last))
+              .filter((v) => !Number.isNaN(v));
+            if (avgs.length) value = Math.round((avgs.reduce((a, b) => a + b, 0) / avgs.length) * 10) / 10;
+          }
+
+          return { ts: t.ts, label: t.label, value: value ?? 0 };
         });
 
-        map[pid][sk] = points;
+        out[pid][sk] = pts;
       }
     }
-    return map;
-  }, [selectedPlots, selectedSensors, startDate, endDate, quickRange, baseTimes]);
+
+    return out;
+  }, [selectedPlots, plotList, selectedSensors, baseTimes, summaryByPlot, readingsByPlot, startDate, endDate, quickRange]);
+
 
   // แสดงกราฟ: โฟกัส sensor ตัวแรก (เลือกไว้) เพื่อเปรียบเทียบแปลงแบบชัด ๆ
   const activeSensorKey = selectedSensors[0] || "soil";
@@ -357,14 +623,14 @@ export default function HistoryPage() {
   const compareSeries = useMemo(() => {
     const plots = selectedPlots.length
       ? selectedPlots
-      : PLOT_OPTIONS.map((p) => p.id);
+      : plotList.map((p) => p.id);
     return plots
       .map((pid, idx) => {
         const pts = seriesByPlot?.[pid]?.[activeSensorKey] || [];
         return {
           plotId: pid,
           plotName:
-            PLOT_OPTIONS.find((p) => p.id === pid)?.name || `แปลง ${pid}`,
+            plotList.find((p) => p.id === pid)?.name || `แปลง ${pid}`,
           color: PLOT_COLORS[idx % PLOT_COLORS.length],
           points: pts,
         };
@@ -442,13 +708,13 @@ export default function HistoryPage() {
   const onExportCSV = () => {
     const plots = selectedPlots.length
       ? selectedPlots
-      : PLOT_OPTIONS.map((p) => p.id);
+      : plotList.map((p) => p.id);
     const sensors = selectedSensors.length ? selectedSensors : ["soil"];
 
     const rows = [];
     for (const pid of plots) {
       const plotName =
-        PLOT_OPTIONS.find((p) => p.id === pid)?.name || `แปลง ${pid}`;
+        plotList.find((p) => p.id === pid)?.name || `แปลง ${pid}`;
       for (const sk of sensors) {
         const meta = SENSOR_OPTIONS.find((s) => s.key === sk);
         const unit = meta?.unit ?? "";
@@ -488,24 +754,52 @@ export default function HistoryPage() {
   // =========================
   // TABLE rows (ใช้ค่าจาก mock เฉลี่ย)
   // =========================
+
   const tableRows = useMemo(() => {
-    const plots = selectedPlots.length
-      ? selectedPlots
-      : PLOT_OPTIONS.map((p) => p.id);
+    const plots = selectedPlots.length ? selectedPlots : plotList.map((p) => p.id);
 
     const avgOf = (pid, sk) => {
-      const pts = seriesByPlot?.[pid]?.[sk] || [];
-      if (!pts.length) return "-";
-      const avg = pts.reduce((s, x) => s + Number(x.value || 0), 0) / pts.length;
-      const v = Math.round(avg * 10) / 10;
-      if (sk === "light") return Math.round(v).toLocaleString("en-US");
-      return v;
+      const metaItems = Array.isArray(summaryByPlot?.[pid]) ? summaryByPlot[pid] : [];
+      const readings = Array.isArray(readingsByPlot?.[pid]) ? readingsByPlot[pid] : [];
+
+      const sensorIds = metaItems
+        .filter((m) => sensorMetaToKey(m) === sk)
+        .map((m) => String(m.sensorId));
+
+      if (!sensorIds.length) return "-";
+
+      let sum = 0;
+      let count = 0;
+      for (const r of readings) {
+        const sid = String(r.sensorId || "");
+        if (!sid || !sensorIds.includes(sid)) continue;
+        const v = Number(r.value);
+        if (Number.isNaN(v)) continue;
+        sum += v;
+        count += 1;
+      }
+
+      let v = null;
+      if (count > 0) v = sum / count;
+      else {
+        // fallback เป็นค่า avg/last จาก summary (กรณีไม่มี reading ในช่วงที่เลือก)
+        const avgs = metaItems
+          .filter((m) => sensorIds.includes(String(m.sensorId)))
+          .map((m) => Number(m.avg ?? m.last))
+          .filter((x) => !Number.isNaN(x));
+        if (avgs.length) v = avgs.reduce((a, b) => a + b, 0) / avgs.length;
+      }
+
+      if (v === null) return "-";
+      const vv = Math.round(v * 10) / 10;
+      if (sk === "light") return Math.round(vv).toLocaleString("en-US");
+      return vv;
     };
 
     return plots.map((pid, i) => {
-      const plotName =
-        PLOT_OPTIONS.find((p) => p.id === pid)?.name || `แปลง ${pid}`;
+      const plotName = plotList.find((p) => p.id === pid)?.name || `แปลง ${pid}`;
       return {
+        plotId: String(pid),
         plot: plotName,
         soil: avgOf(pid, "soil"),
         temp: avgOf(pid, "temp"),
@@ -518,7 +812,8 @@ export default function HistoryPage() {
         bg: i % 2 === 0 ? "#f9fafb" : "#eef2ff",
       };
     });
-  }, [selectedPlots, seriesByPlot]);
+  }, [selectedPlots, plotList, summaryByPlot, readingsByPlot]);
+
 
   return (
     <div style={pageStyle} onClick={onRootClick}>
@@ -901,7 +1196,7 @@ export default function HistoryPage() {
 
                         <button
                           type="button"
-                          onClick={() => setSelectedPlots(PLOT_OPTIONS.map((p) => p.id))}
+                          onClick={() => setSelectedPlots(plotList.map((p) => p.id))}
                           style={{
                             border: "none",
                             background: "transparent",
@@ -917,7 +1212,7 @@ export default function HistoryPage() {
                       </div>
 
                       <div style={{ display: "grid", gap: 8 }}>
-                        {PLOT_OPTIONS.map((p, idx) => {
+                        {plotList.map((p, idx) => {
                           const checked = selectedPlots.includes(p.id);
                           const c = PLOT_COLORS[idx % PLOT_COLORS.length];
                           return (
@@ -1475,8 +1770,8 @@ export default function HistoryPage() {
                 </thead>
 
                 <tbody>
-                  {tableRows.map((row) => (
-                    <tr key={row.plot} style={{ background: row.bg }}>
+                  {tableRows.map((row, idx) => (
+                    <tr key={`${row.plotId}-${idx}`} style={{ background: row.bg }}>
                       {[
                         row.plot,
                         row.soil,
@@ -1510,7 +1805,7 @@ export default function HistoryPage() {
             </div>
 
             <div style={{ marginTop: 8, fontSize: 11, color: "#64748b" }}>
-              * ค่าเป็น mockup ตัวอย่าง (ถ้าใช้ API จริง ให้แทน seriesByPlot ด้วยข้อมูลจาก backend ได้เลย)
+              * แสดงค่าจริงจาก API (ช่วงวันที่ที่เลือก ถ้าไม่มี reading จะ fallback เป็นค่า avg/last จาก summary)
             </div>
           </div>
         </main>
