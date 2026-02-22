@@ -91,9 +91,12 @@ const LeafletClient = dynamic(
           <div style={styles.mapCard}>
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
             <div style={styles.mapTitle}>Pin เซนเซอร์ ({(pins || []).length})</div>
             <MapContainer center={center} zoom={11} scrollWheelZoom style={{ height: 230, width: "100%" }}>
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
             <div style={styles.mapTitle}>
@@ -505,10 +508,13 @@ export default function EditAndDelete() {
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
         const polyItems = Array.isArray(polyRes.items) ? polyRes.items : [];
         const polys = polyItems
           .filter((x) => (Array.isArray(x?.coords) || Array.isArray(x?.coordinates)) && (x.coords || x.coordinates).length >= 3)
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
         // ✅ polygon: เอา “ทั้งหมด” ของ plot นี้
@@ -516,6 +522,9 @@ export default function EditAndDelete() {
         const polys = polyItems
           .filter((x) => (Array.isArray(x?.coords) || Array.isArray(x?.coordinates)) && (x.coords || x.coordinates).length)
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -582,6 +591,9 @@ export default function EditAndDelete() {
       };
     const p = (plots || []).find((x) => x.id === selectedPlot);
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -682,6 +694,9 @@ export default function EditAndDelete() {
                 </div>
               ) : null}
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -814,6 +829,9 @@ export default function EditAndDelete() {
                       number #{p.number}{" "}
                       {selectedPlot === "all" ? `(${p.plotLabel || "-"})` : ""}
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes

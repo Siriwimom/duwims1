@@ -47,6 +47,9 @@ const LeafletMap = dynamic(
           .flat()
           .filter((p) => Array.isArray(p) && p.length === 2);
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -132,7 +135,12 @@ const LeafletMap = dynamic(
 const API_BASE =
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
   (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE_URL) ||
+=======
+  (typeof process !== "undefined" &&
+    process.env?.NEXT_PUBLIC_API_BASE_URL) ||
+>>>>>>> Stashed changes
 =======
   (typeof process !== "undefined" &&
     process.env?.NEXT_PUBLIC_API_BASE_URL) ||
@@ -234,6 +242,9 @@ function normalizePolygonCoords(coords) {
   const ring =
     Array.isArray(coords[0]) && Array.isArray(coords[0][0]) ? coords[0] : coords;
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -290,6 +301,9 @@ export default function AddSensor() {
   const [mapReady, setMapReady] = useState(false);
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -345,6 +359,9 @@ export default function AddSensor() {
 =======
   const [selectedNode, setSelectedNode] = useState("all"); // ✅ filter: all | soil | air
 
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
   // ✅ รีเซ็ตสถานะ mapReady เมื่อเปลี่ยน Plot/Node (กัน Leaflet init ซ้อนจน appendChild error ใน dev/Turbopack)
   useEffect(() => {
@@ -357,6 +374,9 @@ export default function AddSensor() {
     [selectedPlot, selectedNode]
   );
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -409,6 +429,9 @@ export default function AddSensor() {
     [pins, activePinId]
   );
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -471,6 +494,9 @@ export default function AddSensor() {
   }, [groupChoices, selectedGroupId]);
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -488,6 +514,9 @@ export default function AddSensor() {
       ? p.plotName || p.alias || p.name || `แปลง ${p.id}`
       : `แปลง ${selectedPlot}`;
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -511,8 +540,11 @@ export default function AddSensor() {
     const list = Array.isArray(pins) ? pins : [];
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     const byPlot = selectedPlot === "all" ? list : list.filter((p) => String(p.plotId) === String(selectedPlot));
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
     // ✅ filter by plot (เมื่อไม่ได้อยู่โหมดรวมทุกแปลง)
@@ -606,8 +638,11 @@ export default function AddSensor() {
   // =========================
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
   // ✅ Load dropdown sources
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
   // ✅ Summary: sensors ในแปลงที่เลือก (ไว้บอกว่าแปลงนี้มี sensor อะไรบ้าง)
@@ -677,9 +712,13 @@ export default function AddSensor() {
   // =========================
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
   // ✅ Load polygons + pins + nodes
   // - all plots => polygons all + pins all
   // - one plot => polygons + pins + nodes
+=======
+  // ✅ Load plot meta + polygons + pins (per plot / all plots)
+>>>>>>> Stashed changes
 =======
   // ✅ Load plot meta + polygons + pins (per plot / all plots)
 >>>>>>> Stashed changes
@@ -696,6 +735,7 @@ export default function AddSensor() {
 
         const token = getToken();
 
+<<<<<<< Updated upstream
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
         const loadNodesForPlot = async (plotId) => {
@@ -757,6 +797,8 @@ export default function AddSensor() {
             if (!id) continue;
             if (!nodeUniq.has(id)) nodeUniq.set(id, n);
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
         if (selectedPlot === "all") {
@@ -879,12 +921,15 @@ export default function AddSensor() {
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
         // selected plot only
         const r = await apiFetch(`/api/plots/${encodeURIComponent(String(selectedPlot))}`, {
           token,
           signal: controller.signal,
         });
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
         const r = await apiFetch(
@@ -941,7 +986,11 @@ export default function AddSensor() {
   // =========================
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
   // ✅ Load sensors (list) -> เติมลง sensorGroups.items ตาม sensorType
+=======
+  // ✅ Load nodes (for mapping nodeId <-> category)
+>>>>>>> Stashed changes
 =======
   // ✅ Load nodes (for mapping nodeId <-> category)
 >>>>>>> Stashed changes
@@ -1020,6 +1069,9 @@ export default function AddSensor() {
       try {
         const token = getToken();
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -1069,8 +1121,11 @@ export default function AddSensor() {
   // =========================
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
   // ✅ Ensure nodeId for plot + category (soil/air)
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
   // ✅ Ensure nodeId for a given plot + category (soil/air)
@@ -1082,6 +1137,10 @@ export default function AddSensor() {
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+=======
+    // 1) fetch latest nodes
+>>>>>>> Stashed changes
 =======
     // 1) fetch latest nodes
 >>>>>>> Stashed changes
@@ -1099,9 +1158,18 @@ export default function AddSensor() {
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     const found = items.find((n) => String((n.category || "")).toLowerCase() === cat);
     if (found) return String(found.id || found._id);
 
+=======
+    const found = items.find(
+      (n) => String((n.category || "")).toLowerCase() === cat
+    );
+    if (found) return String(found.id || found._id);
+
+    // 3) create
+>>>>>>> Stashed changes
 =======
     const found = items.find(
       (n) => String((n.category || "")).toLowerCase() === cat
@@ -1142,11 +1210,17 @@ export default function AddSensor() {
   // =========================
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
   // ✅ PIN actions
   // =========================
   const addPin = async () => {
     let targetPlotId = selectedPlot;
 
+=======
+  // ✅ PIN actions (DB)
+  // =========================
+  const addPin = async () => {
+>>>>>>> Stashed changes
 =======
   // ✅ PIN actions (DB)
   // =========================
@@ -1177,6 +1251,7 @@ export default function AddSensor() {
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     // หา number ถัดไป
     let nextNumber = 1;
     try {
@@ -1193,11 +1268,20 @@ export default function AddSensor() {
     try {
       const token = getToken();
 >>>>>>> Stashed changes
+=======
+    // หา number ถัดไป (ทั้งแปลง)
+    let nextNumber = 1;
+    try {
+      const token = getToken();
+>>>>>>> Stashed changes
       const rr = await apiFetch(
         `/api/pins?plotId=${encodeURIComponent(String(selectedPlot))}`,
         { token }
       );
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -1214,11 +1298,14 @@ export default function AddSensor() {
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     const tempId = `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     setPins((prev) => [
       ...(Array.isArray(prev) ? prev : []),
       { id: tempId, _tmp: true, number: nextNumber, lat: null, lng: null, nodeId, plotId: targetPlotId },
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
     // temp pin -> click map to save
@@ -1235,6 +1322,9 @@ export default function AddSensor() {
         plotId: selectedPlot,
       },
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -1245,6 +1335,10 @@ export default function AddSensor() {
   const removePinById = async (pinId) => {
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+=======
+    if (readOnlyAllPlots) return;
+>>>>>>> Stashed changes
 =======
     if (readOnlyAllPlots) return;
 >>>>>>> Stashed changes
@@ -1271,8 +1365,11 @@ export default function AddSensor() {
       if (!isLikelyObjectId(String(pinId))) return;
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
       await apiFetch(`/api/pins/${encodeURIComponent(String(pinId))}`, { method: "DELETE", token });
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
       await apiFetch(`/api/pins/${encodeURIComponent(String(pinId))}`, {
@@ -1280,6 +1377,9 @@ export default function AddSensor() {
         token,
       });
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -1295,8 +1395,11 @@ export default function AddSensor() {
     }
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     if (!latlng || !activePinId) return;
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
     if (readOnlyAllPlots) return;
@@ -1310,8 +1413,11 @@ export default function AddSensor() {
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     setPins((prev) => prev.map((p) => (String(p.id) === String(activePinId) ? { ...p, lat, lng } : p)));
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
     // UI update first
@@ -1321,6 +1427,9 @@ export default function AddSensor() {
       )
     );
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -1343,8 +1452,14 @@ export default function AddSensor() {
           body: (() => {
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
             const payload = { plotId: String(pin.plotId || selectedPlot), lat, lng };
             if (nodeToUse) payload.nodeId = nodeToUse;
+=======
+            const payload = { plotId: selectedPlot, lat, lng };
+            if (nodeToUse && String(nodeToUse) !== "all")
+              payload.nodeId = nodeToUse;
+>>>>>>> Stashed changes
 =======
             const payload = { plotId: selectedPlot, lat, lng };
             if (nodeToUse && String(nodeToUse) !== "all")
@@ -1398,8 +1513,11 @@ export default function AddSensor() {
       const token = getToken();
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
       await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, { method: "PATCH", token, body: { lat, lng } });
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
       await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, {
@@ -1477,8 +1595,11 @@ export default function AddSensor() {
               ...g,
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
               items: [...g.items, { id: tempId, pinId: String(activePinId), sensorType, name, value }],
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
               items: [
@@ -1486,6 +1607,9 @@ export default function AddSensor() {
                 { id: tempId, pinId: activePinId, sensorType: mapGroupToSensorType(selectedGroupId), name, value },
               ],
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -1499,7 +1623,10 @@ export default function AddSensor() {
       const token = getToken();
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
       if (!activePinId) {
@@ -1547,6 +1674,9 @@ export default function AddSensor() {
                   ),
                 }
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -1585,8 +1715,11 @@ export default function AddSensor() {
       prev.map((g) =>
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
         g.id !== groupId ? g : { ...g, items: g.items.map((it) => (it.id === itemId ? { ...it, name, value } : it)) }
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
         g.id !== groupId
@@ -1598,6 +1731,9 @@ export default function AddSensor() {
               ),
             }
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -1609,8 +1745,11 @@ export default function AddSensor() {
       if (!isLikelyObjectId(String(itemId))) return;
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
       await apiFetch(`/api/sensors/${encodeURIComponent(String(itemId))}`, { method: "PATCH", token, body: { name, valueHint: value } });
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
       await apiFetch(`/api/sensors/${encodeURIComponent(String(itemId))}`, {
@@ -1715,9 +1854,12 @@ export default function AddSensor() {
       },
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
       filterLabel: { fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 },
       filterSelect: { width: "100%", borderRadius: 12, border: "none", padding: "5px 8px", fontSize: 12, background: "#e0f2fe" },
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
       filterLabel: {
@@ -1781,7 +1923,10 @@ export default function AddSensor() {
       infoBox: {
         borderRadius: 12,
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 =======
+=======
+>>>>>>> Stashed changes
         background: "#ffffff",
         border: "1px solid #c7f0df",
         padding: "6px 10px",
@@ -1819,6 +1964,7 @@ export default function AddSensor() {
       }),
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
       pinCardGrid: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 },
       pinMetaBox: { borderRadius: 14, background: "rgba(255,255,255,0.78)", border: "1px solid rgba(15,23,42,0.10)", padding: "10px 10px" },
       pinMetaLabel: { fontSize: 10, fontWeight: 800, color: "#6b7280", marginBottom: 3 },
@@ -1829,6 +1975,8 @@ export default function AddSensor() {
       pinPanel: { borderRadius: 26, background: "#ffd9f1", padding: isMobile ? "16px 12px 18px" : "18px 16px 20px", boxShadow: "0 14px 32px rgba(244,114,182,0.25)", marginBottom: 16 },
       pinHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12 },
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
       pinCardGrid: {
@@ -1872,6 +2020,9 @@ export default function AddSensor() {
         marginBottom: 12,
       },
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -1928,9 +2079,12 @@ export default function AddSensor() {
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
       addRow: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, alignItems: "stretch" },
       inputField: { width: "100%", height: 44, boxSizing: "border-box", outline: "none", fontSize: 12, padding: "0 12px", borderRadius: 14, background: "#fff", border: "1px solid rgba(15,23,42,0.12)", boxShadow: "0 6px 14px rgba(15,23,42,0.05)" },
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
       // ✅ ลบปุ่ม "+" ออก -> เหลือ 2 ช่อง
@@ -1953,6 +2107,9 @@ export default function AddSensor() {
         boxShadow: "0 6px 14px rgba(15,23,42,0.05)",
       },
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -2068,9 +2225,12 @@ export default function AddSensor() {
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
   // ✅ แสดง polygon จริงเท่านั้น
   const polygonsToRender = plotPolygons;
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
   // ✅ แสดง polygon จริงเท่านั้น (ถ้าไม่มี ให้เป็น [])
@@ -2200,7 +2360,11 @@ export default function AddSensor() {
                   }}
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
                   onReady={() => {}}
+=======
+                  onReady={() => setMapReady(true)}
+>>>>>>> Stashed changes
 =======
                   onReady={() => setMapReady(true)}
 >>>>>>> Stashed changes
@@ -2218,9 +2382,12 @@ export default function AddSensor() {
                 ...styles.pinMetaBtn,
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
                 opacity: selectedPlot === "all" ? 0.5 : 1,
                 cursor: selectedPlot === "all" ? "not-allowed" : "pointer",
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
                 opacity:
@@ -2230,6 +2397,9 @@ export default function AddSensor() {
                     ? "not-allowed"
                     : "pointer",
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -2335,9 +2505,12 @@ export default function AddSensor() {
                 <div style={styles.pinMetaLabel}>ชนิดที่มี</div>
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
                 <div style={{ ...styles.pinMetaValue, whiteSpace: "normal" }}>
                   {activePinSensors.length ? Array.from(new Set(activePinSensors.map((x) => x.sensorType))).join(", ") : "-"}
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
                 <div
@@ -2352,6 +2525,9 @@ export default function AddSensor() {
                       ).join(", ")
                     : "-"}
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -2420,6 +2596,9 @@ export default function AddSensor() {
                 placeholder="ค่า/คำอธิบาย (เช่น ความชื้นดิน ~ 32 %)"
               />
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -2434,8 +2613,11 @@ export default function AddSensor() {
                     {g.items.map((it) => {
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
                       const isEditing = editingItem?.groupId === g.id && String(editingItem?.itemId) === String(it.id);
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
                       const isEditing =
