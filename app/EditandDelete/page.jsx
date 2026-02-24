@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import "leaflet/dist/leaflet.css";
 
-// --- Load react-leaflet once (avoid race conditions between dynamic components) ---
+// ✅ รวม react-leaflet + leaflet อยู่ในก้อนเดียว ลด race/appendChild error
 const LeafletMap = dynamic(
   async () => {
-    const RL = await import("react-leaflet");
-    const L = await import("leaflet");
+    const [RL, L] = await Promise.all([import("react-leaflet"), import("leaflet")]);
 
     // ✅ Fix default icon path for Next (กัน marker icon หาย/undefined)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,146 +21,397 @@ const LeafletMap = dynamic(
       });
     }
 
-    function MapClickHandlerInner({ onPick, disabled }) {
-      RL.useMapEvents({
-        click(e) {
-          if (disabled) return;
-          onPick?.(e.latlng);
-        },
-      });
-      return null;
-    }
+    const { MapContainer, TileLayer, Polygon, Marker, Popup, useMap } = RL;
 
-    function MapFitBoundsInner({ polygons }) {
-      const map = RL.useMap();
+    function InvalidateSizeOnce() {
+      const map = useMap();
       useEffect(() => {
-        if (!polygons || !polygons.length) return;
-
-        // polygons: array of LatLng tuples [[lat,lng], ...]
-        const allPts = polygons.flat().filter((p) => Array.isArray(p) && p.length === 2);
-        if (!allPts.length) return;
-
-        const bounds = L.latLngBounds(allPts.map((p) => L.latLng(p[0], p[1])));
-        map.fitBounds(bounds, { padding: [20, 20] });
-      }, [map, polygons]);
+        const t = setTimeout(() => {
+          try {
+            map.invalidateSize();
+          } catch {}
+        }, 120);
+        return () => clearTimeout(t);
+      }, [map]);
       return null;
     }
 
-    return function LeafletMapInner({
-      mapKey,
-      center,
-      zoom,
-      polygons,
-      pins,
-      pinIcon,
-      readOnly,
-      onPick,
-      onCreated,
-      onReady,
-    }) {
+    // Return a real React component
+    return function LeafletMapInner({ center, height, polygons, pins, mapKey }) {
+      const safeCenter =
+        Array.isArray(center) && center.length === 2 && isFinite(center[0]) && isFinite(center[1])
+          ? center
+          : [13.7563, 100.5018];
+
       return (
-        <RL.MapContainer
-          key={mapKey}
-          center={center}
-          zoom={zoom}
-          whenCreated={onCreated}
-          whenReady={onReady}
-          scrollWheelZoom={true}
-          style={{ height: 230, width: "100%" }}
+        <MapContainer
+          key={mapKey || "map"}
+          center={safeCenter}
+          zoom={11}
+          scrollWheelZoom
+          style={{ height, width: "100%" }}
         >
-          <RL.TileLayer
+          <InvalidateSizeOnce />
+
+          <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
-          <MapFitBoundsInner polygons={polygons} />
-
-          {(polygons || []).map((poly, idx) => (
-            <RL.Polygon
-              key={`poly-${idx}`}
-              positions={poly}
+          {/* ✅ polygons “ทั้งหมด” */}
+          {(polygons || []).map((p) => (
+            <Polygon
+              key={p.id}
+              positions={p.coords}
               pathOptions={{
                 color: "#16a34a",
+                weight: 2,
                 fillColor: "#86efac",
                 fillOpacity: 0.4,
               }}
             />
           ))}
 
-          <MapClickHandlerInner onPick={onPick} disabled={readOnly} />
-
-          {pinIcon &&
-            (pins || [])
-              .filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
-              .map((p) => (
-                <RL.Marker key={p.id} position={[Number(p.lat), Number(p.lng)]} icon={pinIcon}>
-                  <RL.Popup>Pin #{p.number}</RL.Popup>
-                </RL.Marker>
-              ))}
-        </RL.MapContainer>
+          {/* ✅ pins */}
+          {(pins || []).map((p) => (
+            <Marker key={p.id} position={p.position}>
+              <Popup>{p.label}</Popup>
+            </Marker>
+          ))}
+        </MapContainer>
       );
     };
   },
   { ssr: false }
 );
 
-// =========================
-// ✅ API helpers (matches server.js)
-// =========================
-const API_BASE = (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE_URL) || "http://localhost:3001";
+// ============================
+// ✅ API CONFIG
+// ============================
+// .env.local (Next):
+// NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 
-const TOKEN_KEYS = ["AUTH_TOKEN_V1", "token", "authToken", "pmtool_token", "duwims_token"];
+// ============================
+// ===== GLOBAL STYLES =====
+// ============================
+const pageStyle = {
+  fontFamily: '"Prompt", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  background: "#e5edf8",
+  minHeight: "100vh",
+  color: "#111827",
+  padding: "22px 0 30px",
+};
+const outerWrap = {
+  width: "100%",
+  display: "flex",
+  justifyContent: "center",
+  overflowX: "hidden",
+};
+const bodyStyle = {
+  width: "100%",
+  maxWidth: 1180,
+  margin: "0 auto",
+  boxSizing: "border-box",
+  paddingTop: 0,
+  paddingBottom: 30,
+  paddingLeft: 16,
+  paddingRight: 16,
+};
+const cardBase = {
+  background: "#f9fafb",
+  borderRadius: 24,
+  paddingTop: 18,
+  paddingRight: 20,
+  paddingBottom: 18,
+  paddingLeft: 20,
+  boxShadow: "0 4px 10px rgba(15,23,42,0.12)",
+  minWidth: 0,
+  overflow: "hidden",
+  boxSizing: "border-box",
+};
 
-function getToken() {
-  if (typeof window === "undefined") return null;
-  for (const k of TOKEN_KEYS) {
-    const t = window.localStorage.getItem(k);
-    if (t) return t;
+// ===== PIN CARD STYLES =====
+const pinCardBase = {
+  borderRadius: 30,
+  background: "#dfffee",
+  paddingTop: 14,
+  paddingRight: 14,
+  paddingBottom: 16,
+  paddingLeft: 14,
+  boxShadow: "0 10px 24px rgba(15,23,42,0.12)",
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  minWidth: 0,
+  overflow: "hidden",
+  boxSizing: "border-box",
+};
+const pinHeaderRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  marginBottom: 10,
+  gap: 10,
+  flexWrap: "wrap",
+};
+const pinTitleBlock = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 2,
+  minWidth: 0,
+};
+const pinTitle = { fontSize: 18, fontWeight: 700 };
+const pinSubtitle = { fontSize: 11, color: "#6b7280" };
+const pinStatus = { fontSize: 18, fontWeight: 700, color: "#16a34a" };
+const pinInfoPill = {
+  borderRadius: 999,
+  background: "#ffffff",
+  paddingTop: 6,
+  paddingRight: 10,
+  paddingBottom: 6,
+  paddingLeft: 10,
+  fontSize: 11,
+  boxShadow: "0 1px 3px rgba(148,163,184,0.35)",
+  minWidth: 0,
+  overflow: "hidden",
+};
+const pinInfoLabel = { fontSize: 10, color: "#6b7280", marginBottom: 2 };
+const pinInfoValue = {
+  fontSize: 12,
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+const pinGroupContainer = {
+  borderRadius: 22,
+  background: "rgba(255,255,255,0.85)",
+  paddingTop: 8,
+  paddingRight: 10,
+  paddingBottom: 10,
+  paddingLeft: 10,
+  marginBottom: 6,
+};
+const pinGroupLabel = { fontSize: 12, fontWeight: 600, marginBottom: 4 };
+const pinGroupItem = {
+  borderRadius: 999,
+  background: "#f9fafb",
+  paddingTop: 5,
+  paddingRight: 8,
+  paddingBottom: 5,
+  paddingLeft: 8,
+  fontSize: 11,
+  boxShadow: "0 1px 2px rgba(148,163,184,0.35)",
+  minWidth: 0,
+  overflow: "hidden",
+};
+const pinSensorName = {
+  fontWeight: 500,
+  marginBottom: 1,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+const pinSensorValue = {
+  fontSize: 10,
+  color: "#6b7280",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+// ============================
+// ✅ LocalStorage keys
+// ============================
+const LS_TOKEN = "token";
+const LS_LAST_PLOT_ID = "lastPlotId";
+const LS_DASH_CACHE_V1 = "duwims_dashboard_cache_v1";
+
+// ============================
+// ✅ Helpers
+// ============================
+function safeNum(x, fallback = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : fallback;
+}
+function formatThaiDate(d) {
+  if (!d) return "-";
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return String(d);
+  const dd = String(dt.getDate()).padStart(2, "0");
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const yyyy = dt.getFullYear() + 543;
+  return `${dd}/${mm}/${yyyy}`;
+}
+function prettyTs(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return String(ts);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear() + 543;
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
+}
+function getStoredToken() {
+  try {
+    return localStorage.getItem(LS_TOKEN) || "";
+  } catch {
+    return "";
   }
-  return null;
+}
+function clearStoredToken() {
+  try {
+    localStorage.removeItem(LS_TOKEN);
+  } catch {}
+}
+function safeJsonParse(s, fallback = null) {
+  try {
+    return s ? JSON.parse(s) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(LS_DASH_CACHE_V1);
+    return safeJsonParse(raw, null);
+  } catch {
+    return null;
+  }
+}
+function saveCache(payload) {
+  try {
+    localStorage.setItem(LS_DASH_CACHE_V1, JSON.stringify(payload));
+  } catch {}
 }
 
-async function apiFetch(path, { method = "GET", body, token, signal } = {}) {
+// ============================
+// ✅ API fetch
+// ============================
+async function apiFetch(path, { method = "GET", token = "", body } = {}) {
+  const url = path.startsWith("http") ? path : `${API_BASE_URL}${path}`;
   const headers = { "Content-Type": "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(url, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
-    signal,
   });
 
   const text = await res.text();
-  let json = null;
+  let data = null;
   try {
-    json = text ? JSON.parse(text) : null;
+    data = text ? JSON.parse(text) : null;
   } catch {
-    json = { raw: text };
+    data = { raw: text };
   }
 
   if (!res.ok) {
-    const msg = json?.message || res.statusText || "Request failed";
-    const err = new Error(`${method} ${path} -> ${res.status}: ${msg}`);
+    const msg = data?.message || `Request failed (${res.status})`;
+    const err = new Error(msg);
+    // @ts-ignore
     err.status = res.status;
-    err.payload = json;
+    // @ts-ignore
+    err.payload = data;
     throw err;
   }
-  return json;
+  return data;
 }
 
-function numOrNull(v) {
-  if (v === undefined || v === null || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+// ============================
+// ✅ Weather (Open-Meteo) 7 days
+// ============================
+function toThaiWeekday(dateStr) {
+  const d = new Date(dateStr);
+  const days = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัส", "ศุกร์", "เสาร์"];
+  return days[d.getDay()];
+}
+function centroidOfPolygon(coords) {
+  if (!Array.isArray(coords) || coords.length < 3) return null;
+  let sumLat = 0;
+  let sumLng = 0;
+  let n = 0;
+  for (const pair of coords) {
+    const lat = Number(pair?.[0]);
+    const lng = Number(pair?.[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    sumLat += lat;
+    sumLng += lng;
+    n += 1;
+  }
+  return n ? [sumLat / n, sumLng / n] : null;
+}
+function weatherEmoji(pop) {
+  const p = safeNum(pop, 0);
+  if (p >= 70) return "🌧️";
+  if (p >= 40) return "🌦️";
+  return "🌤️";
+}
+async function fetchForecast7Days(lat, lng) {
+  const url =
+    `https://api.open-meteo.com/v1/forecast` +
+    `?latitude=${encodeURIComponent(lat)}` +
+    `&longitude=${encodeURIComponent(lng)}` +
+    `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum` +
+    `&forecast_days=7` +
+    `&timezone=Asia%2FBangkok`;
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`weather failed (${res.status})`);
+  const j = await res.json();
+
+  const t = j?.daily?.time || [];
+  const tmax = j?.daily?.temperature_2m_max || [];
+  const tmin = j?.daily?.temperature_2m_min || [];
+  const pop = j?.daily?.precipitation_probability_max || [];
+  const psum = j?.daily?.precipitation_sum || [];
+
+  return t.map((dateStr, i) => ({
+    date: dateStr,
+    day: toThaiWeekday(dateStr),
+    tempMax: Math.round(Number(tmax[i] ?? 0)),
+    tempMin: Math.round(Number(tmin[i] ?? 0)),
+    rainChance: Number(pop[i] ?? 0),
+    rainSum: Number(psum[i] ?? 0),
+  }));
 }
 
-function pickNumberFromText(s) {
-  if (!s) return null;
-  const m = String(s).match(/-?\d+(\.\d+)?/);
-  return m ? Number(m[0]) : null;
+// ============================
+// ✅ Build groups from backend sensors
+// ============================
+function buildGroupsFromSensors(sensors = [], sensorTypeMap = new Map()) {
+  const groups = new Map();
+  for (const s of sensors) {
+    const st = sensorTypeMap.get(s.sensorType) || { label: s.sensorType, unit: s.unit || "" };
+    const groupLabel = `เซนเซอร์ ${st.label || s.sensorType}`.trim();
+
+    const lastV =
+      s?.lastReading?.value !== null && s?.lastReading?.value !== undefined
+        ? `${s.lastReading.value}${st.unit ? " " + st.unit : s.unit ? " " + s.unit : ""}`
+        : "-";
+
+    const isAlert = String(s.status || "").toUpperCase() !== "OK";
+    const item = { name: s.name || st.label || s.sensorType, value: `ค่า - ${lastV}`, isAlert };
+
+    if (!groups.has(groupLabel)) groups.set(groupLabel, []);
+    groups.get(groupLabel).push(item);
+  }
+
+  const out = [];
+  for (const [group, items] of groups.entries()) out.push({ group, items });
+
+  if (!out.length)
+    return [{ group: "เซนเซอร์", items: [{ name: "—", value: "ยังไม่มีข้อมูลเซนเซอร์", isAlert: false }] }];
+  return out;
 }
 
+// ============================
+// ✅ Normalize polygon coords (กันรูปแบบหลากหลาย + ให้ [lat,lng])
+// ============================
 function normalizeLatLngPoint(p) {
   if (!p) return null;
 
@@ -178,21 +429,15 @@ function normalizeLatLngPoint(p) {
 
     const aLooksLngTH = a >= 90 && a <= 120;
     const bLooksLatTH = b >= -10 && b <= 30;
-    const aLooksLat = a >= -90 && a <= 90;
-    const bLooksLng = b >= -180 && b <= 180;
-
     if (aLooksLngTH && bLooksLatTH) return [b, a];
-    if (!aLooksLat && bLooksLng) return [b, a];
-
     return [a, b];
   }
 
   return null;
 }
-
 function normalizePolygonCoords(coords) {
   if (!Array.isArray(coords)) return [];
-  // If GeoJSON rings [[[...]]], take first ring
+
   const ring = Array.isArray(coords[0]) && Array.isArray(coords[0][0]) ? coords[0] : coords;
 
   const out = [];
@@ -202,1115 +447,775 @@ function normalizePolygonCoords(coords) {
   }
   return out.length >= 3 ? out : [];
 }
+function computeCenterFromAll(polys, pins) {
+  const pts = [];
 
-function isLikelyObjectId(v) {
-  return typeof v === "string" && /^[a-f\d]{24}$/i.test(v);
+  for (const p of pins || []) {
+    const la = Number(p?.lat);
+    const lo = Number(p?.lng);
+    if (Number.isFinite(la) && Number.isFinite(lo)) pts.push([la, lo]);
+  }
+  for (const poly of polys || []) {
+    const coords = poly?.coords;
+    if (!Array.isArray(coords)) continue;
+    for (const pt of coords) {
+      const la = Number(pt?.[0]);
+      const lo = Number(pt?.[1]);
+      if (Number.isFinite(la) && Number.isFinite(lo)) pts.push([la, lo]);
+    }
+  }
+
+  if (!pts.length) return [13.7563, 100.5018];
+  const lat = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+  const lng = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+  return [lat, lng];
 }
 
-function mapGroupToSensorType(groupId) {
-  // requirement:
-  // - อากาศ: temp_rh, wind, ppfd, rain
-  // - ดิน: npk, irrigation, soil_moisture
-  const m = {
-    soil: "soil_moisture",
-    temp: "temp_rh",
-    irrigation: "irrigation",
-    npk: "npk",
-    wind: "wind",
-    ppfd: "ppfd",
-    rain: "rain",
-  };
-  return m[groupId] || "soil_moisture";
-}
+export default function DashboardPage() {
+  const router = useRouter();
 
-export default function AddSensor() {
-  const mapRef = useRef(null);
-  const [pinIcon, setPinIcon] = useState(null);
+  const [isClient, setIsClient] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
+  const [vw, setVw] = useState(1280);
   useEffect(() => {
-    return () => {
-      try {
-        if (mapRef.current) {
-          mapRef.current.remove();
-          mapRef.current = null;
-        }
-      } catch {}
-    };
-  }, []);
-
-  const [mapReady, setMapReady] = useState(false);
-
-  // ===== responsive =====
-  const [width, setWidth] = useState(1200);
-  useEffect(() => {
-    const onResize = () => setWidth(window.innerWidth);
+    setIsClient(true);
+    const onResize = () => setVw(window.innerWidth || 1280);
     onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  const isMobile = width <= 640;
-  const isTablet = width > 640 && width <= 1024;
 
-  // ===== Leaflet icon =====
-  useEffect(() => {
-    let alive = true;
-    import("leaflet").then((L) => {
-      if (!alive) return;
-      setPinIcon(
-        new L.Icon({
-          iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-          iconSize: [25, 41],
-          iconAnchor: [12, 41],
-          popupAnchor: [1, -34],
-          shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-          shadowSize: [41, 41],
-        })
-      );
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  const isMobile = vw < 640;
+  const isTablet = vw >= 640 && vw < 1024;
 
-  // ===== ปุ่ม "ลบ / แก้ไข" =====
-  const [editOpen, setEditOpen] = useState(false);
-  const onEditClick = () => setEditOpen((v) => !v);
+  const cardPad = isMobile ? 14 : isTablet ? 16 : 20;
+  const cardRadius = isMobile ? 18 : 24;
 
-  // =========================
-  // ✅ FILTER STATE
-  // =========================
-  const [selectedPlot, setSelectedPlot] = useState("all");
-  const [selectedNode, setSelectedNode] = useState("all"); // all | soil | air
-  const [selectedSensorType, setSelectedSensorType] = useState("all");
-
-  // รีเซ็ต mapReady เมื่อเปลี่ยน plot/node
-  useEffect(() => {
-    setMapReady(false);
-  }, [selectedPlot, selectedNode]);
-
-  const mapKey = useMemo(() => `${selectedPlot}__${selectedNode}`, [selectedPlot, selectedNode]);
-
-  const readOnlyAllPlots = false;
-
-  // ====== server data ======
-  const [plots, setPlots] = useState([]);
-  const [nodes, setNodes] = useState([]);
-  const [sensorTypes, setSensorTypes] = useState([]);
-  const [plotMeta, setPlotMeta] = useState(null);
-  const [plotPolygons, setPlotPolygons] = useState([]);
-
-  // ✅ PINS
-  const [pins, setPins] = useState([]);
-  const [activePinId, setActivePinId] = useState(null);
-  const activePin = useMemo(() => pins.find((p) => String(p.id) === String(activePinId)) || null, [pins, activePinId]);
-
-  // =========================
-  // ✅ SENSOR CRUD (DB + inline)
-  // =========================
-  const [sensorGroups, setSensorGroups] = useState([
-    { id: "soil", title: "ความชื้นในดิน", items: [] }, // soil_moisture
-    { id: "npk", title: "ความเข้มข้นธาตุอาหาร (N,P,K)", items: [] }, // npk
-    { id: "irrigation", title: "การให้น้ำ / ความพร้อมใช้น้ำ", items: [] }, // irrigation
-    { id: "temp", title: "อุณหภูมิและความชื้น", items: [] }, // temp_rh
-    { id: "wind", title: "วัดความเร็วลม", items: [] }, // wind
-    { id: "ppfd", title: "ความเข้มแสง", items: [] }, // ppfd
-    { id: "rain", title: "ปริมาณน้ำฝน", items: [] }, // rain
-  ]);
-
-  const activePinSensors = useMemo(() => {
-    if (!activePinId) return [];
-    const out = [];
-    for (const g of sensorGroups || []) {
-      for (const it of g.items || []) {
-        if (String(it.pinId) === String(activePinId)) out.push({ ...it, _groupId: g.id, _groupTitle: g.title });
-      }
-    }
-    return out;
-  }, [sensorGroups, activePinId]);
-
-  const uid = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const [addName, setAddName] = useState("");
-  const [addValue, setAddValue] = useState("");
-  const [selectedGroupId, setSelectedGroupId] = useState("soil");
-
-  const [editingItem, setEditingItem] = useState(null);
-  const [editName, setEditName] = useState("");
-  const [editValue, setEditValue] = useState("");
-
-  // =========================
-  // ✅ Derived dropdown labels
-  // =========================
-  const plotLabel = useMemo(() => {
-    if (selectedPlot === "all") return "ทุกแปลง";
-    const p = plots.find((x) => String(x.id || x._id) === String(selectedPlot));
-    return p ? p.plotName || p.alias || p.name || `แปลง ${p.id || p._id}` : `แปลง ${selectedPlot}`;
-  }, [selectedPlot, plots]);
-
-  const nodeOptions = useMemo(
-    () => [
-      { value: "all", label: "ทุก Node" },
-      { value: "soil", label: "Node ดิน" },
-      { value: "air", label: "Node อากาศ" },
-    ],
-    []
-  );
-
-  const selectedNodeCategory = useMemo(() => {
-    if (selectedNode === "soil" || selectedNode === "air") return selectedNode;
-    return "all";
-  }, [selectedNode]);
-
-  const filteredPins = useMemo(() => {
-    const list = Array.isArray(pins) ? pins : [];
-    const byPlot = selectedPlot === "all" ? list : list.filter((p) => String(p.plotId) === String(selectedPlot));
-    if (selectedNodeCategory === "all") return byPlot;
-
-    const byId = new Map((nodes || []).map((n) => [String(n.id || n._id), n]));
-    return byPlot.filter((p) => {
-      const n = byId.get(String(p.nodeId));
-      const cat = String(n?.category || "soil");
-      return cat === String(selectedNodeCategory);
-    });
-  }, [pins, nodes, selectedNodeCategory, selectedPlot]);
-
-  // ✅ sensor options ตาม nodeCategory (อากาศ 4 / ดิน 3)
-  const sensorOptions = useMemo(() => {
-    const base = [{ value: "all", label: "ทุกชนิดเซนเซอร์" }];
-
-    const AIR_KEYS = new Set(["temp_rh", "wind", "ppfd", "rain"]);
-    const SOIL_KEYS = new Set(["npk", "irrigation", "soil_moisture"]);
-
-    const raw = (sensorTypes || []).map((t) => ({ value: t.key, label: t.label }));
-
-    const filtered =
-      selectedNodeCategory === "air"
-        ? raw.filter((x) => AIR_KEYS.has(String(x.value)))
-        : selectedNodeCategory === "soil"
-        ? raw.filter((x) => SOIL_KEYS.has(String(x.value)))
-        : raw;
-
-    return [...base, ...filtered];
-  }, [sensorTypes, selectedNodeCategory]);
-
-  // ✅ group choices ตาม node
-  const groupChoices = useMemo(() => {
-    const soilIds = new Set(["soil", "npk", "irrigation"]);
-    const airIds = new Set(["temp", "wind", "ppfd", "rain"]);
-
-    const filtered =
-      selectedNode === "soil"
-        ? (sensorGroups || []).filter((g) => soilIds.has(g.id))
-        : selectedNode === "air"
-        ? (sensorGroups || []).filter((g) => airIds.has(g.id))
-        : sensorGroups || [];
-
-    return filtered.map((g) => ({ id: g.id, title: g.title }));
-  }, [sensorGroups, selectedNode]);
-
-  useEffect(() => {
-    if (!groupChoices.length) return;
-    if (!groupChoices.some((g) => g.id === selectedGroupId)) setSelectedGroupId(groupChoices[0].id);
-  }, [groupChoices, selectedGroupId]);
-
-  const displaySensorGroups = useMemo(() => {
-    const AIR = new Set(["temp_rh", "wind", "ppfd", "rain"]);
-    const SOIL = new Set(["npk", "irrigation", "soil_moisture"]);
-
-    const allowByNode = (sensorKey) => {
-      if (selectedNodeCategory === "air") return AIR.has(sensorKey);
-      if (selectedNodeCategory === "soil") return SOIL.has(sensorKey);
-      return true;
-    };
-
-    const allowByType = (sensorKey) => {
-      if (selectedSensorType === "all") return true;
-      return String(selectedSensorType) === String(sensorKey);
-    };
-
-    return (sensorGroups || [])
-      .map((g) => {
-        const key = mapGroupToSensorType(g.id);
-        if (!allowByNode(key) || !allowByType(key)) return null;
-        return g;
-      })
-      .filter(Boolean);
-  }, [sensorGroups, selectedNodeCategory, selectedSensorType]);
-
-  useEffect(() => {
-    if (!sensorOptions.length) return;
-    if (!sensorOptions.some((s) => s.value === selectedSensorType)) setSelectedSensorType("all");
-  }, [sensorOptions, selectedSensorType]);
-
-  useEffect(() => {
-    if (!displaySensorGroups.length) return;
-    if (!displaySensorGroups.some((g) => g.id === selectedGroupId)) setSelectedGroupId(displaySensorGroups[0].id);
-  }, [displaySensorGroups, selectedGroupId]);
-
-  // =========================
-  // ✅ Load dropdown sources
-  // =========================
-  useEffect(() => {
-    const controller = new AbortController();
-    const run = async () => {
-      try {
-        const token = getToken();
-        const [p, st] = await Promise.all([
-          apiFetch("/api/plots", { token, signal: controller.signal }),
-          apiFetch("/api/sensor-types", { token, signal: controller.signal }),
-        ]);
-        setPlots(Array.isArray(p?.items) ? p.items : []);
-        setSensorTypes(Array.isArray(st?.items) ? st.items : []);
-      } catch (e) {
-        console.warn("[AddSensor] load plots/sensor-types failed:", e?.message || e);
-      }
-    };
-    run();
-    return () => controller.abort();
-  }, []);
-
-  // =========================
-  // ✅ Load plot meta + polygons + pins (per plot / all plots)
-  // =========================
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const run = async () => {
-      try {
-        setPlotMeta(null);
-        setPlotPolygons([]);
-
-        const token = getToken();
-
-        // helper
-        const loadNodesForPlot = async (plotId) => {
-          const r = await apiFetch(`/api/nodes?plotId=${encodeURIComponent(String(plotId))}&category=all`, {
-            token,
-            signal: controller.signal,
-          });
-          return Array.isArray(r?.items) ? r.items : [];
-        };
-
-        const loadPinsForPlot = async (plotId) => {
-          const qs = new URLSearchParams();
-          qs.set("plotId", String(plotId));
-          qs.set("nodeCategory", selectedNodeCategory);
-          qs.set("sensorType", "all");
-          const pr = await apiFetch(`/api/pins?${qs.toString()}`, { token, signal: controller.signal });
-          return Array.isArray(pr?.items) ? pr.items : [];
-        };
-
-        if (selectedPlot === "all") {
-          const pr = await apiFetch("/api/plots", { token, signal: controller.signal });
-          const plotItems = Array.isArray(pr?.items) ? pr.items : [];
-
-          const allPolys = [];
-          const allPins = [];
-          const allNodes = [];
-
-          for (const p of plotItems) {
-            const pid = String(p.id || p._id);
-            if (!pid) continue;
-
-            try {
-              const rr = await apiFetch(`/api/plots/${encodeURIComponent(pid)}/polygons`, { token, signal: controller.signal });
-              const polys = (Array.isArray(rr?.items) ? rr.items : [])
-                .map((x) => normalizePolygonCoords(x.coords))
-                .filter((c) => Array.isArray(c) && c.length >= 3);
-              allPolys.push(...polys);
-            } catch {}
-
-            try {
-              const nitems = await loadNodesForPlot(pid);
-              allNodes.push(...nitems);
-            } catch {}
-
-            try {
-              const pins2 = await loadPinsForPlot(pid);
-              allPins.push(...pins2);
-            } catch {}
-          }
-
-          // dedupe nodes/pins
-          const nodeUniq = new Map();
-          for (const n of allNodes) {
-            const id = String(n.id || n._id || "");
-            if (!id) continue;
-            if (!nodeUniq.has(id)) nodeUniq.set(id, n);
-          }
-          setNodes(Array.from(nodeUniq.values()));
-
-          const pinUniq = new Map();
-          for (const p of allPins) {
-            const id = String(p.id || p._id || "");
-            if (!id) continue;
-            if (!pinUniq.has(id)) pinUniq.set(id, { ...p, id });
-          }
-          const dedupedPins = Array.from(pinUniq.values());
-          setPins(dedupedPins);
-          setActivePinId(dedupedPins[0]?.id ? String(dedupedPins[0].id) : null);
-
-          setPlotPolygons(allPolys);
-          return;
-        }
-
-        // selected plot only
-        const r = await apiFetch(`/api/plots/${encodeURIComponent(String(selectedPlot))}`, { token, signal: controller.signal });
-        const item = r?.item || null;
-        setPlotMeta(item);
-
-        // polygons (multi)
-        let polys = [];
-        try {
-          const rr = await apiFetch(`/api/plots/${encodeURIComponent(String(selectedPlot))}/polygons`, { token, signal: controller.signal });
-          polys = (Array.isArray(rr?.items) ? rr.items : [])
-            .map((x) => normalizePolygonCoords(x.coords))
-            .filter((c) => Array.isArray(c) && c.length >= 3);
-        } catch {}
-
-        // fallback polygon from /plots/:plotId (single polygon field)
-        const one = normalizePolygonCoords(item?.polygon?.coords);
-        if ((!polys || polys.length === 0) && Array.isArray(one) && one.length >= 3) polys = [one];
-        setPlotPolygons(polys);
-
-        // nodes + pins for this plot
-        try {
-          const nitems = await loadNodesForPlot(selectedPlot);
-          setNodes(nitems);
-        } catch {
-          setNodes([]);
-        }
-
-        try {
-          const pitems = await loadPinsForPlot(selectedPlot);
-          setPins(pitems);
-          setActivePinId(pitems?.[0]?.id ? String(pitems?.[0]?.id) : pitems?.[0]?._id ? String(pitems?.[0]?._id) : null);
-        } catch {
-          setPins([]);
-          setActivePinId(null);
-        }
-      } catch (e) {
-        console.warn("[AddSensor] load plot detail failed:", e?.message || e);
-      }
-    };
-
-    run();
-    return () => controller.abort();
-  }, [selectedPlot, selectedNodeCategory]);
-
-  // =========================
-  // ✅ Load sensors (list) -> เติมลง sensorGroups.items ตาม sensorType
-  // =========================
-  useEffect(() => {
-    const controller = new AbortController();
-    const run = async () => {
-      try {
-        const token = getToken();
-
-        if (selectedPlot === "all") {
-          setSensorGroups((prev) => prev.map((g) => ({ ...g, items: [] })));
-          return;
-        }
-
-        const q = new URLSearchParams();
-        q.set("plotId", String(selectedPlot));
-        q.set("nodeCategory", String(selectedNodeCategory || "all"));
-        q.set("sensorType", String(selectedSensorType || "all"));
-
-        const r = await apiFetch(`/api/sensors?${q.toString()}`, { token, signal: controller.signal });
-        const items = Array.isArray(r?.items) ? r.items : [];
-
-        setSensorGroups((prev) =>
-          prev.map((g) => {
-            const st = mapGroupToSensorType(g.id);
-            const groupItems = items
-              .filter((s) => String(s.sensorType) === String(st))
-              .map((s) => ({
-                id: String(s.id || s._id),
-                pinId: s.pinId ? String(s.pinId) : null,
-                sensorType: String(s.sensorType || ""),
-                name: s.name || "",
-                value: s.valueHint || "",
-                lastReading: s.lastReading || null,
-                nodeId: s.nodeId ? String(s.nodeId) : null,
-              }));
-            return { ...g, items: groupItems };
-          })
-        );
-      } catch (e) {
-        console.warn("[AddSensor] load sensors failed:", e?.message || e);
-      }
-    };
-    run();
-    return () => controller.abort();
-  }, [selectedPlot, selectedNodeCategory, selectedSensorType]);
-
-  // =========================
-  // ✅ Ensure nodeId for plot + category (soil/air)
-  // =========================
-  const ensureNodeId = async (plotId, category) => {
-    const cat = category === "air" ? "air" : "soil";
-
-    let items = [];
-    try {
-      const token = getToken();
-      const r = await apiFetch(`/api/nodes?plotId=${encodeURIComponent(String(plotId))}&category=all`, { token });
-      items = Array.isArray(r?.items) ? r.items : [];
-    } catch {
-      items = Array.isArray(nodes) ? nodes : [];
-    }
-
-    const found = items.find((n) => String((n.category || "")).toLowerCase() === cat);
-    if (found) return String(found.id || found._id);
-
-    const token = getToken();
-    const created = await apiFetch("/api/nodes", {
-      method: "POST",
-      token,
-      body: { plotId: String(plotId), category: cat, name: cat === "air" ? "Node อากาศ 1" : "Node ดิน 1" },
-    });
-
-    const node = created?.item || created;
-    const newId = String(node?.id || node?._id);
-    if (newId) return newId;
-    throw new Error("สร้าง Node ไม่สำเร็จ");
-  };
-
-  // =========================
-  // ✅ PIN actions
-  // =========================
-  const addPin = async () => {
-    let targetPlotId = selectedPlot;
-
-    if (selectedPlot === "all") {
-      const first = plots?.[0];
-      const pid = first?.id || first?._id;
-      if (!pid) return alert("ยังไม่มีแปลงในระบบ");
-      targetPlotId = String(pid);
-      setSelectedPlot(String(pid));
-    }
-
-    const category = selectedNode === "air" ? "air" : "soil";
-
-    let nodeId = "";
-    try {
-      nodeId = await ensureNodeId(targetPlotId, category);
-    } catch (e) {
-      alert(e?.message || "สร้าง/ค้นหา Node ไม่สำเร็จ");
-      return;
-    }
-
-    let nextNumber = 1;
-    try {
-      const token = getToken();
-      const rr = await apiFetch(`/api/pins?plotId=${encodeURIComponent(String(targetPlotId))}&sensorType=all`, { token });
-      const items = Array.isArray(rr?.items) ? rr.items : [];
-      const maxNum = items.reduce((mx, p) => {
-        const n = Number(p?.number);
-        return Number.isFinite(n) ? Math.max(mx, n) : mx;
-      }, 0);
-      nextNumber = maxNum + 1;
-    } catch {}
-
-    const tempId = `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setPins((prev) => [...(Array.isArray(prev) ? prev : []), { id: tempId, _tmp: true, number: nextNumber, lat: null, lng: null, nodeId, plotId: targetPlotId }]);
-    setActivePinId(tempId);
-  };
-
-  const removePinById = async (pinId) => {
-    if (!pinId) return;
-
-    setPins((prev) => (Array.isArray(prev) ? prev : []).filter((p) => String(p.id) !== String(pinId)));
-    if (String(pinId) === String(activePinId)) setActivePinId(null);
-
-    try {
-      const token = getToken();
-      if (!isLikelyObjectId(String(pinId))) return;
-      await apiFetch(`/api/pins/${encodeURIComponent(String(pinId))}`, { method: "DELETE", token });
-    } catch (e) {
-      console.warn("[AddSensor] delete pin failed:", e?.message || e);
-    }
-  };
-
-  const onPickLatLng = async (latlng) => {
-    if (!editOpen) {
-      const ap = pins.find((p) => String(p.id) === String(activePinId));
-      if (!ap || !ap._tmp) return;
-    }
-    if (!latlng || !activePinId) return;
-
-    const { lat, lng } = latlng;
-    const pin = pins.find((p) => String(p.id) === String(activePinId));
-    if (!pin) return;
-
-    // UI update
-    setPins((prev) => prev.map((p) => (String(p.id) === String(activePinId) ? { ...p, lat, lng } : p)));
-
-    // create
-    if (pin._tmp || !isLikelyObjectId(String(pin.id))) {
-      const targetPlotId = String(pin.plotId || selectedPlot);
-      if (!targetPlotId || targetPlotId === "all") return alert("กรุณาเลือกแปลงก่อนปักหมุด");
-
-      const token = getToken();
-      const category = selectedNode === "air" ? "air" : "soil";
-      const nodeToUse = await ensureNodeId(targetPlotId, category);
-
-      try {
-        const r = await apiFetch("/api/pins", {
-          method: "POST",
-          token,
-          body: { plotId: targetPlotId, lat, lng, nodeId: nodeToUse },
-        });
-
-        const created = r?.item || r;
-        const createdId = created?.id || created?._id;
-        if (!createdId) throw new Error("ไม่ได้รับ id จาก API");
-
-        setPins((prev) =>
-          prev.map((p) =>
-            String(p.id) === String(activePinId)
-              ? { ...p, _tmp: false, id: String(createdId), number: created.number ?? pin.number, lat: created.lat ?? lat, lng: created.lng ?? lng, nodeId: nodeToUse, plotId: targetPlotId }
-              : p
-          )
-        );
-        setActivePinId(String(createdId));
-      } catch (e) {
-        console.warn("[AddSensor] create pin failed:", e?.message || e);
-        alert(`ปักหมุดไม่สำเร็จ: ${e?.message || e}`);
-      }
-      return;
-    }
-
-    // patch
-    try {
-      const token = getToken();
-      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, { method: "PATCH", token, body: { lat, lng } });
-    } catch (e) {
-      console.warn("[AddSensor] patch pin failed:", e?.message || e);
-    }
-  };
-
-  const setActiveLat = async (lat) => {
-    if (!activePinId) return;
-    setPins((prev) => prev.map((p) => (String(p.id) === String(activePinId) ? { ...p, lat } : p)));
-    try {
-      const token = getToken();
-      const la = numOrNull(lat);
-      if (la === null) return;
-      if (!isLikelyObjectId(String(activePinId))) return;
-      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, { method: "PATCH", token, body: { lat: la } });
-    } catch (e) {
-      console.warn("[AddSensor] patch pin lat failed:", e?.message || e);
-    }
-  };
-
-  const setActiveLng = async (lng) => {
-    if (!activePinId) return;
-    setPins((prev) => prev.map((p) => (String(p.id) === String(activePinId) ? { ...p, lng } : p)));
-    try {
-      const token = getToken();
-      const lo = numOrNull(lng);
-      if (lo === null) return;
-      if (!isLikelyObjectId(String(activePinId))) return;
-      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, { method: "PATCH", token, body: { lng: lo } });
-    } catch (e) {
-      console.warn("[AddSensor] patch pin lng failed:", e?.message || e);
-    }
-  };
-
-  // =========================
-  // ✅ SENSOR actions
-  // =========================
-  const onAddSensor = async () => {
-    const name = (addName || "").trim();
-    const value = (addValue || "").trim();
-    if (!name || !value) return;
-
-    if (!activePinId) return alert("กรุณาเลือก Pin ก่อนเพิ่ม Sensor");
-
-    const tempId = uid();
-    const sensorType = mapGroupToSensorType(selectedGroupId);
-
-    setSensorGroups((prev) =>
-      prev.map((g) =>
-        g.id !== selectedGroupId ? g : { ...g, items: [...g.items, { id: tempId, pinId: String(activePinId), nodeId: String(activePin?.nodeId || ""), sensorType, name, value }] }
-      )
-    );
-    setAddName("");
-    setAddValue("");
-
-    try {
-      const token = getToken();
-      const r = await apiFetch("/api/sensors", {
-        method: "POST",
-        token,
-        body: {
-          nodeId: String(activePin?.nodeId || ""),
-          pinId: activePinId,
-          sensorType,
-          name,
-          valueHint: value,
-          status: "OK",
-          lastReading: {
-            value: Number.isFinite(pickNumberFromText(value)) ? pickNumberFromText(value) : null,
-            ts: Number.isFinite(pickNumberFromText(value)) ? new Date().toISOString() : null,
-          },
-        },
-      });
-
-      const created = r?.item || r;
-      const createdId = created?.id || created?._id;
-      if (createdId) {
-        setSensorGroups((prev) => prev.map((g) => (g.id !== selectedGroupId ? g : { ...g, items: g.items.map((it) => (it.id === tempId ? { ...it, id: String(createdId) } : it)) })));
-      }
-    } catch (e) {
-      console.warn("[AddSensor] create sensor failed:", e?.message || e);
-    }
-  };
-
-  const onStartInlineEdit = (groupId, itemId) => {
-    const g = sensorGroups.find((x) => x.id === groupId);
-    const it = g?.items.find((x) => String(x.id) === String(itemId));
-    if (!it) return;
-    setEditingItem({ groupId, itemId });
-    setEditName(it.name);
-    setEditValue(it.value);
-  };
-
-  const onCancelInlineEdit = () => {
-    setEditingItem(null);
-    setEditName("");
-    setEditValue("");
-  };
-
-  const onSaveInlineEdit = async () => {
-    if (!editingItem) return;
-    const name = (editName || "").trim();
-    const value = (editValue || "").trim();
-    if (!name || !value) return;
-
-    const { groupId, itemId } = editingItem;
-
-    setSensorGroups((prev) => prev.map((g) => (g.id !== groupId ? g : { ...g, items: g.items.map((it) => (it.id === itemId ? { ...it, name, value } : it)) })));
-
-    try {
-      const token = getToken();
-      if (!isLikelyObjectId(String(itemId))) return;
-      await apiFetch(`/api/sensors/${encodeURIComponent(String(itemId))}`, { method: "PATCH", token, body: { name, valueHint: value } });
-    } catch (e) {
-      console.warn("[AddSensor] patch sensor failed:", e?.message || e);
-    }
-
-    onCancelInlineEdit();
-  };
-
-  const onDeleteItem = async (groupId, itemId) => {
-    setSensorGroups((prev) => prev.map((g) => (g.id !== groupId ? g : { ...g, items: g.items.filter((it) => String(it.id) !== String(itemId)) })));
-    if (editingItem && editingItem.groupId === groupId && String(editingItem.itemId) === String(itemId)) onCancelInlineEdit();
-
-    try {
-      const token = getToken();
-      if (!isLikelyObjectId(String(itemId))) return;
-      await apiFetch(`/api/sensors/${encodeURIComponent(String(itemId))}`, { method: "DELETE", token });
-    } catch (e) {
-      console.warn("[AddSensor] delete sensor failed:", e?.message || e);
-    }
-  };
-
-  // =========================
-  // ✅ styles
-  // =========================
-  const styles = useMemo(
+  const cardBaseR = useMemo(
     () => ({
-      page: {
-        fontFamily: '"Prompt", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-        background: "#e5edf8",
-        minHeight: "100vh",
-        color: "#111827",
-        padding: "22px 0 30px",
-      },
-      body: { maxWidth: 1120, margin: "0 auto", padding: "0 16px" },
-
-      topPanel: {
-        borderRadius: 24,
-        padding: "16px 20px 18px",
-        background: "linear-gradient(135deg,#40B596,#676FC7)",
-        color: "#fff",
-        marginBottom: 18,
-        boxShadow: "0 16px 36px rgba(15,23,42,0.18)",
-      },
-      topHeaderRow: {
-        display: "flex",
-        flexDirection: isMobile ? "column" : "row",
-        justifyContent: "space-between",
-        alignItems: isMobile ? "flex-start" : "center",
-        gap: isMobile ? 8 : 0,
-        marginBottom: 10,
-      },
-      topTitle: { fontSize: 16, fontWeight: 700 },
-
-      filterGrid: {
-        display: "grid",
-        gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,minmax(0,1fr))" : "repeat(3,minmax(0,1fr))",
-        gap: 10,
-        marginTop: 4,
-      },
-      filterCard: {
-        borderRadius: 16,
-        background: "linear-gradient(135deg,rgba(255,255,255,0.95),rgba(224,242,254,0.95))",
-        padding: "8px 10px 6px",
-        fontSize: 12,
-        color: "#0f172a",
-      },
-      filterLabel: { fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4 },
-      filterSelect: { width: "100%", borderRadius: 12, border: "none", padding: "5px 8px", fontSize: 12, background: "#e0f2fe" },
-
-      plotPanel: { borderRadius: 26, background: "#dffff3", padding: "18px 20px 20px", marginBottom: 18, boxShadow: "0 14px 32px rgba(15,23,42,0.12)" },
-      plotHeaderRow: { display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", gap: isMobile ? 6 : 0, marginBottom: 6 },
-      plotTitle: { fontSize: 14, fontWeight: 600 },
-      plotSub: { fontSize: 11, color: "#6b7280", marginBottom: 10 },
-
-      editBtn: { borderRadius: 999, border: "none", padding: "7px 14px", fontSize: 12, fontWeight: 700, background: editOpen ? "#fb7185" : "#facc15", color: "#111827", cursor: "pointer", width: isMobile ? "100%" : "auto", boxShadow: "0 10px 18px rgba(15,23,42,0.12)" },
-
-      infoGrid: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,minmax(0,1fr))" : "repeat(4,minmax(0,1fr))", gap: 10, marginBottom: 14 },
-      infoLabel: { fontSize: 11, color: "#6b7280", marginBottom: 3 },
-      infoBox: { borderRadius: 12, background: "#ffffff", border: "1px solid #c7f0df", padding: "6px 10px", fontSize: 12 },
-
-      mapCard: { borderRadius: 22, overflow: "hidden", background: "#ffffff", boxShadow: "0 10px 24px rgba(15,23,42,0.15)", marginBottom: 10 },
-      mapTitle: { fontSize: 13, fontWeight: 600, padding: "10px 14px 4px" },
-      mapHelp: { fontSize: 11, color: "#64748b", padding: "0 14px 10px" },
-      mapLoading: { height: 230, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#64748b", background: "#f8fafc" },
-
-      pinActionsRow: { marginTop: 8, display: "flex", gap: 8, alignItems: "center" },
-      pinMetaBtn: { borderRadius: 999, width: 34, height: 34, border: "1px solid rgba(15,23,42,0.12)", background: "#ffffff", cursor: "pointer", fontSize: 18, fontWeight: 800, lineHeight: "34px" },
-
-      pinList: { marginTop: 10, display: "grid", gap: 10 },
-      pinCard: (active) => ({ borderRadius: 16, background: active ? "#fde68a" : "#fef9c3", padding: 10, border: active ? "2px solid rgba(15,23,42,0.25)" : "1px solid rgba(15,23,42,0.10)", boxShadow: "0 10px 18px rgba(15,23,42,0.06)", cursor: "pointer" }),
-      pinCardGrid: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 },
-      pinMetaBox: { borderRadius: 14, background: "rgba(255,255,255,0.78)", border: "1px solid rgba(15,23,42,0.10)", padding: "10px 10px" },
-      pinMetaLabel: { fontSize: 10, fontWeight: 800, color: "#6b7280", marginBottom: 3 },
-      pinMetaValue: { fontSize: 12, fontWeight: 800, color: "#0f172a" },
-
-      pinPanel: { borderRadius: 26, background: "#ffd9f1", padding: isMobile ? "16px 12px 18px" : "18px 16px 20px", boxShadow: "0 14px 32px rgba(244,114,182,0.25)", marginBottom: 16 },
-      pinHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12 },
-      pinTitle: { fontSize: 14, fontWeight: 900 },
-      pinStack: { display: "grid", rowGap: 12 },
-
-      pinFormGrid: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, alignItems: "start" },
-      pinField: { display: "grid", gap: 6 },
-      pinFieldLabel: { fontSize: 11, fontWeight: 900, color: "#475569" },
-
-      pinHint: { borderRadius: 14, background: "rgba(255,255,255,0.72)", border: "1px solid rgba(15,23,42,0.10)", padding: "10px 12px", fontSize: 12, fontWeight: 900, color: "#ef4444", lineHeight: 1.35, display: "flex", alignItems: "center", gap: 8 },
-      hintDot: { width: 10, height: 10, borderRadius: 3, background: "#22c55e", boxShadow: "0 0 0 3px rgba(34,197,94,0.20)", flex: "0 0 auto" },
-
-      groupPick: { width: "100%", height: 44, borderRadius: 14, border: "1px solid rgba(15,23,42,0.12)", background: "#dbeafe", padding: "0 12px", fontSize: 12, outline: "none", fontWeight: 900, color: "#0f172a" },
-
-      addRow: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr auto", gap: 10, alignItems: "stretch" },
-      inputField: { width: "100%", height: 44, boxSizing: "border-box", outline: "none", fontSize: 12, padding: "0 12px", borderRadius: 14, background: "#fff", border: "1px solid rgba(15,23,42,0.12)", boxShadow: "0 6px 14px rgba(15,23,42,0.05)" },
-
-      actionBtn: { borderRadius: 999, border: "none", height: 44, padding: "0 16px", fontSize: 12, fontWeight: 900, cursor: "pointer", boxShadow: "0 10px 18px rgba(15,23,42,0.10)", display: "inline-flex", alignItems: "center", justifyContent: "center", whiteSpace: "nowrap" },
-      addBtn: { background: "#a7f3d0", color: "#064e3b" },
-      saveEditBtn: { background: "#fde68a", color: "#78350f" },
-      cancelBtn: { background: "#e2e8f0", color: "#0f172a" },
-
-      groupList: { display: "grid", gap: 12 },
-      groupCard: { borderRadius: 16, background: "#ffffff", padding: "12px 12px", border: "1px solid rgba(15,23,42,0.08)", boxShadow: "0 10px 18px rgba(15,23,42,0.08)" },
-      groupTitle: { fontSize: 12, fontWeight: 900, color: "#111827", marginBottom: 10 },
-
-      itemsGrid: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 },
-      itemCard: { borderRadius: 14, background: "#ffffff", border: "1px solid rgba(15,23,42,0.08)", padding: "10px 10px" },
-      itemTitle: { fontSize: 11, fontWeight: 900, color: "#111827", marginBottom: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-      itemSub: { fontSize: 11, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-      itemActions: { marginTop: 10, display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" },
-      smallBtn: { borderRadius: 999, border: "1px solid rgba(15,23,42,0.10)", background: "#f8fafc", padding: "6px 10px", fontSize: 11, fontWeight: 900, cursor: "pointer" },
-      delBtn: { background: "#fee2e2" },
-
-      inlineEditBox: { marginTop: 10, borderRadius: 14, background: "#f1f5f9", padding: 10, border: "1px solid rgba(15,23,42,0.10)" },
-      inlineRow: { display: "grid", gridTemplateColumns: "1fr", gap: 8 },
-
-      saveBtn: { marginTop: 14, display: "block", marginLeft: "auto", marginRight: "auto", borderRadius: 999, border: "none", padding: "10px 44px", fontSize: 13, fontWeight: 800, background: "linear-gradient(135deg,#6366f1,#a855f7)", color: "#fff", cursor: "pointer", width: isMobile ? "100%" : "auto" },
+      ...cardBase,
+      borderRadius: cardRadius,
+      paddingTop: cardPad,
+      paddingRight: cardPad,
+      paddingBottom: cardPad,
+      paddingLeft: cardPad,
     }),
-    [editOpen, isMobile, isTablet]
+    [cardPad, cardRadius]
   );
 
-  const caretakerText = plotMeta?.caretaker || plotMeta?.ownerName || "-";
-  const plantTypeText = plotMeta?.plantType || plotMeta?.cropType || "-";
-  const plantedAtText = plotMeta?.plantedAt || "-";
+  const mapHeight = isMobile ? 220 : isTablet ? 260 : 260;
 
-  // ✅ แสดง polygon จริงเท่านั้น (ถ้าไม่มี ให้เป็น [])
-  const polygonsToRender = plotPolygons;
+  const gridTop = useMemo(() => {
+    if (isMobile)
+      return { display: "grid", gridTemplateColumns: "1fr", gridTemplateAreas: `"forecast" "mid" "right"`, gap: 12 };
+    if (isTablet)
+      return { display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateAreas: `"forecast forecast" "mid right"`, gap: 14 };
+    return { display: "grid", gridTemplateColumns: "2fr 1.1fr 1.1fr", gridTemplateAreas: `"forecast mid right"`, gap: 16 };
+  }, [isMobile, isTablet]);
+
+  const gridMiddle = useMemo(() => {
+    if (isMobile)
+      return { display: "grid", gridTemplateColumns: "1fr", gridTemplateAreas: `"map" "status" "issue"`, gap: 12 };
+    if (isTablet)
+      return { display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateAreas: `"map map" "status issue"`, gap: 14 };
+    return { display: "grid", gridTemplateColumns: "2fr 1.1fr 1.1fr", gridTemplateAreas: `"map status issue"`, gap: 16 };
+  }, [isMobile, isTablet]);
+
+  const gridPins = useMemo(() => {
+    if (isMobile) return { display: "grid", gridTemplateColumns: "1fr", gap: 12 };
+    if (isTablet) return { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 };
+    return { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16, alignItems: "stretch", gridAutoRows: "1fr" };
+  }, [isMobile, isTablet]);
+
+  const gridWeather = useMemo(() => {
+    if (isMobile) {
+      return {
+        display: "grid",
+        gridAutoFlow: "column",
+        gridAutoColumns: "minmax(120px, 1fr)",
+        gap: 10,
+        overflowX: "auto",
+        padding: "4px 10px 8px",
+        scrollSnapType: "x mandatory",
+        WebkitOverflowScrolling: "touch",
+      };
+    }
+    return { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 10 };
+  }, [isMobile]);
+
+  const pinPillRow = useMemo(() => {
+    if (isMobile) return { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginBottom: 12 };
+    return { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginBottom: 12 };
+  }, [isMobile]);
+
+  const pinGroupGrid = useMemo(() => {
+    if (isMobile) return { display: "grid", gridTemplateColumns: "1fr", gap: 6 };
+    return { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 6 };
+  }, [isMobile]);
+
+  const title18 = { fontSize: isMobile ? 16 : 18, fontWeight: 700 };
+  const bigTemp = { fontSize: isMobile ? 24 : 28, fontWeight: 800 };
+  const bigNum = { fontSize: isMobile ? 22 : 24, fontWeight: 800 };
+
+  // ============================
+  // ✅ Auth + Data state (NO DEMO/MOCK)
+  // ============================
+  const [token, setToken] = useState("");
+  const [me, setMe] = useState(null);
+
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
+
+  const [forecastDays, setForecastDays] = useState([]);
+
+  const [plots, setPlots] = useState([]);
+  const [selectedPlotId, setSelectedPlotId] = useState("");
+
+  const selectedPlot = useMemo(
+    () => (plots || []).find((p) => String(p.id) === String(selectedPlotId)) || null,
+    [plots, selectedPlotId]
+  );
+
+  const [polygons, setPolygons] = useState([]); // [{id, coords}]
+  const [pins, setPins] = useState([]); // [{id, number, lat, lng, nodeId}]
+  const [sensorTypes, setSensorTypes] = useState([]);
+
+  const sensorTypeMap = useMemo(() => {
+    const m = new Map();
+    for (const t of sensorTypes || []) m.set(t.key, t);
+    return m;
+  }, [sensorTypes]);
+
+  const [sensorsByPinId, setSensorsByPinId] = useState({});
+  const [mode, setMode] = useState("live"); // live | cache
+  const [cacheTs, setCacheTs] = useState(null);
+
+  // ============================
+  // ✅ Mount: token + cache + lastPlot
+  // ============================
+  useEffect(() => {
+    if (!isClient) return;
+
+    const tk = getStoredToken();
+    if (tk) setToken(tk);
+
+    const lastPlot = (() => {
+      try {
+        return localStorage.getItem(LS_LAST_PLOT_ID) || "";
+      } catch {
+        return "";
+      }
+    })();
+
+    const cache = loadCache();
+    if (cache?.data) {
+      setCacheTs(cache.ts || null);
+
+      const cachedPlots = Array.isArray(cache.data.plots) ? cache.data.plots : [];
+      setPlots(cachedPlots);
+
+      const nextId =
+        (lastPlot && cachedPlots.some((p) => String(p.id) === String(lastPlot)) && lastPlot) ||
+        cachedPlots?.[0]?.id ||
+        "";
+      if (nextId) setSelectedPlotId(nextId);
+
+      setSensorTypes(Array.isArray(cache.data.sensorTypes) ? cache.data.sensorTypes : []);
+
+      const perPlot = cache.data.byPlot?.[String(nextId)] || null;
+      if (perPlot) {
+        setPolygons(perPlot.polygons || []);
+        setPins(perPlot.pins || []);
+        setSensorsByPinId(perPlot.sensorsByPinId || {});
+      }
+
+      setMode("cache");
+    }
+
+    if (lastPlot) setSelectedPlotId(lastPlot);
+
+    // ✅ สำคัญ: mark ว่าเช็ค token เสร็จแล้ว
+    setAuthChecked(true);
+  }, [isClient]);
+
+  useEffect(() => {
+    if (!selectedPlotId) return;
+    try {
+      localStorage.setItem(LS_LAST_PLOT_ID, String(selectedPlotId));
+    } catch {}
+  }, [selectedPlotId]);
+
+  // verify /me
+  useEffect(() => {
+    if (!token) {
+      setMe(null);
+      return;
+    }
+    let cancelled = false;
+    apiFetch("/me", { token })
+      .then((d) => {
+        if (!cancelled) setMe(d?.user || null);
+      })
+      .catch(() => {
+        if (!cancelled) setMe(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  // ✅ ถ้าไม่มี token: เด้งไป login (แต่รอ authChecked ก่อน)
+  useEffect(() => {
+    if (!isClient) return;
+    if (!authChecked) return;
+    if (!token) router.replace("/login");
+  }, [isClient, authChecked, token, router]);
+
+  function onLogout() {
+    clearStoredToken();
+    setToken("");
+    setMe(null);
+    setLoadError("");
+    router.push("/login");
+  }
+
+  // ============================
+  // ✅ Load plots + sensor-types after login
+  // ============================
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+
+    async function loadAfterLogin() {
+      setLoading(true);
+      setLoadError("");
+      try {
+        const st = await apiFetch("/api/sensor-types", { token });
+        if (cancelled) return;
+        setSensorTypes(st?.items || []);
+
+        const pl = await apiFetch("/api/plots", { token });
+        if (cancelled) return;
+
+        const items = (pl?.items || [])
+          .map((p) => ({ ...p, id: String(p.id || p._id || "") }))
+          .filter((p) => p.id);
+
+        setPlots(items);
+
+        const stillValid = items.some((p) => String(p.id) === String(selectedPlotId));
+        const nextId = stillValid ? selectedPlotId : items?.[0]?.id || "";
+        if (nextId) setSelectedPlotId(nextId);
+
+        setMode("live");
+
+        const cache = loadCache()?.data || { plots: [], byPlot: {}, sensorTypes: [] };
+        const ts = new Date().toISOString();
+        saveCache({ ts, data: { ...cache, plots: items, sensorTypes: st?.items || [] } });
+        setCacheTs(ts);
+      } catch (e) {
+        if (!cancelled) {
+          setLoadError(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+          setMode(loadCache()?.data ? "cache" : "live");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadAfterLogin();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  // ============================
+  // ✅ Load plot data (polygons/pins/sensors) — ✅ POLYGONS “ทั้งหมด”
+  // ============================
+  useEffect(() => {
+    if (!token || !selectedPlotId) return;
+
+    let cancelled = false;
+    async function loadPlotLive() {
+      setLoading(true);
+      setLoadError("");
+      try {
+        const poly = await apiFetch(`/api/plots/${encodeURIComponent(selectedPlotId)}/polygons`, { token });
+        if (cancelled) return;
+
+        const polyItems = (poly?.items || [])
+          .map((x) => {
+            const id = String(x?.id || x?._id || "");
+            const coords = normalizePolygonCoords(x?.coords);
+            return id && coords.length >= 3 ? { id, coords } : null;
+          })
+          .filter(Boolean);
+
+        setPolygons(polyItems);
+
+        const pinsRes = await apiFetch(`/api/dashboard/pins?plotId=${encodeURIComponent(selectedPlotId)}`, { token });
+        if (cancelled) return;
+
+        const pinsRaw = (pinsRes?.items || [])
+          .map((x) => ({
+            ...x,
+            id: String(x.id || x._id || ""),
+            number: safeNum(x.number, 0),
+            lat: Number(x.lat),
+            lng: Number(x.lng),
+            nodeId: x.nodeId ? String(x.nodeId) : null,
+          }))
+          .filter((p) => p.id);
+
+        setPins(pinsRaw);
+
+        const sensorsRes = await apiFetch(`/api/sensors?plotId=${encodeURIComponent(selectedPlotId)}&sensorType=all`, { token });
+        if (cancelled) return;
+
+        const sensors = (sensorsRes?.items || []).map((x) => ({
+          ...x,
+          id: String(x.id || x._id || ""),
+          pinId: x.pinId ? String(x.pinId) : null,
+        }));
+
+        const map = {};
+        for (const ss of sensors) {
+          const pid = ss.pinId || "__no_pin__";
+          if (!map[pid]) map[pid] = [];
+          map[pid].push(ss);
+        }
+        setSensorsByPinId(map);
+
+        setMode("live");
+
+        const cache = loadCache()?.data || { plots: [], byPlot: {}, sensorTypes: sensorTypes || [] };
+        const newByPlot = { ...(cache.byPlot || {}) };
+        newByPlot[String(selectedPlotId)] = { polygons: polyItems, pins: pinsRaw, sensorsByPinId: map };
+        const ts = new Date().toISOString();
+        saveCache({ ts, data: { ...cache, byPlot: newByPlot, sensorTypes: sensorTypes || cache.sensorTypes || [] } });
+        setCacheTs(ts);
+      } catch (e) {
+        if (!cancelled) {
+          // @ts-ignore
+          if (e?.status === 401) router.replace("/login");
+          setLoadError(e?.message || "โหลดข้อมูลแปลงไม่สำเร็จ");
+          setMode(loadCache()?.data ? "cache" : "live");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadPlotLive();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, selectedPlotId, sensorTypes, router]);
+
+  // ============================
+  // ✅ Weather effect
+  // ============================
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWeather() {
+      try {
+        let latLng = null;
+
+        for (const p of polygons || []) {
+          latLng = centroidOfPolygon(p?.coords);
+          if (latLng) break;
+        }
+
+        if (!latLng) {
+          const firstPin = (pins || []).find((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)));
+          if (firstPin) latLng = [Number(firstPin.lat), Number(firstPin.lng)];
+        }
+
+        if (!latLng) {
+          if (!cancelled) setForecastDays([]);
+          return;
+        }
+
+        const days = await fetchForecast7Days(latLng[0], latLng[1]);
+        if (!cancelled) setForecastDays(days);
+      } catch {
+        if (!cancelled) setForecastDays([]);
+      }
+    }
+    loadWeather();
+    return () => {
+      cancelled = true;
+    };
+  }, [polygons, pins, selectedPlotId]);
+
+  // ============================
+  // ✅ Derived UI
+  // ============================
+  const mapCenter = useMemo(() => computeCenterFromAll(polygons, pins), [polygons, pins]);
+
+  const mapPinsForMap = useMemo(() => {
+    return (pins || [])
+      .filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
+      .slice()
+      .sort((a, b) => safeNum(a.number, 0) - safeNum(b.number, 0))
+      .map((p) => ({
+        id: p.id,
+        position: [Number(p.lat), Number(p.lng)],
+        label: `Pin ${safeNum(p.number, 0)}`,
+        number: safeNum(p.number, 0),
+      }));
+  }, [pins]);
+
+  const pinCards = useMemo(() => {
+    return (pins || [])
+      .filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
+      .slice()
+      .sort((a, b) => safeNum(a.number, 0) - safeNum(b.number, 0))
+      .slice(0, 3);
+  }, [pins]);
+
+  const today = forecastDays?.[0] || null;
+  const tempRangeText = today ? `${safeNum(today.tempMin, 0)} – ${safeNum(today.tempMax, 0)} °C` : "—";
+  const rainChanceToday = today ? safeNum(today.rainChance, 0) : 0;
+
+  const rainSum7 = useMemo(() => {
+    if (!forecastDays?.length) return null;
+    const sum = forecastDays.reduce((acc, d) => acc + safeNum(d.rainSum, 0), 0);
+    return Math.round(sum);
+  }, [forecastDays]);
+
+  const adviceText = useMemo(() => {
+    if (!forecastDays?.length) return "กำลังโหลดพยากรณ์อากาศ...";
+    const next3 = forecastDays.slice(0, 3).map((d) => safeNum(d.rainChance, 0));
+    const max3 = Math.max(...next3);
+    if (max3 >= 70) return "มีโอกาสฝนสูงใน 2–3 วันข้างหน้า ควรเตรียมระบบระบายน้ำ/ตรวจร่องน้ำในแปลง";
+    if (max3 >= 40) return "ช่วงนี้มีโอกาสฝนปานกลาง ควรเฝ้าระวังความชื้นดินและปรับรอบให้น้ำให้เหมาะสม";
+    return "ฝนค่อนข้างน้อย เหมาะกับการจัดการให้น้ำตามแผน และตรวจความชื้นดินเป็นระยะ";
+  }, [forecastDays]);
+
+  const pinCount = (pins || []).length;
+
+  const issueCount = useMemo(() => {
+    const allPins = Object.keys(sensorsByPinId || {});
+    let n = 0;
+    for (const pid of allPins) {
+      const arr = sensorsByPinId?.[pid] || [];
+      for (const s of arr) {
+        if (String(s.status || "").toUpperCase() !== "OK") n += 1;
+      }
+    }
+    return n;
+  }, [sensorsByPinId]);
+
+  const statusText = useMemo(() => {
+    if (mode === "live") return "อัปเดตจากระบบ";
+    return `แสดงข้อมูลล่าสุดจากเครื่อง${cacheTs ? ` • อัปเดต: ${prettyTs(cacheTs)}` : ""}`;
+  }, [mode, cacheTs]);
+
+  const daysUI = useMemo(() => {
+    return (forecastDays || []).map((d) => ({
+      day: d.day,
+      temp: `${safeNum(d.tempMax, 0)}°`,
+      rain: `${safeNum(d.rainChance, 0)}%`,
+      emoji: weatherEmoji(d.rainChance),
+    }));
+  }, [forecastDays]);
+
+  // ✅ ถ้ายังไม่ client ให้ไม่ render
+  if (!isClient) return null;
 
   return (
-    <div style={styles.page}>
-      <div style={styles.body} className="du-add-sensor">
-        <section style={styles.topPanel}>
-          <div style={styles.topHeaderRow}>
-            <div style={styles.topTitle}>การจัดการ PIN และ Sensor</div>
-          </div>
+    <div style={pageStyle}>
+      <div style={outerWrap}>
+        <main
+          style={{
+            ...bodyStyle,
+            paddingLeft: isMobile ? 14 : 16,
+            paddingRight: isMobile ? 14 : 16,
+            paddingBottom: isMobile ? 22 : 30,
+          }}
+          className="du-dashboard"
+        >
+          {/* ===== Header Bar ===== */}
+          <div style={{ ...cardBaseR, marginBottom: 16 }} className="du-card">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>Dashboard</div>
 
-          <div style={styles.filterGrid}>
-            <div style={styles.filterCard}>
-              <div style={styles.filterLabel}>แปลง</div>
-              <select style={styles.filterSelect} value={selectedPlot} onChange={(e) => setSelectedPlot(e.target.value)}>
-                <option value="all">ทุกแปลง</option>
-                {plots.map((p) => (
-                  <option key={p.id || p._id} value={p.id || p._id}>
-                    {p.plotName || p.alias || p.name || p.id || p._id}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div style={styles.filterCard}>
-              <div style={styles.filterLabel}>เลือก Node</div>
-              <select style={styles.filterSelect} value={selectedNode} onChange={(e) => setSelectedNode(e.target.value)}>
-                {nodeOptions.map((n) => (
-                  <option key={n.value} value={n.value}>
-                    {n.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div style={styles.filterCard}>
-              <div style={styles.filterLabel}>ชนิดเซนเซอร์</div>
-              <select style={styles.filterSelect} value={selectedSensorType} onChange={(e) => setSelectedSensorType(e.target.value)}>
-                {sensorOptions.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </section>
-
-        <section style={styles.plotPanel}>
-          <div style={styles.plotHeaderRow}>
-            <div style={styles.plotTitle}>ข้อมูลแปลง: {plotLabel}</div>
-            <button style={styles.editBtn} type="button" onClick={onEditClick}>
-              ลบ / แก้ไข
-            </button>
-          </div>
-          <div style={styles.plotSub}>รายละเอียดแปลงและข้อมูลพื้นฐาน</div>
-
-          <div style={styles.infoGrid}>
-            <div>
-              <div style={styles.infoLabel}>ชื่อแปลง</div>
-              <div style={styles.infoBox}>{plotLabel}</div>
-            </div>
-            <div>
-              <div style={styles.infoLabel}>ผู้ดูแล</div>
-              <div style={styles.infoBox}>{caretakerText}</div>
-            </div>
-            <div>
-              <div style={styles.infoLabel}>ประเภทพืช</div>
-              <div style={styles.infoBox}>{plantTypeText}</div>
-            </div>
-            <div>
-              <div style={styles.infoLabel}>วันที่เริ่มปลูก</div>
-              <div style={styles.infoBox}>{plantedAtText}</div>
-            </div>
-          </div>
-
-          <div style={styles.mapCard}>
-            <div style={styles.mapTitle}>จุด Pin เซนเซอร์ชุดนี้ (คลิกแผนที่เพื่อปักพิกัดให้ Pin ที่เลือก)</div>
-            <div style={styles.mapHelp}>เลือก Pin จากรายการด้านล่างก่อน แล้วค่อยคลิกบนแผนที่เพื่อย้ายหมุด</div>
-
-            {!mounted ? (
-              <div style={styles.mapLoading}>Loading map...</div>
-            ) : (
-              <div style={{ height: 230, width: "100%" }}>
-                <LeafletMap
-                  mapKey={mapKey}
-                  center={[13.7563, 100.5018]}
-                  zoom={11}
-                  polygons={polygonsToRender}
-                  pins={filteredPins}
-                  pinIcon={pinIcon}
-                  readOnly={readOnlyAllPlots}
-                  onPick={onPickLatLng}
-                  onCreated={(map) => {
-                    mapRef.current = map;
-                  }}
-                  onReady={() => setMapReady(true)}
-                />
+              <div style={{ flex: 1, minWidth: 220, color: "#6b7280", fontSize: 12 }}>
+                {loading ? "กำลังโหลด..." : loadError ? loadError : ""}
               </div>
-            )}
-          </div>
 
-          <div style={styles.pinActionsRow}>
-            <button style={styles.pinMetaBtn} type="button" onClick={addPin}>
-              +
-            </button>
-            <button style={styles.pinMetaBtn} type="button" onClick={() => removePinById(activePinId)} disabled={filteredPins.length === 0}>
-              −
-            </button>
-            <div style={{ fontSize: 12, color: "#0f172a", fontWeight: 700 }}>
-              รวม {filteredPins.length} จุด (กำลังเลือก: #{activePin?.number ?? "-"})
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ fontSize: 12, color: "#374151" }}>
+                  {me?.email ? `ผู้ใช้: ${me.email}` : "ผู้ใช้: -"}
+                </div>
+                <button
+                  onClick={onLogout}
+                  style={{
+                    border: "none",
+                    borderRadius: 999,
+                    padding: "8px 12px",
+                    background: "#111827",
+                    color: "#fff",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+
+            {/* ✅ Select plot */}
+            <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+              <div style={{ fontSize: 12, color: "#374151", fontWeight: 700 }}>แปลง:</div>
+              <select
+                value={selectedPlotId}
+                onChange={(e) => setSelectedPlotId(e.target.value)}
+                style={{
+                  borderRadius: 999,
+                  border: "1px solid rgba(148,163,184,0.6)",
+                  padding: "8px 12px",
+                  outline: "none",
+                  background: "#fff",
+                  fontWeight: 700,
+                  minWidth: 260,
+                }}
+              >
+                {(plots || []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.plotName || p.name || p.alias || p.id}
+                  </option>
+                ))}
+              </select>
+
+              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                ผู้ดูแล: {selectedPlot?.caretaker || selectedPlot?.ownerName || "-"} • พืช:{" "}
+                {selectedPlot?.plantType || selectedPlot?.cropType || "-"} • เริ่มปลูก:{" "}
+                {formatThaiDate(selectedPlot?.plantedAt) || "-"}
+              </div>
             </div>
           </div>
 
-          <div style={styles.pinList}>
-            {filteredPins.map((p) => {
-              const active = String(p.id) === String(activePinId);
-              return (
-                <div
-                  key={p.id}
-                  style={{ ...styles.pinCard(active), position: "relative" }}
-                  onClick={() => setActivePinId(String(p.id))}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => e.key === "Enter" && setActivePinId(String(p.id))}
-                >
-                  {editOpen && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removePinById(p.id);
-                      }}
+          {/* ===== Top Row ===== */}
+          <div style={{ ...gridTop, marginBottom: 16 }}>
+            <div style={{ ...cardBaseR, gridArea: "forecast" }} className="du-card">
+              <div style={{ ...title18, marginBottom: 6 }}>พยากรณ์อากาศ 7 วันข้างหน้า</div>
+
+              <div style={{ marginTop: 8, overflowX: isMobile ? "auto" : "visible" }}>
+                <div style={gridWeather} className="du-grid-4">
+                  {(daysUI.length ? daysUI : [{ day: "—", temp: "—", rain: "—", emoji: "⛅" }]).map((d) => (
+                    <div
+                      key={d.day}
                       style={{
-                        position: "absolute",
-                        right: 10,
-                        top: 10,
-                        border: "none",
-                        borderRadius: 999,
-                        padding: "6px 10px",
-                        fontSize: 11,
-                        fontWeight: 900,
-                        cursor: "pointer",
-                        background: "#ef4444",
-                        color: "#fff",
+                        background: "#eef3ff",
+                        borderRadius: 18,
+                        padding: isMobile ? 10 : 8,
+                        textAlign: "center",
+                        minWidth: 0,
+                        scrollSnapAlign: "start",
+                        boxShadow: isMobile ? "0 2px 8px rgba(15,23,42,0.10)" : "none",
+                        border: "1px solid rgba(148,163,184,0.35)",
                       }}
                     >
-                      ลบ
-                    </button>
-                  )}
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{d.day}</div>
+                      <div style={{ fontSize: 22, margin: "6px 0 2px" }}>{d.emoji}</div>
+                      <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.1 }}>{d.temp}</div>
+                      <div style={{ fontSize: 11, color: "#4b5563", marginTop: 4 }}>โอกาสฝนตก {d.rain}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
 
-                  <div style={styles.pinCardGrid}>
-                    <div style={styles.pinMetaBox}>
-                      <div style={styles.pinMetaLabel}>number</div>
-                      <div style={styles.pinMetaValue}>#{p.number}</div>
+            <div style={{ gridArea: "mid", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+              <div style={{ ...cardBaseR, background: "#1d4ed8", color: "#ffffff" }} className="du-card">
+                <div style={{ ...title18, marginBottom: 4 }}>อุณหภูมิ (วันนี้)</div>
+                <div style={{ ...bigTemp, marginBottom: 4, color: "#bfdbfe" }}>{tempRangeText}</div>
+                <div style={{ fontSize: 13, color: "#e0e7ff", lineHeight: 1.5 }}>
+                  {forecastDays?.length ? "อิงจากพยากรณ์รายวันของพื้นที่แปลง" : "กำลังโหลด..."}
+                </div>
+              </div>
+
+              <div style={{ ...cardBaseR, background: "#facc15", color: "#111827" }} className="du-card">
+                <div style={{ ...title18, marginBottom: 4 }}>โอกาสฝนตก (วันนี้)</div>
+                <div style={{ ...bigNum, marginBottom: 2 }}>{forecastDays?.length ? `${rainChanceToday}%` : "—"}</div>
+                <div style={{ fontSize: 12, lineHeight: 1.5 }}>อิงจาก precipitation probability (รายวัน)</div>
+              </div>
+            </div>
+
+            <div style={{ gridArea: "right", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+              <div className="du-card" style={{ ...cardBaseR, background: "#ef4444", color: "#ffffff" }}>
+                <div style={{ ...title18, marginBottom: 8 }}>คำแนะนำ</div>
+                <p style={{ fontSize: 14, margin: 0, lineHeight: 1.6 }}>{adviceText}</p>
+              </div>
+
+              <div
+                className="du-card"
+                style={{
+                  ...cardBaseR,
+                  background: "linear-gradient(135deg,#16a34a 0%,#22c55e 50%,#4ade80 100%)",
+                  color: "#f0fdf4",
+                }}
+              >
+                <div style={{ ...title18, marginBottom: 4 }}>ปริมาณน้ำฝน (7 วัน)</div>
+                <div style={{ ...bigNum, marginBottom: 2 }}>{rainSum7 === null ? "—" : `${rainSum7} mm`}</div>
+                <div style={{ fontSize: 12, opacity: 0.95, lineHeight: 1.5 }}>รวมจาก precipitation_sum รายวัน</div>
+              </div>
+            </div>
+          </div>
+
+          {/* ===== Middle Row ===== */}
+          <div style={{ ...gridMiddle, marginBottom: 16 }} className="du-grid-3">
+            <div style={{ ...cardBaseR, gridArea: "map" }} className="du-card">
+              <div style={{ ...title18, marginBottom: 8 }}>แผนที่และทรัพยากร</div>
+              <div style={{ borderRadius: isMobile ? 18 : 22, overflow: "hidden", boxShadow: "0 8px 18px rgba(15,23,42,0.18)" }}>
+                <LeafletMap
+                  mapKey={`plot:${selectedPlotId || "none"}`}  // ✅ บังคับ reset map เมื่อเปลี่ยน plot
+                  center={mapCenter}
+                  height={mapHeight}
+                  polygons={polygons}
+                  pins={mapPinsForMap}
+                />
+              </div>
+
+              {!loading && token && polygons.length === 0 ? (
+                <div style={{ marginTop: 10, fontSize: 12, color: "#b91c1c", fontWeight: 800 }}>
+                  ไม่พบ Polygon ของแปลงนี้จาก Backend
+                </div>
+              ) : null}
+            </div>
+
+            <div style={{ ...cardBaseR, gridArea: "status", background: "#dcfce7" }} className="du-card">
+              <div style={{ ...title18, marginBottom: 10 }}>สถานะการทำงานของอุปกรณ์</div>
+              <div style={{ fontSize: 12, color: "#166534", marginBottom: 6 }}>{statusText}</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 8 }}>
+                <span style={{ fontSize: isMobile ? 28 : 32, fontWeight: 800, color: "#15803d" }}>{pinCount}</span>
+                <span style={{ fontSize: 14 }}>จุดวัด (Pins) ในแปลง</span>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ padding: "4px 10px", borderRadius: 999, background: "#22c55e", color: "#fff", fontSize: 12, fontWeight: 600 }}>
+                  พบ {pinCount} จุด
+                </span>
+                <span style={{ padding: "4px 10px", borderRadius: 999, background: "#e5e7eb", fontSize: 12, fontWeight: 500 }}>
+                  (Online/Offline จริงต้องมีข้อมูลจาก Node)
+                </span>
+              </div>
+            </div>
+
+            <div style={{ ...cardBaseR, gridArea: "issue", background: "#fed7aa" }} className="du-card">
+              <div style={{ ...title18, marginBottom: 8 }}>ปัญหาพื้นที่</div>
+              <p style={{ fontSize: 13, marginBottom: 6, lineHeight: 1.55 }}>
+                {issueCount > 0 ? `พบเซนเซอร์ผิดปกติ ${issueCount} รายการ` : "ยังไม่พบปัญหา (ทุกเซนเซอร์สถานะ OK)"}
+              </p>
+              <span
+                style={{
+                  display: "inline-block",
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  background: issueCount > 0 ? "#f97316" : "#22c55e",
+                  color: "#fff",
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                {issueCount > 0 ? "⚠️ ต้องตรวจสอบ" : "✅ ปกติ"}
+              </span>
+            </div>
+          </div>
+
+          {/* ===== Bottom Row: Pin Cards ===== */}
+          <div style={gridPins} className="du-grid-3">
+            {pinCards.map((pin) => {
+              const pinId = String(pin.id || "__no_pin__");
+              const pinNumber = safeNum(pin.number, 0);
+
+              const sensors = sensorsByPinId?.[pinId] || [];
+              const groups = buildGroupsFromSensors(sensors, sensorTypeMap);
+
+              const hasAlert = sensors.some((s) => String(s.status || "").toUpperCase() !== "OK");
+              const backgroundColor = hasAlert ? "#FFBABA" : "#dfffee";
+              const sensorTypeCount = new Set(sensors.map((s) => s.sensorType).filter(Boolean)).size;
+
+              return (
+                <div
+                  key={pinId}
+                  style={{
+                    ...pinCardBase,
+                    background: backgroundColor,
+                    borderRadius: isMobile ? 22 : 30,
+                    paddingTop: isMobile ? 12 : 14,
+                    paddingRight: isMobile ? 12 : 14,
+                    paddingBottom: isMobile ? 12 : 16,
+                    paddingLeft: isMobile ? 12 : 14,
+                  }}
+                >
+                  <div style={pinHeaderRow}>
+                    <div style={pinTitleBlock}>
+                      <span style={{ ...pinTitle, fontSize: isMobile ? 16 : 18 }}>ข้อมูล : Pin {pinNumber}</span>
+                      <span style={pinSubtitle}>
+                        พิกัด {Number(pin.lat).toFixed ? Number(pin.lat).toFixed(5) : pin.lat},{" "}
+                        {Number(pin.lng).toFixed ? Number(pin.lng).toFixed(5) : pin.lng}
+                      </span>
                     </div>
-                    <div style={styles.pinMetaBox}>
-                      <div style={styles.pinMetaLabel}>ละติจูด</div>
-                      <div style={styles.pinMetaValue}>{p.lat ?? "-"}</div>
+                    <span style={{ ...pinStatus, fontSize: isMobile ? 16 : 18 }}>{hasAlert ? "WARN" : "ON"}</span>
+                  </div>
+
+                  <div style={pinPillRow}>
+                    <div style={pinInfoPill}>
+                      <div style={pinInfoLabel}>ผู้ดูแล</div>
+                      <div style={pinInfoValue}>{selectedPlot?.caretaker || selectedPlot?.ownerName || "—"}</div>
                     </div>
-                    <div style={styles.pinMetaBox}>
-                      <div style={styles.pinMetaLabel}>ลองจิจูด</div>
-                      <div style={styles.pinMetaValue}>{p.lng ?? "-"}</div>
+                    <div style={pinInfoPill}>
+                      <div style={pinInfoLabel}>ประเภทพืช</div>
+                      <div style={pinInfoValue}>{selectedPlot?.plantType || selectedPlot?.cropType || "—"}</div>
                     </div>
+                    <div style={pinInfoPill}>
+                      <div style={pinInfoLabel}>วันที่เริ่มปลูก</div>
+                      <div style={pinInfoValue}>{formatThaiDate(selectedPlot?.plantedAt) || "-"}</div>
+                    </div>
+                    <div style={pinInfoPill}>
+                      <div style={pinInfoLabel}>จำนวนเซนเซอร์</div>
+                      <div style={pinInfoValue}>{`${sensorTypeCount} ชนิด`}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ flex: 1, overflow: "auto" }}>
+                    {groups.map((g) => (
+                      <div key={g.group} style={pinGroupContainer}>
+                        <div style={pinGroupLabel}>{g.group}</div>
+                        <div style={pinGroupGrid}>
+                          {g.items.map((it) => {
+                            const isAlert = !!it.isAlert;
+                            const itemStyle = {
+                              ...pinGroupItem,
+                              background: isAlert ? "#fef9c3" : "#f9fafb",
+                              boxShadow: isAlert ? "0 0 0 1px #facc15" : pinGroupItem.boxShadow,
+                            };
+                            const nameStyle = { ...pinSensorName, color: isAlert ? "#b91c1c" : "#111827" };
+                            const valueStyle = {
+                              ...pinSensorValue,
+                              color: isAlert ? "#b91c1c" : "#6b7280",
+                              fontWeight: isAlert ? 600 : 400,
+                            };
+                            return (
+                              <div key={`${g.group}:${it.name}`} style={itemStyle}>
+                                <div style={nameStyle}>{it.name}</div>
+                                <div style={valueStyle}>{it.value}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               );
             })}
           </div>
-        </section>
-
-        <section style={styles.pinPanel}>
-          <div style={styles.pinHeaderRow}>
-            <div style={styles.pinTitle}>Pin: {activePin ? `#${activePin.number}` : "ยังไม่เลือก Pin"}</div>
-          </div>
-
-          <div style={styles.pinStack}>
-            <div style={styles.pinFormGrid}>
-              <div style={styles.pinField}>
-                <div style={styles.pinFieldLabel}>ละติจูด (Latitude)</div>
-                <input style={styles.inputField} type="number" step="0.000001" value={Number.isFinite(activePin?.lat) ? activePin.lat : ""} onChange={(e) => setActiveLat(Number(e.target.value))} disabled={!activePinId} />
-              </div>
-
-              <div style={styles.pinField}>
-                <div style={styles.pinFieldLabel}>ลองจิจูด (Longitude)</div>
-                <input style={styles.inputField} type="number" step="0.000001" value={Number.isFinite(activePin?.lng) ? activePin.lng : ""} onChange={(e) => setActiveLng(Number(e.target.value))} disabled={!activePinId} />
-              </div>
-            </div>
-
-            <div style={styles.pinHint}>
-              <span style={styles.hintDot} />
-              <span>
-                ✅ ตอนนี้กำลังแก้ไข: <b>Pin #{activePin?.number ?? "-"}</b> — คลิกบนแผนที่เพื่อย้ายหมุดของ Pin นี้
-              </span>
-            </div>
-
-            <div>
-              <select style={styles.groupPick} value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)}>
-                {groupChoices.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.title}
-                  </option>
-                ))}
-              </select>
-
-              <div style={{ height: 10 }} />
-              <div style={styles.addRow}>
-                <input style={styles.inputField} value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="ชื่อเซนเซอร์" />
-                <input style={styles.inputField} value={addValue} onChange={(e) => setAddValue(e.target.value)} placeholder="ค่า/คำอธิบาย" />
-                <button type="button" style={{ ...styles.actionBtn, ...styles.addBtn }} onClick={onAddSensor}>
-                  เพิ่มรายการ
-                </button>
-              </div>
-            </div>
-
-            <div style={styles.groupList}>
-              {displaySensorGroups.map((g) => (
-                <div key={g.id} style={styles.groupCard}>
-                  <div style={styles.groupTitle}>{g.title}</div>
-
-                  <div style={styles.itemsGrid}>
-                    {g.items.map((it) => {
-                      const isEditing = editingItem?.groupId === g.id && String(editingItem?.itemId) === String(it.id);
-
-                      return (
-                        <div key={it.id} style={styles.itemCard}>
-                          <div style={styles.itemTitle}>{it.name}</div>
-                          <div style={styles.itemSub}>{it.value}</div>
-
-                          <div style={styles.itemActions}>
-                            {!isEditing ? (
-                              <>
-                                <button type="button" style={styles.smallBtn} onClick={() => onStartInlineEdit(g.id, it.id)}>
-                                  แก้ไข
-                                </button>
-                                <button type="button" style={{ ...styles.smallBtn, ...styles.delBtn }} onClick={() => onDeleteItem(g.id, it.id)}>
-                                  ลบ
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <button type="button" style={{ ...styles.smallBtn, ...styles.saveEditBtn }} onClick={onSaveInlineEdit}>
-                                  บันทึก
-                                </button>
-                                <button type="button" style={{ ...styles.smallBtn, ...styles.cancelBtn }} onClick={onCancelInlineEdit}>
-                                  ยกเลิก
-                                </button>
-                              </>
-                            )}
-                          </div>
-
-                          {isEditing && (
-                            <div style={styles.inlineEditBox}>
-                              <div style={styles.inlineRow}>
-                                <input style={styles.inputField} value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="แก้ชื่อเซนเซอร์" />
-                                <input style={styles.inputField} value={editValue} onChange={(e) => setEditValue(e.target.value)} placeholder="แก้ค่า/คำอธิบาย" />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <button style={styles.saveBtn} type="button" onClick={() => alert("บันทึกแล้ว (sync กับ DB แบบ real-time)")}>
-              SAVE
-            </button>
-          </div>
-        </section>
+        </main>
       </div>
     </div>
   );
