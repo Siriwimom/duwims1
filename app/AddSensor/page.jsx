@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
+import { useRouter } from "next/navigation"; // ✅ เพิ่ม
 
 // --- Load react-leaflet once (avoid race conditions between dynamic components) ---
 const LeafletMap = dynamic(
@@ -47,59 +48,58 @@ const LeafletMap = dynamic(
       return null;
     }
 
+    function CurrentLocationLayerInner({ locateTick, onStatus }) {
+      const map = RL.useMap();
+      const [pos, setPos] = React.useState(null); // { lat, lng, accuracy }
 
-function CurrentLocationLayerInner({ locateTick, onStatus }) {
-  const map = RL.useMap();
-  const [pos, setPos] = React.useState(null); // { lat, lng, accuracy }
+      useEffect(() => {
+        if (!locateTick) return;
+        if (!map) return;
+        if (typeof window === "undefined") return;
 
-  useEffect(() => {
-    if (!locateTick) return;
-    if (!map) return;
-    if (typeof window === "undefined") return;
+        if (!("geolocation" in navigator)) {
+          onStatus?.("อุปกรณ์/เบราว์เซอร์นี้ไม่รองรับ Geolocation");
+          return;
+        }
 
-    if (!("geolocation" in navigator)) {
-      onStatus?.("อุปกรณ์/เบราว์เซอร์นี้ไม่รองรับ Geolocation");
-      return;
+        onStatus?.("กำลังหาตำแหน่งปัจจุบัน...");
+        navigator.geolocation.getCurrentPosition(
+          (p) => {
+            const lat = p.coords.latitude;
+            const lng = p.coords.longitude;
+            const accuracy = p.coords.accuracy || 0;
+            setPos({ lat, lng, accuracy });
+
+            const zoom = Math.max(map.getZoom(), 17);
+            map.setView([lat, lng], zoom, { animate: true });
+            onStatus?.("พบตำแหน่งแล้ว ✅");
+          },
+          (err) => {
+            onStatus?.(err?.message || "ไม่สามารถเข้าถึงตำแหน่งได้ (อาจไม่ได้อนุญาตสิทธิ์)");
+          },
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        );
+      }, [locateTick, map, onStatus]);
+
+      if (!pos) return null;
+
+      return (
+        <>
+          {pos.accuracy > 0 && (
+            <RL.Circle
+              center={[pos.lat, pos.lng]}
+              radius={pos.accuracy}
+              pathOptions={{ weight: 1, opacity: 0.7, fillOpacity: 0.15 }}
+            />
+          )}
+          <RL.CircleMarker
+            center={[pos.lat, pos.lng]}
+            radius={7}
+            pathOptions={{ weight: 2, opacity: 1, fillOpacity: 1 }}
+          />
+        </>
+      );
     }
-
-    onStatus?.("กำลังหาตำแหน่งปัจจุบัน...");
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        const lat = p.coords.latitude;
-        const lng = p.coords.longitude;
-        const accuracy = p.coords.accuracy || 0;
-        setPos({ lat, lng, accuracy });
-
-        const zoom = Math.max(map.getZoom(), 17);
-        map.setView([lat, lng], zoom, { animate: true });
-        onStatus?.("พบตำแหน่งแล้ว ✅");
-      },
-      (err) => {
-        onStatus?.(err?.message || "ไม่สามารถเข้าถึงตำแหน่งได้ (อาจไม่ได้อนุญาตสิทธิ์)");
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
-  }, [locateTick, map, onStatus]);
-
-  if (!pos) return null;
-
-  return (
-    <>
-      {pos.accuracy > 0 && (
-        <RL.Circle
-          center={[pos.lat, pos.lng]}
-          radius={pos.accuracy}
-          pathOptions={{ weight: 1, opacity: 0.7, fillOpacity: 0.15 }}
-        />
-      )}
-      <RL.CircleMarker
-        center={[pos.lat, pos.lng]}
-        radius={7}
-        pathOptions={{ weight: 2, opacity: 1, fillOpacity: 1 }}
-      />
-    </>
-  );
-}
 
     return function LeafletMapInner({
       mapKey,
@@ -283,6 +283,7 @@ function mapGroupToSensorType(groupId) {
 }
 
 export default function AddSensor() {
+  const router = useRouter(); // ✅ เพิ่ม
   const mapRef = useRef(null);
   const [pinIcon, setPinIcon] = useState(null);
 
@@ -778,7 +779,10 @@ export default function AddSensor() {
     } catch {}
 
     const tempId = `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setPins((prev) => [...(Array.isArray(prev) ? prev : []), { id: tempId, _tmp: true, number: nextNumber, lat: null, lng: null, nodeId, plotId: targetPlotId }]);
+    setPins((prev) => [
+      ...(Array.isArray(prev) ? prev : []),
+      { id: tempId, _tmp: true, number: nextNumber, lat: null, lng: null, nodeId, plotId: targetPlotId },
+    ]);
     setActivePinId(tempId);
   };
 
@@ -834,7 +838,16 @@ export default function AddSensor() {
         setPins((prev) =>
           prev.map((p) =>
             String(p.id) === String(activePinId)
-              ? { ...p, _tmp: false, id: String(createdId), number: created.number ?? pin.number, lat: created.lat ?? lat, lng: created.lng ?? lng, nodeId: nodeToUse, plotId: targetPlotId }
+              ? {
+                  ...p,
+                  _tmp: false,
+                  id: String(createdId),
+                  number: created.number ?? pin.number,
+                  lat: created.lat ?? lat,
+                  lng: created.lng ?? lng,
+                  nodeId: nodeToUse,
+                  plotId: targetPlotId,
+                }
               : p
           )
         );
@@ -849,7 +862,11 @@ export default function AddSensor() {
     // patch
     try {
       const token = getToken();
-      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, { method: "PATCH", token, body: { lat, lng } });
+      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, {
+        method: "PATCH",
+        token,
+        body: { lat, lng },
+      });
     } catch (e) {
       console.warn("[AddSensor] patch pin failed:", e?.message || e);
     }
@@ -863,7 +880,11 @@ export default function AddSensor() {
       const la = numOrNull(lat);
       if (la === null) return;
       if (!isLikelyObjectId(String(activePinId))) return;
-      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, { method: "PATCH", token, body: { lat: la } });
+      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, {
+        method: "PATCH",
+        token,
+        body: { lat: la },
+      });
     } catch (e) {
       console.warn("[AddSensor] patch pin lat failed:", e?.message || e);
     }
@@ -877,7 +898,11 @@ export default function AddSensor() {
       const lo = numOrNull(lng);
       if (lo === null) return;
       if (!isLikelyObjectId(String(activePinId))) return;
-      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, { method: "PATCH", token, body: { lng: lo } });
+      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, {
+        method: "PATCH",
+        token,
+        body: { lng: lo },
+      });
     } catch (e) {
       console.warn("[AddSensor] patch pin lng failed:", e?.message || e);
     }
@@ -898,7 +923,9 @@ export default function AddSensor() {
 
     setSensorGroups((prev) =>
       prev.map((g) =>
-        g.id !== selectedGroupId ? g : { ...g, items: [...g.items, { id: tempId, pinId: String(activePinId), nodeId: String(activePin?.nodeId || ""), sensorType, name, value }] }
+        g.id !== selectedGroupId
+          ? g
+          : { ...g, items: [...g.items, { id: tempId, pinId: String(activePinId), nodeId: String(activePin?.nodeId || ""), sensorType, name, value }] }
       )
     );
     setAddName("");
@@ -926,7 +953,11 @@ export default function AddSensor() {
       const created = r?.item || r;
       const createdId = created?.id || created?._id;
       if (createdId) {
-        setSensorGroups((prev) => prev.map((g) => (g.id !== selectedGroupId ? g : { ...g, items: g.items.map((it) => (it.id === tempId ? { ...it, id: String(createdId) } : it)) })));
+        setSensorGroups((prev) =>
+          prev.map((g) =>
+            g.id !== selectedGroupId ? g : { ...g, items: g.items.map((it) => (it.id === tempId ? { ...it, id: String(createdId) } : it)) }
+          )
+        );
       }
     } catch (e) {
       console.warn("[AddSensor] create sensor failed:", e?.message || e);
@@ -956,12 +987,18 @@ export default function AddSensor() {
 
     const { groupId, itemId } = editingItem;
 
-    setSensorGroups((prev) => prev.map((g) => (g.id !== groupId ? g : { ...g, items: g.items.map((it) => (it.id === itemId ? { ...it, name, value } : it)) })));
+    setSensorGroups((prev) =>
+      prev.map((g) => (g.id !== groupId ? g : { ...g, items: g.items.map((it) => (it.id === itemId ? { ...it, name, value } : it)) }))
+    );
 
     try {
       const token = getToken();
       if (!isLikelyObjectId(String(itemId))) return;
-      await apiFetch(`/api/sensors/${encodeURIComponent(String(itemId))}`, { method: "PATCH", token, body: { name, valueHint: value } });
+      await apiFetch(`/api/sensors/${encodeURIComponent(String(itemId))}`, {
+        method: "PATCH",
+        token,
+        body: { name, valueHint: value },
+      });
     } catch (e) {
       console.warn("[AddSensor] patch sensor failed:", e?.message || e);
     }
@@ -970,7 +1007,9 @@ export default function AddSensor() {
   };
 
   const onDeleteItem = async (groupId, itemId) => {
-    setSensorGroups((prev) => prev.map((g) => (g.id !== groupId ? g : { ...g, items: g.items.filter((it) => String(it.id) !== String(itemId)) })));
+    setSensorGroups((prev) =>
+      prev.map((g) => (g.id !== groupId ? g : { ...g, items: g.items.filter((it) => String(it.id) !== String(itemId)) }))
+    );
     if (editingItem && editingItem.groupId === groupId && String(editingItem.itemId) === String(itemId)) onCancelInlineEdit();
 
     try {
@@ -1012,6 +1051,31 @@ export default function AddSensor() {
         gap: isMobile ? 8 : 0,
         marginBottom: 10,
       },
+
+      // ✅ กลุ่มหัวข้อ + ปุ่มย้อนกลับ
+      topHeaderLeft: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 10,
+      },
+
+      // ✅ ปุ่ม < ไปหน้า management
+      backBtn: {
+        width: 34,
+        height: 34,
+        borderRadius: 999,
+        border: "1px solid rgba(255,255,255,0.28)",
+        background: "rgba(255,255,255,0.16)",
+        color: "#fff",
+        fontWeight: 1000,
+        cursor: "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        lineHeight: 1,
+        userSelect: "none",
+      },
+
       topTitle: { fontSize: 16, fontWeight: 700 },
 
       filterGrid: {
@@ -1110,7 +1174,19 @@ export default function AddSensor() {
       <div style={styles.body} className="du-add-sensor">
         <section style={styles.topPanel}>
           <div style={styles.topHeaderRow}>
-            <div style={styles.topTitle}>การจัดการ PIN และ Sensor</div>
+            {/* ✅ เพิ่มปุ่ม < ไปหน้า management (อยู่บรรทัดเดียวกับหัวข้อ) */}
+            <div style={styles.topHeaderLeft}>
+              <button
+                type="button"
+                style={styles.backBtn}
+                onClick={() => router.push("/management")}
+                title="ย้อนกลับไปหน้า Management"
+                aria-label="back to management"
+              >
+                &lt;
+              </button>
+              <div style={styles.topTitle}>การจัดการ PIN และ Sensor</div>
+            </div>
           </div>
 
           <div style={styles.filterGrid}>
@@ -1149,6 +1225,9 @@ export default function AddSensor() {
             </div>
           </div>
         </section>
+
+        {/* ====== โค้ดส่วนที่เหลือตามเดิมทั้งหมด ====== */}
+        {/* (ไม่มีการแก้ logic ส่วนอื่น นอกจากเพิ่มปุ่ม back + import/useRouter + styles ที่เกี่ยวข้อง) */}
 
         <section style={styles.plotPanel}>
           <div style={styles.plotHeaderRow}>
@@ -1257,7 +1336,12 @@ export default function AddSensor() {
             <button style={styles.pinMetaBtn} type="button" onClick={addPin}>
               +
             </button>
-            <button style={styles.pinMetaBtn} type="button" onClick={() => removePinById(activePinId)} disabled={filteredPins.length === 0}>
+            <button
+              style={styles.pinMetaBtn}
+              type="button"
+              onClick={() => removePinById(activePinId)}
+              disabled={filteredPins.length === 0}
+            >
               −
             </button>
             <div style={{ fontSize: 12, color: "#0f172a", fontWeight: 700 }}>
@@ -1331,12 +1415,26 @@ export default function AddSensor() {
             <div style={styles.pinFormGrid}>
               <div style={styles.pinField}>
                 <div style={styles.pinFieldLabel}>ละติจูด (Latitude)</div>
-                <input style={styles.inputField} type="number" step="0.000001" value={Number.isFinite(activePin?.lat) ? activePin.lat : ""} onChange={(e) => setActiveLat(Number(e.target.value))} disabled={!activePinId} />
+                <input
+                  style={styles.inputField}
+                  type="number"
+                  step="0.000001"
+                  value={Number.isFinite(activePin?.lat) ? activePin.lat : ""}
+                  onChange={(e) => setActiveLat(Number(e.target.value))}
+                  disabled={!activePinId}
+                />
               </div>
 
               <div style={styles.pinField}>
                 <div style={styles.pinFieldLabel}>ลองจิจูด (Longitude)</div>
-                <input style={styles.inputField} type="number" step="0.000001" value={Number.isFinite(activePin?.lng) ? activePin.lng : ""} onChange={(e) => setActiveLng(Number(e.target.value))} disabled={!activePinId} />
+                <input
+                  style={styles.inputField}
+                  type="number"
+                  step="0.000001"
+                  value={Number.isFinite(activePin?.lng) ? activePin.lng : ""}
+                  onChange={(e) => setActiveLng(Number(e.target.value))}
+                  disabled={!activePinId}
+                />
               </div>
             </div>
 

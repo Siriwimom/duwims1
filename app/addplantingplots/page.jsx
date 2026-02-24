@@ -5,6 +5,7 @@ import "leaflet-draw/dist/leaflet.draw.css";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 
 // --- dynamic import React-Leaflet & React-Leaflet-Draw (client only) ---
 const MapContainer = dynamic(() => import("react-leaflet").then((m) => m.MapContainer), { ssr: false });
@@ -15,30 +16,12 @@ const EditControl = dynamic(() => import("react-leaflet-draw").then((m) => m.Edi
 const Circle = dynamic(() => import("react-leaflet").then((m) => m.Circle), { ssr: false });
 const CircleMarker = dynamic(() => import("react-leaflet").then((m) => m.CircleMarker), { ssr: false });
 
-/**
- * Multi-polygons CRUD endpoints (via Next rewrites or direct base URL):
- * - GET    /api/plots
- * - POST   /api/plots
- * - PATCH  /api/plots/:plotId
- * - DELETE /api/plots/:plotId
- *
- * - GET    /api/plots/:plotId/polygons
- * - POST   /api/plots/:plotId/polygons          (create NEW polygon)
- * - PATCH  /api/polygons/:polygonId             (update ONE polygon)
- * - DELETE /api/polygons/:polygonId             (delete ONE polygon)
- * - DELETE /api/plots/:plotId/polygons          (delete ALL polygons of plot) [optional]
- *
- * - GET    /api/plots/:plotId/notes
- * - POST   /api/plots/:plotId/notes
- * - PATCH  /api/notes/:noteId
- * - DELETE /api/notes/:noteId
- */
-
 // Use same-origin by default (recommended when you have rewrites)
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 
 // IMPORTANT: your login saves token under AUTH_TOKEN_V1
 function getToken() {
+  if (typeof window === "undefined") return "";
   return (
     localStorage.getItem("AUTH_TOKEN_V1") ||
     localStorage.getItem("token") ||
@@ -114,7 +97,6 @@ function PolyLayer({ poly, onReady }) {
   );
 }
 
-
 const CurrentLocationLayer = dynamic(
   async () => {
     const RL = await import("react-leaflet");
@@ -166,12 +148,7 @@ const CurrentLocationLayer = dynamic(
               pathOptions={{ weight: 1, opacity: 0.7, fillOpacity: 0.15 }}
             />
           )}
-
-          <CircleMarker
-            center={[pos.lat, pos.lng]}
-            radius={7}
-            pathOptions={{ weight: 2, opacity: 1, fillOpacity: 1 }}
-          />
+          <CircleMarker center={[pos.lat, pos.lng]} radius={7} pathOptions={{ weight: 2, opacity: 1, fillOpacity: 1 }} />
         </>
       );
     };
@@ -180,6 +157,7 @@ const CurrentLocationLayer = dynamic(
 );
 
 export default function AddPlantingPlotsPageMultiPolygons() {
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
 
   // ✅ Current location (กดปุ่มเพื่อซูมไปตำแหน่งปัจจุบัน)
@@ -323,6 +301,50 @@ export default function AddPlantingPlotsPageMultiPolygons() {
       });
       const updated = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
       if (updated) setPlots((prev) => prev.map((p) => (String(p.id) === String(updated.id) ? updated : p)));
+      setEditMode(false);
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ✅ DELETE PLOT (ลบแปลง แล้วแปลงหายไปเลย)
+  async function deletePlot(plotId) {
+    const pid = String(plotId || selectedPlotId || "");
+    if (!pid) return;
+    if (!confirm("ต้องการลบแปลงนี้ทั้งหมดใช่ไหม? (รวม polygons/notes ที่เกี่ยวข้อง)")) return;
+
+    setErr("");
+    setBusy(true);
+    try {
+      await apiFetch(`/api/plots/${pid}`, { method: "DELETE" });
+
+      // อัปเดต state ให้หายไปทันที
+      setPlots((prev) => prev.filter((p) => String(p.id) !== pid));
+      setPolygonsByPlot((prev) => {
+        const next = { ...prev };
+        delete next[pid];
+        return next;
+      });
+      setNotesByPlot((prev) => {
+        const next = { ...prev };
+        delete next[pid];
+        return next;
+      });
+      setSavedNotesByPlot((prev) => {
+        const next = { ...prev };
+        delete next[pid];
+        return next;
+      });
+
+      // เลือกแปลงถัดไปอัตโนมัติ
+      setSelectedPlotId((cur) => {
+        const remaining = plots.filter((p) => String(p.id) !== pid);
+        const nextId = remaining?.[0]?.id || "";
+        return cur === pid ? nextId : cur;
+      });
+
       setEditMode(false);
     } catch (e) {
       setErr(e.message || String(e));
@@ -559,11 +581,35 @@ export default function AddPlantingPlotsPageMultiPolygons() {
         {/* ===== HERO ===== */}
         <section className="pui-hero">
           <div className="pui-hero-top">
-            <div className="pui-hero-title">การจัดการ Polygons</div>
+            {/* ✅ เอา "<" มาอยู่บรรทัดเดียวกับ "การจัดการ Polygons" */}
+            <div className="pui-hero-left">
+              <button
+                type="button"
+                className="pui-back"
+                onClick={() => router.push("/management")}
+                title="ย้อนกลับไปที่หน้า management"
+              >
+                &lt;
+              </button>
+              <div className="pui-hero-title">การจัดการ Polygons</div>
+            </div>
 
-            <button className="pui-hero-btn" type="button" onClick={addPlot} disabled={busy}>
-              + เพิ่มแปลง
-            </button>
+            <div style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+              <button className="pui-hero-btn" type="button" onClick={addPlot} disabled={busy}>
+                + เพิ่มแปลง
+              </button>
+
+              {/* ✅ ปุ่มลบแปลง (ลบแล้วแปลงหายไป) */}
+              <button
+                className="pui-hero-btn pui-hero-btn-danger"
+                type="button"
+                onClick={() => deletePlot(selectedPlotId)}
+                disabled={busy || !selectedPlotId || !plots.length}
+                title="ลบแปลงนี้ออกจากระบบ"
+              >
+                🗑️ ลบแปลง
+              </button>
+            </div>
           </div>
 
           <div className="pui-hero-grid">
@@ -634,9 +680,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                   📍 ตำแหน่งฉัน
                 </button>
 
-                {locateStatus ? (
-                  <div style={{ fontSize: 12 }}>{locateStatus}</div>
-                ) : null}
+                {locateStatus ? <div style={{ fontSize: 12 }}>{locateStatus}</div> : null}
               </div>
 
               <div className="pui-map pui-map-top">
@@ -650,10 +694,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                     style={{ height: "100%", width: "100%" }}
                     preferCanvas={true}
                   >
-                    <TileLayer
-                      attribution="&copy; OpenStreetMap contributors"
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
+                    <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
                     <CurrentLocationLayer locateTick={locateTick} onStatus={setLocateStatus} />
 
@@ -724,7 +765,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
             {/* ฟอร์ม */}
             <div className="pui-formbox">
               <div className="pui-form-grid">
-                {/* ✅ แนะนำอยู่ “บนกล่อง” (ไม่ทำให้แนะนำซ้ำใน input) */}
                 <div className="pui-field">
                   <div className="pui-label-dark">ชื่อที่แสดงในรายการแปลง (Dropdown)</div>
                   {latestSaved?.topic ? <div className="pui-topnote">{latestSaved.topic}</div> : null}
@@ -738,7 +778,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                   />
                 </div>
 
-                {/* ✅ 555 อยู่ “ในกล่อง” แบบเตี้ยลง (โชว์จาก latestSaved) */}
                 <div className="pui-field">
                   <div className="pui-label-dark">ข้อมูลแปลงปลูก</div>
                   <input
@@ -796,7 +835,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                 </div>
               </div>
 
-              {/* ✅ แสดงรายการที่บันทึก (2 บรรทัด + วันที่) */}
               {savedNotes.length > 0 && (
                 <div className="pui-inline-saved">
                   {savedNotes.map((n) => (
@@ -809,7 +847,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                 </div>
               )}
 
-              {/* เพิ่มข้อมูล (draft notes) */}
               <div className="pui-notes-add">
                 <div className="pui-notes-head">
                   <div className="pui-notes-title">เพิ่มข้อมูล (หัวข้อเรื่อง + เนื้อหา)</div>
@@ -937,11 +974,43 @@ export default function AddPlantingPlotsPageMultiPolygons() {
           gap: 10px;
           margin-bottom: 10px;
         }
+
+        /* ✅ กลุ่มซ้าย (ปุ่ม < + title) อยู่บรรทัดเดียวกัน */
+        .pui-hero-left {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        /* ✅ ปุ่มย้อนกลับ: ไม่มีกรอบขาวคลุม */
+        .pui-back {
+          width: 34px;
+          height: 34px;
+          border-radius: 999px;
+          border: 1px solid rgba(255, 255, 255, 0.28);
+          background: rgba(255, 255, 255, 0.16);
+          color: #fff;
+          font-weight: 1000;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          line-height: 1;
+        }
+        .pui-back:hover {
+          background: rgba(255, 255, 255, 0.22);
+        }
+
         .pui-hero-title {
           color: #fff;
           font-weight: 900;
           font-size: 13px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
+
         .pui-hero-btn {
           border: none;
           background: rgba(255, 255, 255, 0.9);
@@ -952,6 +1021,21 @@ export default function AddPlantingPlotsPageMultiPolygons() {
           font-size: 12px;
           cursor: pointer;
         }
+
+        /* ✅ ปุ่มลบ (โทนแดง) */
+        .pui-hero-btn-danger {
+          background: rgba(255, 235, 235, 0.92);
+          color: #991b1b;
+          border: 1px solid rgba(239, 68, 68, 0.25);
+        }
+        .pui-hero-btn-danger:hover {
+          background: rgba(254, 226, 226, 0.98);
+        }
+        .pui-hero-btn-danger:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
         .pui-hero-grid {
           display: grid;
           grid-template-columns: 1fr;
@@ -1068,7 +1152,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
           margin: 0 0 6px 6px;
         }
 
-        /* ✅ กล่องเตี้ยสำหรับโชว์ 555... */
         .pui-compactbox {
           margin-top: 8px;
           border-radius: 12px;
@@ -1342,9 +1425,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
         }
 
         @media (max-width: 860px) {
-          .pui-hero-grid {
-            grid-template-columns: 1fr;
-          }
           .pui-form-grid {
             grid-template-columns: 1fr;
           }
