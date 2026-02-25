@@ -405,6 +405,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3001";
    ✅ TOKEN (localStorage + cookie) กัน middleware เด้ง /login
 ========================================================= */
 const TOKEN_KEYS = ["token", "AUTH_TOKEN_V1", "duwims_token"];
+const COOKIE_NAMES = ["token", "AUTH_TOKEN_V1", "duwims_token"]; // ✅ เพิ่ม
 const COOKIE_NAME = "token";
 
 function getCookie(name) {
