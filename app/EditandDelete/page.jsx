@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { useRouter } from "next/navigation"; // ✅ เพิ่ม
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
 
@@ -23,10 +23,6 @@ const LeafletClient = dynamic(
         shadowUrl:
           "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
       });
-    }
-
-    function isFiniteNum(x) {
-      return typeof x === "number" && Number.isFinite(x);
     }
 
     function safeKey(v, fallback) {
@@ -79,7 +75,7 @@ const LeafletClient = dynamic(
         }
       }
 
-      // 3) ถ้าไม่มีข้อมูลจริง ให้คงศูนย์กลางเริ่มต้นแบบกลาง ๆ
+      // 3) fallback
       return [13.7563, 100.5018];
     }
 
@@ -87,7 +83,6 @@ const LeafletClient = dynamic(
     function LeafletMaps({ polygons, pins, styles }) {
       const { MapContainer, TileLayer, Polygon, Marker, Popup } = RL;
 
-      // ✅ sanitize polygons/pins กัน Leaflet พัง
       const safePolys = Array.isArray(polygons)
         ? polygons
             .map((poly, idx) => {
@@ -106,16 +101,9 @@ const LeafletClient = dynamic(
             .map((p, idx) => {
               const latLng = normalizeLatLngPair(p?.latLng);
               if (!latLng) return null;
-
               const id = safeKey(p?.id, `pin-${idx}-${latLng[0]}-${latLng[1]}`);
               const number = p?.number ?? idx + 1;
-
-              return {
-                id,
-                number,
-                latLng,
-                plotLabel: p?.plotLabel,
-              };
+              return { id, number, latLng, plotLabel: p?.plotLabel };
             })
             .filter(Boolean)
         : [];
@@ -153,7 +141,7 @@ const LeafletClient = dynamic(
             </MapContainer>
           </div>
 
-          {/* Pin เซนเซอร์ (✅ วาด polygon ขอบแปลงด้วย) */}
+          {/* Pin เซนเซอร์ (วาด polygon ขอบแปลงด้วย) */}
           <div style={styles.mapCard}>
             <div style={styles.mapTitle}>Pin เซนเซอร์ ({safePins.length})</div>
             <MapContainer
@@ -183,7 +171,9 @@ const LeafletClient = dynamic(
               {safePins.map((p) => (
                 <Marker key={p.id} position={p.latLng}>
                   <Popup>
-                    {p.plotLabel ? `${p.plotLabel} — PIN #${p.number}` : `PIN #${p.number}`}
+                    {p.plotLabel
+                      ? `${p.plotLabel} — PIN #${p.number}`
+                      : `PIN #${p.number}`}
                   </Popup>
                 </Marker>
               ))}
@@ -372,7 +362,6 @@ const styles = {
   pinLabel: { fontWeight: 800, fontSize: 12, color: "#000" },
   pinCoord: { fontSize: 12, color: "#000" },
 
-  // panels
   panelBox: {
     borderRadius: 18,
     background: "rgba(255,255,255,0.95)",
@@ -412,21 +401,64 @@ const styles = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3001";
 
+/* =========================================================
+   ✅ TOKEN (localStorage + cookie) กัน middleware เด้ง /login
+========================================================= */
+const TOKEN_KEYS = ["token", "AUTH_TOKEN_V1", "duwims_token"];
+const COOKIE_NAME = "token";
+
+function getCookie(name) {
+  if (typeof document === "undefined") return null;
+  const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+  return m ? decodeURIComponent(m[2]) : null;
+}
+function setCookie(name, value, maxAgeSec = 60 * 60 * 24 * 7) {
+  if (typeof document === "undefined") return;
+  document.cookie = `${name}=${encodeURIComponent(
+    value
+  )}; Path=/; Max-Age=${maxAgeSec}; SameSite=Lax`;
+}
+function clearCookie(name) {
+  if (typeof document === "undefined") return;
+  document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
+}
+
 function getToken() {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("token");
+
+  // 1) localStorage หลาย key
+  for (const k of TOKEN_KEYS) {
+    const t = localStorage.getItem(k);
+    if (t && String(t).trim()) return t;
+  }
+
+  // 2) fallback cookie
+  const c = getCookie(COOKIE_NAME);
+  return c && String(c).trim() ? c : null;
 }
+
 function setToken(t) {
-  localStorage.setItem("token", t);
+  if (typeof window === "undefined") return;
+  const token = String(t || "").trim();
+  if (!token) return;
+
+  for (const k of TOKEN_KEYS) localStorage.setItem(k, token);
+  setCookie(COOKIE_NAME, token);
 }
+
 function clearToken() {
-  localStorage.removeItem("token");
+  if (typeof window === "undefined") return;
+  for (const k of TOKEN_KEYS) localStorage.removeItem(k);
+  clearCookie(COOKIE_NAME);
 }
+
+/* ========================================================= */
 
 async function apiFetchJson(path, { method = "GET", body, auth = true } = {}) {
   const token = getToken();
   const res = await fetch(`${API_BASE}${path}`, {
     method,
+    credentials: "include", // ✅ เผื่อ backend ใช้ cookie
     headers: {
       "Content-Type": "application/json",
       ...(auth && token ? { Authorization: `Bearer ${token}` } : {}),
@@ -459,15 +491,11 @@ function fmtDate(plantedAt) {
 }
 
 function pinToUi(pinDoc, plotLabel, plotId) {
-  const lat =
-    typeof pinDoc?.lat === "number" ? pinDoc.lat : Number(pinDoc?.lat);
-  const lng =
-    typeof pinDoc?.lng === "number" ? pinDoc.lng : Number(pinDoc?.lng);
+  const lat = typeof pinDoc?.lat === "number" ? pinDoc.lat : Number(pinDoc?.lat);
+  const lng = typeof pinDoc?.lng === "number" ? pinDoc.lng : Number(pinDoc?.lng);
 
-  // ✅ กัน NaN → อย่าให้ marker พัง
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
-  // ✅ กัน id ว่าง/ซ้ำ (สำคัญมาก)
   const rawId = pinDoc?.id ?? pinDoc?._id ?? "";
   const baseId = String(rawId).trim();
   const safeId = baseId
@@ -485,7 +513,7 @@ function pinToUi(pinDoc, plotLabel, plotId) {
 }
 
 export default function EditAndDelete() {
-  const router = useRouter(); // ✅ เพิ่ม
+  const router = useRouter();
 
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
@@ -521,6 +549,7 @@ export default function EditAndDelete() {
   const [loading, setLoading] = useState(false);
   const [errMsg, setErrMsg] = useState("");
 
+  // ✅ hydrate auth state
   useEffect(() => {
     if (!hydrated) return;
     setAuthed(!!getToken());
@@ -566,11 +595,7 @@ export default function EditAndDelete() {
   const sensorOptions = useMemo(() => {
     if (nodeCategory === "air") return AIR_SENSOR_OPTIONS;
     if (nodeCategory === "soil") return SOIL_SENSOR_OPTIONS;
-    return [
-      { value: "all", label: "ทุกเซนเซอร์" },
-      ...AIR_SENSOR_OPTIONS,
-      ...SOIL_SENSOR_OPTIONS,
-    ];
+    return [{ value: "all", label: "ทุกเซนเซอร์" }, ...AIR_SENSOR_OPTIONS, ...SOIL_SENSOR_OPTIONS];
   }, [nodeCategory, AIR_SENSOR_OPTIONS, SOIL_SENSOR_OPTIONS]);
 
   useEffect(() => {
@@ -584,58 +609,22 @@ export default function EditAndDelete() {
   const topGridStyle = useMemo(() => {
     return {
       ...styles.topGrid,
-      gridTemplateColumns: isMobile
-        ? "1fr"
-        : isTablet
-        ? "repeat(2,minmax(0,1fr))"
-        : "repeat(3,minmax(0,1fr))",
+      gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,minmax(0,1fr))" : "repeat(3,minmax(0,1fr))",
     };
   }, [isMobile, isTablet]);
 
   const infoGridStyle = useMemo(() => {
     return {
       ...styles.infoGrid,
-      gridTemplateColumns: isMobile
-        ? "1fr"
-        : isTablet
-        ? "repeat(2,minmax(0,1fr))"
-        : "repeat(4,minmax(0,1fr))",
+      gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,minmax(0,1fr))" : "repeat(4,minmax(0,1fr))",
     };
   }, [isMobile, isTablet]);
 
   const pinRowStyle = useMemo(() => {
-    return {
-      ...styles.pinRow,
-      gridTemplateColumns: isMobile ? "1fr" : "140px 1fr 1fr 60px",
-    };
+    return { ...styles.pinRow, gridTemplateColumns: isMobile ? "1fr" : "140px 1fr 1fr 60px" };
   }, [isMobile]);
 
   // ===== login =====
-  const doLogin = async () => {
-    setAuthMsg("");
-    setErrMsg("");
-    try {
-      if (!loginEmail || !loginPassword)
-        return setAuthMsg("กรอก email และ password ก่อน");
-
-      const j = await apiFetchJson("/auth/login", {
-        method: "POST",
-        body: { email: loginEmail, password: loginPassword },
-        auth: false,
-      });
-
-      if (!j?.token) return setAuthMsg("Login ไม่สำเร็จ (ไม่มี token กลับมา)");
-      setToken(j.token);
-      setAuthed(true);
-      setAuthMsg("Login สำเร็จ ✅");
-      await loadPlots();
-    } catch (e) {
-      setAuthed(false);
-      setAuthMsg(String(e.message || e));
-    }
-  };
-
-  // ===== load plots =====
   const loadPlots = useCallback(async () => {
     setLoading(true);
     setErrMsg("");
@@ -653,6 +642,29 @@ export default function EditAndDelete() {
       setLoading(false);
     }
   }, []);
+
+  const doLogin = async () => {
+    setAuthMsg("");
+    setErrMsg("");
+    try {
+      if (!loginEmail || !loginPassword) return setAuthMsg("กรอก email และ password ก่อน");
+
+      const j = await apiFetchJson("/auth/login", {
+        method: "POST",
+        body: { email: loginEmail, password: loginPassword },
+        auth: false,
+      });
+
+      if (!j?.token) return setAuthMsg("Login ไม่สำเร็จ (ไม่มี token กลับมา)");
+      setToken(j.token);
+      setAuthed(true);
+      setAuthMsg("Login สำเร็จ ✅");
+      await loadPlots();
+    } catch (e) {
+      setAuthed(false);
+      setAuthMsg(String(e.message || e));
+    }
+  };
 
   useEffect(() => {
     if (!hydrated || !authed) return;
@@ -678,15 +690,10 @@ export default function EditAndDelete() {
         const [polyRes, pinRes] = await Promise.all([
           apiFetchJson(`/api/plots/${encodeURIComponent(plotId)}/polygons`),
           apiFetchJson(
-            `/api/pins?plotId=${encodeURIComponent(
-              plotId
-            )}&nodeCategory=${encodeURIComponent(
-              nodeCategory
-            )}&sensorType=all`
+            `/api/pins?plotId=${encodeURIComponent(plotId)}&nodeCategory=${encodeURIComponent(nodeCategory)}&sensorType=all`
           ),
         ]);
 
-        // ✅ polygon: เอามา “ทั้งหมด” + sanitize coords
         const polys = (polyRes.items || [])
           .map((p) => {
             const coords = Array.isArray(p?.coords) ? p.coords : null;
@@ -709,9 +716,7 @@ export default function EditAndDelete() {
         setPolygons(results.flatMap((r) => r.polys));
         setPins(results.flatMap((r) => r.pinItems));
       } else {
-        const plot = (plots || []).find(
-          (p) => String(p.id || p._id) === String(selectedPlot)
-        );
+        const plot = (plots || []).find((p) => String(p.id || p._id) === String(selectedPlot));
         if (!plot) {
           setPolygons([]);
           setPins([]);
@@ -739,12 +744,9 @@ export default function EditAndDelete() {
   }, [hydrated, authed, plots, selectedPlot, nodeCategory, selectedSensorType, loadMapData]);
 
   const currentPlotInfo = useMemo(() => {
-    if (selectedPlot === "all")
-      return { name: "ทุกแปลง", caretaker: "-", plantType: "-", startDate: "-" };
+    if (selectedPlot === "all") return { name: "ทุกแปลง", caretaker: "-", plantType: "-", startDate: "-" };
 
-    const p = (plots || []).find(
-      (x) => String(x.id || x._id) === String(selectedPlot)
-    );
+    const p = (plots || []).find((x) => String(x.id || x._id) === String(selectedPlot));
     if (!p) return { name: "-", caretaker: "-", plantType: "-", startDate: "-" };
 
     return {
@@ -760,9 +762,7 @@ export default function EditAndDelete() {
     setErrMsg("");
     try {
       setPins((prev) => prev.filter((p) => p.id !== pinId));
-      await apiFetchJson(`/api/pins/${encodeURIComponent(pinId)}`, {
-        method: "DELETE",
-      });
+      await apiFetchJson(`/api/pins/${encodeURIComponent(pinId)}`, { method: "DELETE" });
       await loadMapData();
     } catch (e) {
       setErrMsg(String(e.message || e));
@@ -779,26 +779,14 @@ export default function EditAndDelete() {
         await Promise.all(
           (plots || []).map((p) =>
             Promise.all([
-              apiFetchJson(
-                `/api/plots/${encodeURIComponent(String(p.id || p._id))}/pins`,
-                { method: "DELETE" }
-              ),
-              apiFetchJson(
-                `/api/plots/${encodeURIComponent(String(p.id || p._id))}/polygons`,
-                { method: "DELETE" }
-              ),
+              apiFetchJson(`/api/plots/${encodeURIComponent(String(p.id || p._id))}/pins`, { method: "DELETE" }),
+              apiFetchJson(`/api/plots/${encodeURIComponent(String(p.id || p._id))}/polygons`, { method: "DELETE" }),
             ])
           )
         );
       } else {
-        await apiFetchJson(
-          `/api/plots/${encodeURIComponent(selectedPlot)}/pins`,
-          { method: "DELETE" }
-        );
-        await apiFetchJson(
-          `/api/plots/${encodeURIComponent(selectedPlot)}/polygons`,
-          { method: "DELETE" }
-        );
+        await apiFetchJson(`/api/plots/${encodeURIComponent(selectedPlot)}/pins`, { method: "DELETE" });
+        await apiFetchJson(`/api/plots/${encodeURIComponent(selectedPlot)}/polygons`, { method: "DELETE" });
       }
       setPins([]);
       setPolygons([]);
@@ -843,15 +831,13 @@ export default function EditAndDelete() {
 
             <div style={styles.headerTitle}>ลบ/แก้ไข PIN และ Sensor</div>
 
-            {/* ✅ ตัวกัน layout ไม่ให้หัวข้อขยับ (เพราะ headerRow space-between) */}
+            {/* กัน layout */}
             <div style={{ width: 36, height: 36 }} />
           </div>
 
           {!authed ? (
             <div style={styles.panelBox}>
-              <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8 }}>
-                เข้าสู่ระบบเพื่อใช้งาน API
-              </div>
+              <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 8 }}>เข้าสู่ระบบเพื่อใช้งาน API</div>
               <div style={styles.row3}>
                 <div>
                   <div style={styles.fieldLabel}>Email</div>
@@ -876,10 +862,9 @@ export default function EditAndDelete() {
                   Login
                 </button>
               </div>
+
               {authMsg ? (
-                <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800 }}>
-                  {authMsg}
-                </div>
+                <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800 }}>{authMsg}</div>
               ) : null}
             </div>
           ) : null}
@@ -935,16 +920,7 @@ export default function EditAndDelete() {
           </div>
 
           {errMsg ? (
-            <div
-              style={{
-                marginTop: 10,
-                fontSize: 12,
-                color: "#b91c1c",
-                fontWeight: 800,
-              }}
-            >
-              {errMsg}
-            </div>
+            <div style={{ marginTop: 10, fontSize: 12, color: "#b91c1c", fontWeight: 800 }}>{errMsg}</div>
           ) : null}
         </section>
 
@@ -962,9 +938,7 @@ export default function EditAndDelete() {
             </button>
           </div>
 
-          <div style={styles.bottomSub}>
-            แสดง Polygon ทั้งหมด + ลบตำแหน่ง PIN ของแปลงนี้
-          </div>
+          <div style={styles.bottomSub}>แสดง Polygon ทั้งหมด + ลบตำแหน่ง PIN ของแปลงนี้</div>
 
           <div style={infoGridStyle}>
             <div>
@@ -1033,18 +1007,13 @@ export default function EditAndDelete() {
                     <div style={styles.pinIconCircle}>📍</div>
                     <div>
                       <div style={styles.pinLabel}>
-                        number #{p.number}{" "}
-                        {selectedPlot === "all" ? `(${p.plotLabel || "-"})` : ""}
+                        number #{p.number} {selectedPlot === "all" ? `(${p.plotLabel || "-"})` : ""}
                       </div>
                     </div>
                   </div>
                   <div style={styles.pinCoord}>ละติจูด&nbsp;&nbsp;{p.lat}</div>
                   <div style={styles.pinCoord}>ลองจิจูด&nbsp;&nbsp;{p.lon}</div>
-                  <button
-                    style={styles.deleteBtn}
-                    type="button"
-                    onClick={() => handleDeletePin(p.id)}
-                  >
+                  <button style={styles.deleteBtn} type="button" onClick={() => handleDeletePin(p.id)}>
                     🗑️
                   </button>
                 </div>
