@@ -19,11 +19,15 @@ export default function App() {
   const [modal, setModal] = useState(null); // { title, desc, buttonText, onClose }
   const [resetAllowed, setResetAllowed] = useState(false);
 
-  // ✅ เก็บ token อย่างเดียวพอ
-  const LS_TOKEN = "AUTH_TOKEN_V1";
+  // ✅ IMPORTANT: ให้ตรงกับ Dashboard (Dashboard อ่าน key = "token")
+  const LS_TOKEN = "token";
 
-  // ✅ backend base (Express ที่รันอยู่ เช่น http://localhost:3000)
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3001";
+  // ✅ backend base (Express/NestJS) เช่น http://localhost:3001
+  // (ตั้ง env ให้ตรงกับที่คุณใช้ได้เลย)
+  const API_BASE =
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_BASE ||
+    "http://localhost:3001";
 
   // session (ถ้าเคย login แล้ว)
   const [sessionUser, setSessionUser] = useState(null);
@@ -31,7 +35,6 @@ export default function App() {
 
   // signup option
   const [signupIsOwner, setSignupIsOwner] = useState(false);
-
 
   function isValidEmail(v) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
@@ -68,7 +71,7 @@ export default function App() {
     }
   }
 
-  // ✅ helper เรียก backend ตรง ๆ (Express / NestJS)
+  // ✅ helper เรียก backend ตรง ๆ
   async function api(path, { method = "GET", body, token } = {}) {
     const res = await fetch(`${API_BASE}${path}`, {
       method,
@@ -79,14 +82,17 @@ export default function App() {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    
     const data = await res.json().catch(() => ({}));
-if (!res.ok) {
-  const msg = data?.error ? `${data.message || "Error"}: ${data.error}` : (data?.message || `HTTP ${res.status}`);
-  throw new Error(msg);
-}
-return data;
-
+    if (!res.ok) {
+      const msg = data?.error
+        ? `${data.message || "Error"}: ${data.error}`
+        : data?.message || `HTTP ${res.status}`;
+      const err = new Error(msg);
+      err.status = res.status;
+      err.payload = data;
+      throw err;
+    }
+    return data;
   }
 
   // ---------- Actions ----------
@@ -107,26 +113,34 @@ return data;
         body: { email: emailN, password: pw },
       });
 
+      if (!data?.token) throw new Error("Login success but token is missing");
+
+      // ✅ เก็บ token key ให้ตรงกับ Dashboard
       localStorage.setItem(LS_TOKEN, data.token);
 
       setSessionUser(data.user);
 
-      // ✅ redirect to dashboard
-      window.location.href = "http://localhost:3000";
-});
+      // ✅ redirect ไป Dashboard (http://localhost:3000)
+      window.location.href = "/";
+    });
   }
 
   async function handleSignup() {
     await run(async () => {
       const emailN = email.trim().toLowerCase();
       if (!isValidEmail(emailN)) throw new Error("Invalid email");
-      if (!isValidPassword(pw)) throw new Error("Password must be at least 6 characters");
+      if (!isValidPassword(pw))
+        throw new Error("Password must be at least 6 characters");
       if (pw !== pw2) throw new Error("Password not match");
 
-      // 1) register (default employee; owner only if selected)
+      // 1) register
       await api("/auth/register", {
         method: "POST",
-        body: { email: emailN, password: pw, role: signupIsOwner ? "owner" : "employee" },
+        body: {
+          email: emailN,
+          password: pw,
+          role: signupIsOwner ? "owner" : "employee",
+        },
       });
 
       // 2) login automatically to get token
@@ -135,14 +149,15 @@ return data;
         body: { email: emailN, password: pw },
       });
 
+      if (!data?.token) throw new Error("Signup success but token is missing");
+
       localStorage.setItem(LS_TOKEN, data.token);
       setSessionUser(data.user);
 
-      // ✅ redirect to dashboard
-      window.location.href = "http://localhost:3001";
+      // ✅ redirect ไป Dashboard (ห้ามไป 3001)
+      window.location.href = "/";
     });
   }
-
 
   function logout() {
     localStorage.removeItem(LS_TOKEN);
@@ -159,7 +174,6 @@ return data;
       const emailN = email.trim().toLowerCase();
       if (!isValidEmail(emailN)) throw new Error("Invalid email");
 
-      // backend ส่ง OTP ไป email แล้ว
       await api("/auth/forgot", {
         method: "POST",
         body: { email: emailN },
@@ -190,7 +204,6 @@ return data;
       const code = otp.join("");
       if (code.length !== 6) throw new Error("Enter 6 digits OTP");
 
-      // backend ตรวจ OTP
       await api("/auth/verify-otp", {
         method: "POST",
         body: { email: emailN, code },
@@ -210,10 +223,10 @@ return data;
 
       const emailN = (pendingOtpEmail || email || "").trim().toLowerCase();
       if (!isValidEmail(emailN)) throw new Error("Invalid email");
-      if (!isValidPassword(pw)) throw new Error("Password must be at least 6 characters");
+      if (!isValidPassword(pw))
+        throw new Error("Password must be at least 6 characters");
       if (pw !== pw2) throw new Error("Password not match");
 
-      // backend อัปเดตรหัสผ่านจริง
       await api("/auth/reset-password", {
         method: "POST",
         body: { email: emailN, code: otp.join(""), newPassword: pw },
@@ -238,7 +251,6 @@ return data;
 
   // ถ้าผู้ใช้ refresh หน้า ระหว่าง OTP/reset
   useEffect(() => {
-    // ✅ auto-restore session จาก token
     (async () => {
       try {
         const t = localStorage.getItem(LS_TOKEN);
@@ -249,7 +261,6 @@ return data;
         const me = await api("/me", { token: t });
         setSessionUser(me.user);
       } catch (e) {
-        // token หมดอายุ/ไม่ถูกต้อง → ลบทิ้ง
         localStorage.removeItem(LS_TOKEN);
         setSessionUser(null);
       } finally {
@@ -290,32 +301,51 @@ return data;
         {screen === "login" && (
           <>
             <div className="label">Email</div>
-            <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input
+              className="input"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
 
             <div className="label">Password</div>
-            <input className="input" type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
+            <input
+              className="input"
+              type="password"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+            />
 
             <button className="btn blue" onClick={handleLogin} disabled={loading}>
               {loading ? "Loading..." : "Login"}
             </button>
 
             <div className="row">
-              <button className="linkBtn" onClick={() => onGo("signup")}>Create Account</button>
-              <button className="linkBtn" onClick={() => onGo("forgot")}>Forget Password ?</button>
+              <button className="linkBtn" onClick={() => onGo("signup")}>
+                Create Account
+              </button>
+              <button className="linkBtn" onClick={() => onGo("forgot")}>
+                Forget Password ?
+              </button>
             </div>
 
-            <div className="hr"><span>OR</span></div>
+            <div className="hr">
+              <span>OR</span>
+            </div>
 
             <button
               className="btn googleBtn"
-              onClick={() => setErr("Google sign-in: ยังไม่ได้ทำ (ต้องใช้ OAuth)")}
+              onClick={() =>
+                setErr("Google sign-in: ยังไม่ได้ทำ (ต้องใช้ OAuth)")
+              }
               disabled={loading}
             >
               <span className="gIcon">G</span>
               <span>Sign in with Google</span>
             </button>
 
-            <div className="small">Forgot email or trouble signing in ? Get help.</div>
+            <div className="small">
+              Forgot email or trouble signing in ? Get help.
+            </div>
           </>
         )}
 
@@ -323,13 +353,27 @@ return data;
         {screen === "signup" && (
           <>
             <div className="label">Email</div>
-            <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input
+              className="input"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
 
             <div className="label">Password</div>
-            <input className="input" type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
+            <input
+              className="input"
+              type="password"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+            />
 
             <div className="label">Password Confirm</div>
-            <input className="input" type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+            <input
+              className="input"
+              type="password"
+              value={pw2}
+              onChange={(e) => setPw2(e.target.value)}
+            />
 
             <div className="checkboxRow">
               <label className="check">
@@ -346,21 +390,29 @@ return data;
               {loading ? "Loading..." : "Sign up"}
             </button>
 
-            <div className="hr"><span>OR</span></div>
+            <div className="hr">
+              <span>OR</span>
+            </div>
 
             <button
               className="btn googleBtn"
-              onClick={() => setErr("Google sign-in: ยังไม่ได้ทำ (ต้องใช้ OAuth)")}
+              onClick={() =>
+                setErr("Google sign-in: ยังไม่ได้ทำ (ต้องใช้ OAuth)")
+              }
               disabled={loading}
             >
               <span className="gIcon">G</span>
               <span>Sign in with Google</span>
             </button>
 
-            <div className="small">Forgot email or trouble signing in ? Get help.</div>
+            <div className="small">
+              Forgot email or trouble signing in ? Get help.
+            </div>
 
             <div className="row" style={{ justifyContent: "center" }}>
-              <button className="linkBtn" onClick={() => onGo("login")}>Back to Login</button>
+              <button className="linkBtn" onClick={() => onGo("login")}>
+                Back to Login
+              </button>
             </div>
           </>
         )}
@@ -369,14 +421,24 @@ return data;
         {screen === "forgot" && (
           <>
             <div className="label">Email Address</div>
-            <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input
+              className="input"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
 
-            <button className="btn blue" onClick={handleSendOtp} disabled={loading}>
+            <button
+              className="btn blue"
+              onClick={handleSendOtp}
+              disabled={loading}
+            >
               {loading ? "Sending..." : "Reset Password 🔒"}
             </button>
 
             <div className="row">
-              <button className="linkBtn" onClick={() => onGo("login")}>Back</button>
+              <button className="linkBtn" onClick={() => onGo("login")}>
+                Back
+              </button>
               <span />
             </div>
           </>
@@ -385,7 +447,9 @@ return data;
         {/* OTP */}
         {screen === "otp" && (
           <>
-            <div className="otpHint">Enter your 6 digit OTP code in order to reset.</div>
+            <div className="otpHint">
+              Enter your 6 digit OTP code in order to reset.
+            </div>
 
             <div className="otpRow">
               {otp.map((d, i) => (
@@ -401,15 +465,23 @@ return data;
               ))}
             </div>
 
-            <button className="btn blue" onClick={handleVerifyOtp} disabled={loading}>
+            <button
+              className="btn blue"
+              onClick={handleVerifyOtp}
+              disabled={loading}
+            >
               {loading ? "Verifying..." : "Reset Password 🔒"}
             </button>
 
             <div className="small">Didn't receive the code?</div>
 
             <div className="row" style={{ marginTop: 10 }}>
-              <button className="linkBtn" onClick={handleSendOtp} disabled={loading}>Resend</button>
-              <button className="linkBtn" onClick={() => onGo("login")}>Back</button>
+              <button className="linkBtn" onClick={handleSendOtp} disabled={loading}>
+                Resend
+              </button>
+              <button className="linkBtn" onClick={() => onGo("login")}>
+                Back
+              </button>
             </div>
           </>
         )}
@@ -418,12 +490,26 @@ return data;
         {screen === "reset" && (
           <>
             <div className="label">Create Password</div>
-            <input className="input" type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
+            <input
+              className="input"
+              type="password"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+            />
 
             <div className="label">Confirm Password</div>
-            <input className="input" type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+            <input
+              className="input"
+              type="password"
+              value={pw2}
+              onChange={(e) => setPw2(e.target.value)}
+            />
 
-            <button className="btn blue" onClick={handleResetPassword} disabled={loading}>
+            <button
+              className="btn blue"
+              onClick={handleResetPassword}
+              disabled={loading}
+            >
               {loading ? "Updating..." : "Update Password"}
             </button>
           </>
@@ -440,7 +526,11 @@ return data;
               <div className="modalTitle">{modal.title}</div>
               <div className="modalDesc">{modal.desc}</div>
 
-              <button className="btn solid" style={{ marginTop: 16 }} onClick={modal.onClose}>
+              <button
+                className="btn solid"
+                style={{ marginTop: 16 }}
+                onClick={modal.onClose}
+              >
                 {modal.buttonText}
               </button>
             </div>
@@ -485,7 +575,7 @@ html,body{ height:100%; margin:0; font-family: system-ui, -apple-system, Segoe U
 }
 .sessionLeft{ display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
 .sessionName{ color:#fff; font-weight:800; font-size:14px; line-height:1.1; }
-.sessionRole{ color:rgba(255,255,255,.7); font-size:12px; font-weight:700; text-transform:capitalize; }
+.sessioanRole{ color:rgba(255,255,255,.7); font-size:12px; font-weight:700; text-transform:capitalize; }
 .muted{ color:rgba(255,255,255,.65); font-size:12px; font-weight:700; }
 .checkboxRow{ width:min(540px, 94vw); margin:8px auto 10px; text-align:left; }
 .check{ display:flex; align-items:center; gap:10px; color:rgba(255,255,255,.85); font-size:13px; font-weight:700; }
