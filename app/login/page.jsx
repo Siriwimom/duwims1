@@ -9,6 +9,10 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
+
+  // ✅ NEW: เก็บ "ชื่อนามสกุล" ลง nickname
+  const [nickname, setNickname] = useState("");
+
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const otpRefs = useRef([]);
 
@@ -66,6 +70,8 @@ export default function App() {
     setPw2("");
     setOtp(["", "", "", "", "", ""]);
     setErr("");
+    // ✅ NEW
+    setNickname("");
   }
 
   const title = useMemo(() => {
@@ -151,12 +157,17 @@ export default function App() {
         throw new Error("Password must be at least 6 characters");
       if (pw !== pw2) throw new Error("Password not match");
 
+      // ✅ NEW: require nickname
+      const nick = String(nickname || "").trim();
+      if (!nick) throw new Error("กรุณากรอกชื่อนามสกุล");
+
       // 1) register
       await api("/auth/register", {
         method: "POST",
         body: {
           email: emailN,
           password: pw,
+          nickname: nick, // ✅ ส่งไป backend เป็น nickname
           role: signupIsOwner ? "owner" : "employee",
         },
       });
@@ -183,6 +194,7 @@ export default function App() {
     setEmail("");
     setPw("");
     setPw2("");
+    setNickname("");
     setScreen("login");
   }
 
@@ -299,6 +311,7 @@ export default function App() {
           ) : sessionUser ? (
             <>
               <div className="sessionLeft">
+                {/* เดิมโชว์ email */}
                 <div className="sessionName">{sessionUser.email}</div>
                 <div className="sessionRole">{sessionUser.role}</div>
               </div>
@@ -370,6 +383,15 @@ export default function App() {
         {/* SIGNUP */}
         {screen === "signup" && (
           <>
+            {/* ✅ NEW: ชื่อนามสกุล (เก็บเป็น nickname) */}
+            <div className="label">ชื่อนามสกุล</div>
+            <input
+              className="input"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              placeholder="ชื่อ นามสกุล"
+            />
+
             <div className="label">Email</div>
             <input
               className="input"
