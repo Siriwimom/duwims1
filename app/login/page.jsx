@@ -19,8 +19,26 @@ export default function App() {
   const [modal, setModal] = useState(null); // { title, desc, buttonText, onClose }
   const [resetAllowed, setResetAllowed] = useState(false);
 
-  // ✅ IMPORTANT: ให้ตรงกับ Dashboard (Dashboard อ่าน key = "token")
-  const LS_TOKEN = "token";
+  // ✅ IMPORTANT: token ใช้ key: AUTH_TOKEN_V1 (ตามหน้าอื่น ๆ)
+  const LS_TOKEN = "AUTH_TOKEN_V1";
+  // ✅ เพื่อกันชนกับหน้าเก่า/โค้ดเก่า: เก็บซ้ำอีก key ด้วย
+  const TOKEN_KEYS_TO_SAVE = ["AUTH_TOKEN_V1", "token"];
+
+  function getToken() {
+    for (const k of TOKEN_KEYS_TO_SAVE) {
+      const v = localStorage.getItem(k);
+      if (v) return v;
+    }
+    return null;
+  }
+
+  function saveToken(token) {
+    TOKEN_KEYS_TO_SAVE.forEach((k) => localStorage.setItem(k, token));
+  }
+
+  function clearToken() {
+    TOKEN_KEYS_TO_SAVE.forEach((k) => localStorage.removeItem(k));
+  }
 
   // ✅ backend base (Express/NestJS) เช่น http://localhost:3001
   // (ตั้ง env ให้ตรงกับที่คุณใช้ได้เลย)
@@ -116,7 +134,7 @@ export default function App() {
       if (!data?.token) throw new Error("Login success but token is missing");
 
       // ✅ เก็บ token key ให้ตรงกับ Dashboard
-      localStorage.setItem(LS_TOKEN, data.token);
+      saveToken(data.token);
 
       setSessionUser(data.user);
 
@@ -151,7 +169,7 @@ export default function App() {
 
       if (!data?.token) throw new Error("Signup success but token is missing");
 
-      localStorage.setItem(LS_TOKEN, data.token);
+      saveToken(data.token);
       setSessionUser(data.user);
 
       // ✅ redirect ไป Dashboard (ห้ามไป 3001)
@@ -160,7 +178,7 @@ export default function App() {
   }
 
   function logout() {
-    localStorage.removeItem(LS_TOKEN);
+    clearToken();
     setSessionUser(null);
     setEmail("");
     setPw("");
@@ -253,7 +271,7 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const t = localStorage.getItem(LS_TOKEN);
+        const t = getToken();
         if (!t) {
           setSessionChecking(false);
           return;
@@ -261,7 +279,7 @@ export default function App() {
         const me = await api("/me", { token: t });
         setSessionUser(me.user);
       } catch (e) {
-        localStorage.removeItem(LS_TOKEN);
+        clearToken();
         setSessionUser(null);
       } finally {
         setSessionChecking(false);

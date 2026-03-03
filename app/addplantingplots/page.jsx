@@ -4,20 +4,44 @@ import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
-// --- dynamic import React-Leaflet & React-Leaflet-Draw (client only) ---
-const MapContainer = dynamic(() => import("react-leaflet").then((m) => m.MapContainer), { ssr: false });
-const TileLayer = dynamic(() => import("react-leaflet").then((m) => m.TileLayer), { ssr: false });
-const FeatureGroup = dynamic(() => import("react-leaflet").then((m) => m.FeatureGroup), { ssr: false });
-const Polygon = dynamic(() => import("react-leaflet").then((m) => m.Polygon), { ssr: false });
-const EditControl = dynamic(() => import("react-leaflet-draw").then((m) => m.EditControl), { ssr: false });
-const Circle = dynamic(() => import("react-leaflet").then((m) => m.Circle), { ssr: false });
-const CircleMarker = dynamic(() => import("react-leaflet").then((m) => m.CircleMarker), { ssr: false });
+// --- ✅ Load react-leaflet + react-leaflet-draw in ONE client-side bundle (fix appendChild/context mismatch) ---
+function useLeafletBundle() {
+  const [bundle, setBundle] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [RL, Draw, L] = await Promise.all([
+        import("react-leaflet"),
+        import("react-leaflet-draw"),
+        import("leaflet"),
+      ]);
+
+      // ✅ Fix default marker icon paths (Next.js)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const anyL = L;
+      if (anyL?.Icon?.Default) {
+        anyL.Icon.Default.mergeOptions({
+          iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+          iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
+          shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+        });
+      }
+
+      if (alive) setBundle({ RL, Draw });
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return bundle;
+}
+
+
 
 // Use same-origin by default (recommended when you have rewrites)
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001").replace(/\/$/, "");
 
 // IMPORTANT: your login saves token under AUTH_TOKEN_V1
 function getToken() {
@@ -77,15 +101,17 @@ function formatThaiDateTimeBuddhist(isoOrDate) {
   }
 }
 
-function PolyLayer({ poly, onReady }) {
+function PolyLayer({ leaflet, poly, onReady }) {
   const ref = useRef(null);
   useEffect(() => {
     if (ref.current && onReady) onReady(ref.current, poly.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poly?.id]);
 
+  // ✅ กันกรณี bundle ยังโหลดไม่เสร็จ
+  if (!leaflet?.RL) return null;
   return (
-    <Polygon
+    <leaflet.RL.Polygon
       ref={ref}
       positions={poly.coords}
       pathOptions={{
@@ -97,73 +123,88 @@ function PolyLayer({ poly, onReady }) {
   );
 }
 
-const CurrentLocationLayer = dynamic(
-  async () => {
-    const RL = await import("react-leaflet");
-    const { useMap } = RL;
+function CurrentLocationLayer({ leaflet, locateTick, onStatus }) {
+  const map = leaflet.RL.useMap();
+  const [pos, setPos] = React.useState(null); // { lat, lng, accuracy }
 
-    return function CurrentLocationLayerInner({ locateTick, onStatus }) {
-      const map = useMap();
-      const [pos, setPos] = React.useState(null); // { lat, lng, accuracy }
+  React.useEffect(() => {
+    if (!locateTick) return;
+    if (!map) return;
+    if (typeof window === "undefined") return;
 
-      React.useEffect(() => {
-        if (!locateTick) return;
-        if (!map) return;
-        if (typeof window === "undefined") return;
+    if (!("geolocation" in navigator)) {
+      onStatus?.("อุปกรณ์/เบราว์เซอร์นี้ไม่รองรับการระบุตำแหน่ง");
+      return;
+    }
 
-        if (!("geolocation" in navigator)) {
-          onStatus?.("อุปกรณ์/เบราว์เซอร์นี้ไม่รองรับการระบุตำแหน่ง");
-          return;
-        }
+    onStatus?.("กำลังหาตำแหน่งปัจจุบัน...");
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        const lat = p.coords.latitude;
+        const lng = p.coords.longitude;
+        const accuracy = p.coords.accuracy || 0;
 
-        onStatus?.("กำลังหาตำแหน่งปัจจุบัน...");
-        navigator.geolocation.getCurrentPosition(
-          (p) => {
-            const lat = p.coords.latitude;
-            const lng = p.coords.longitude;
-            const accuracy = p.coords.accuracy || 0;
+        setPos({ lat, lng, accuracy });
+        map.setView([lat, lng], Math.max(map.getZoom() || 16, 17), { animate: true });
+        onStatus?.("พบตำแหน่งแล้ว");
+      },
+      (err) => {
+        onStatus?.(`ไม่สามารถหาตำแหน่งได้: ${err?.message || ""}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locateTick]);
 
-            setPos({ lat, lng, accuracy });
+  if (!pos) return null;
+  return (
+    <>
+      <leaflet.RL.Circle
+        center={[pos.lat, pos.lng]}
+        radius={pos.accuracy || 0}
+        pathOptions={{ color: "#2563eb", fillColor: "#2563eb", fillOpacity: 0.12 }}
+      />
+      <leaflet.RL.CircleMarker
+        center={[pos.lat, pos.lng]}
+        radius={6}
+        pathOptions={{ color: "#2563eb", fillColor: "#2563eb", fillOpacity: 1 }}
+      />
+    </>
+  );
+}
 
-            const zoom = Math.max(map.getZoom(), 17);
-            map.setView([lat, lng], zoom, { animate: true });
-
-            onStatus?.("พบตำแหน่งแล้ว ✅");
-          },
-          (err) => {
-            onStatus?.(err?.message || "ไม่สามารถเข้าถึงตำแหน่งได้ (โปรดอนุญาต Location)");
-          },
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-        );
-      }, [locateTick, map, onStatus]);
-
-      if (!pos) return null;
-
-      return (
-        <>
-          {pos.accuracy > 0 && (
-            <Circle
-              center={[pos.lat, pos.lng]}
-              radius={pos.accuracy}
-              pathOptions={{ weight: 1, opacity: 0.7, fillOpacity: 0.15 }}
-            />
-          )}
-          <CircleMarker center={[pos.lat, pos.lng]} radius={7} pathOptions={{ weight: 2, opacity: 1, fillOpacity: 1 }} />
-        </>
-      );
-    };
-  },
-  { ssr: false }
-);
 
 export default function AddPlantingPlotsPageMultiPolygons() {
   const router = useRouter();
+  const leaflet = useLeafletBundle();
   const [mounted, setMounted] = useState(false);
 
   // ✅ Current location (กดปุ่มเพื่อซูมไปตำแหน่งปัจจุบัน)
   const [locateTick, setLocateTick] = useState(0);
   const [locateStatus, setLocateStatus] = useState("");
   useEffect(() => setMounted(true), []);
+
+  // ✅ load current user's nickname (from /me) and auto-fill caretaker once (do not override existing value)
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = getToken();
+        if (!token) return;
+
+        const data = await apiFetch("/me");
+        const nick = data?.user?.nickname ? String(data.user.nickname) : "";
+        if (!nick) return;
+
+        setCurrentNickname(nick);
+        // ใส่ caretaker เฉพาะตอนยังว่าง (กันทับค่าจากแปลงเดิม)
+        setCaretaker((prev) => (prev && String(prev).trim() ? prev : nick));
+      } catch (e) {
+        // ignore
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
 
   const fgRef = useRef(null);
   const layerIdToPolyIdRef = useRef(new Map()); // leafletLayerId -> polygonDbId
@@ -188,6 +229,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   const [plotAlias, setPlotAlias] = useState("");
   const [plotName, setPlotName] = useState("");
   const [caretaker, setCaretaker] = useState("");
+  const [currentNickname, setCurrentNickname] = useState("");
   const [plantType, setPlantType] = useState("");
   const [plantedAt, setPlantedAt] = useState("");
 
@@ -268,10 +310,10 @@ export default function AddPlantingPlotsPageMultiPolygons() {
     if (!selectedPlot) return;
     setPlotAlias(selectedPlot.alias || selectedPlot.plotName || selectedPlot.name || "");
     setPlotName(selectedPlot.plotName || selectedPlot.name || "");
-    setCaretaker(selectedPlot.caretaker || selectedPlot.ownerName || "");
+    setCaretaker(selectedPlot.caretaker || selectedPlot.ownerName || currentNickname || "");
     setPlantType(selectedPlot.plantType || selectedPlot.cropType || "");
     setPlantedAt(selectedPlot.plantedAt || "");
-  }, [selectedPlot]);
+  }, [selectedPlot, currentNickname]);
 
   // ============ Plot CRUD ============
   async function addPlot() {
@@ -609,11 +651,17 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   }
 
   const getPlotDisplayName = (p) => {
-    const t = (p?.plotName || p?.name || p?.alias || "").trim();
+    // ✅ ให้ dropdown แสดง "ชื่อที่แสดง" (alias) ก่อน ถ้ามี
+    const t = (p?.alias || p?.plotName || p?.name || "").trim();
     return t || "แปลง";
   };
 
   if (!mounted) return null;
+  if (!leaflet) {
+    return (
+      <div style={{ padding: 16 }}>Loading map…</div>
+    );
+  }
 
   return (
     <div className="pui">
@@ -724,26 +772,26 @@ export default function AddPlantingPlotsPageMultiPolygons() {
               </div>
 
               <div className="pui-map pui-map-top">
-                {!mounted ? (
+                {!mounted || !leaflet?.RL ? (
                   <div className="pui-map-loading">Loading map...</div>
                 ) : (
-                  <MapContainer
+                  <leaflet.RL.MapContainer
                     key={selectedPlotId || "map"}
                     center={[13.7563, 100.5018]}
                     zoom={13}
                     style={{ height: "100%", width: "100%" }}
                     preferCanvas={true}
                   >
-                    <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                    <leaflet.RL.TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-                    <CurrentLocationLayer locateTick={locateTick} onStatus={setLocateStatus} />
+                    <CurrentLocationLayer leaflet={leaflet} locateTick={locateTick} onStatus={setLocateStatus} />
 
-                    <FeatureGroup ref={fgRef}>
+                    <leaflet.RL.FeatureGroup ref={fgRef}>
                       {plotPolygons.map((poly) => (
-                        <PolyLayer key={poly.id} poly={poly} onReady={handlePolyLayerReady} />
+                        <PolyLayer leaflet={leaflet} key={poly.id} poly={poly} onReady={handlePolyLayerReady} />
                       ))}
 
-                      <EditControl
+                      <leaflet.Draw.EditControl
                         position="topright"
                         onCreated={onCreated}
                         onEdited={onEdited}
@@ -761,8 +809,8 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                           remove: !isReadOnly, // ✅ ต้องกด “ลบ/แก้ไข” ก่อน
                         }}
                       />
-                    </FeatureGroup>
-                  </MapContainer>
+                    </leaflet.RL.FeatureGroup>
+                  </leaflet.RL.MapContainer>
                 )}
               </div>
 
@@ -819,8 +867,8 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                     value={plotAlias}
                     onChange={(e) => setPlotAlias(e.target.value)}
                     placeholder="ชื่อแสดง"
-                    readOnly={isReadOnly}
                     disabled={busy}
+                    readOnly={!editMode}
                   />
                 </div>
 
@@ -845,14 +893,17 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
                 <div className="pui-field">
                   <div className="pui-label-dark">ชื่อผู้ดูแล</div>
-                  <input
+                  <select
                     className="pui-input pui-input-short"
-                    value={caretaker}
-                    onChange={(e) => setCaretaker(e.target.value)}
-                    placeholder="ชื่อผู้ดูแล"
-                    readOnly={isReadOnly}
-                    disabled={busy}
-                  />
+                    value={(caretaker && String(caretaker).trim()) ? caretaker : (currentNickname || "")}
+                    disabled={true}
+                    aria-readonly="true"
+                    title="ชื่อผู้ดูแลจะดึงจากผู้ใช้ที่ล็อกอินอยู่ และแก้ไขไม่ได้"
+                  >
+                    <option value={(caretaker && String(caretaker).trim()) ? caretaker : (currentNickname || "")}>
+                      {(caretaker && String(caretaker).trim()) ? caretaker : (currentNickname || "")}
+                    </option>
+                  </select>
                 </div>
 
                 <div className="pui-field">
