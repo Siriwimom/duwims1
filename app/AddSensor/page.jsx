@@ -108,6 +108,8 @@ const LeafletMap = dynamic(
       polygons,
       pins,
       pinIcon,
+      activePinIcon,
+      activePinId,
       readOnly,
       onPick,
       onCreated,
@@ -152,7 +154,11 @@ const LeafletMap = dynamic(
             (pins || [])
               .filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
               .map((p) => (
-                <RL.Marker key={p.id} position={[Number(p.lat), Number(p.lng)]} icon={pinIcon}>
+                <RL.Marker
+                  key={p.id}
+                  position={[Number(p.lat), Number(p.lng)]}
+                  icon={String(p.id) === String(activePinId) ? activePinIcon || pinIcon : pinIcon}
+                >
                   <RL.Popup>Pin #{p.number}</RL.Popup>
                 </RL.Marker>
               ))}
@@ -286,6 +292,7 @@ export default function AddSensor() {
   const router = useRouter(); // ✅ เพิ่ม
   const mapRef = useRef(null);
   const [pinIcon, setPinIcon] = useState(null);
+  const [activePinIcon, setActivePinIcon] = useState(null);
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -326,6 +333,16 @@ export default function AddSensor() {
       setPinIcon(
         new L.Icon({
           iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+          iconSize: [25, 41],
+          iconAnchor: [12, 41],
+          popupAnchor: [1, -34],
+          shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+          shadowSize: [41, 41],
+        })
+      );
+      setActivePinIcon(
+        new L.Icon({
+          iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
           iconSize: [25, 41],
           iconAnchor: [12, 41],
           popupAnchor: [1, -34],
@@ -746,16 +763,12 @@ export default function AddSensor() {
   // ✅ PIN actions
   // =========================
   const addPin = async () => {
-    let targetPlotId = selectedPlot;
-
     if (selectedPlot === "all") {
-      const first = plots?.[0];
-      const pid = first?.id || first?._id;
-      if (!pid) return alert("ยังไม่มีแปลงในระบบ");
-      targetPlotId = String(pid);
-      setSelectedPlot(String(pid));
+      alert("กรุณาเลือกแปลงก่อนเพิ่ม Pin");
+      return;
     }
 
+    const targetPlotId = selectedPlot;
     const category = selectedNode === "air" ? "air" : "soil";
 
     let nodeId = "";
@@ -1099,7 +1112,7 @@ export default function AddSensor() {
       plotTitle: { fontSize: 14, fontWeight: 600 },
       plotSub: { fontSize: 11, color: "#6b7280", marginBottom: 10 },
 
-      editBtn: { borderRadius: 999, border: "none", padding: "7px 14px", fontSize: 12, fontWeight: 700, background: editOpen ? "#fb7185" : "#facc15", color: "#111827", cursor: "pointer", width: isMobile ? "100%" : "auto", boxShadow: "0 10px 18px rgba(15,23,42,0.12)" },
+      editBtn: { borderRadius: 999, border: "none", padding: "7px 14px", fontSize: 12, fontWeight: 700, background: editOpen ? "#ef4444" : "#facc15", color: editOpen ? "#ffffff" : "#111827", cursor: "pointer", width: isMobile ? "100%" : "auto", boxShadow: "0 10px 18px rgba(15,23,42,0.12)" },
 
       infoGrid: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,minmax(0,1fr))" : "repeat(4,minmax(0,1fr))", gap: 10, marginBottom: 14 },
       infoLabel: { fontSize: 11, color: "#6b7280", marginBottom: 3 },
@@ -1114,7 +1127,7 @@ export default function AddSensor() {
       pinMetaBtn: { borderRadius: 999, width: 34, height: 34, border: "1px solid rgba(15,23,42,0.12)", background: "#ffffff", cursor: "pointer", fontSize: 18, fontWeight: 800, lineHeight: "34px" },
 
       pinList: { marginTop: 10, display: "grid", gap: 10 },
-      pinCard: (active) => ({ borderRadius: 16, background: active ? "#fde68a" : "#fef9c3", padding: 10, border: active ? "2px solid rgba(15,23,42,0.25)" : "1px solid rgba(15,23,42,0.10)", boxShadow: "0 10px 18px rgba(15,23,42,0.06)", cursor: "pointer" }),
+      pinCard: (active) => ({ borderRadius: 16, background: active ? "#fee2e2" : "#fef9c3", padding: 10, border: active ? "2px solid #ef4444" : "1px solid rgba(15,23,42,0.10)", boxShadow: active ? "0 10px 18px rgba(239,68,68,0.25)" : "0 10px 18px rgba(15,23,42,0.06)", cursor: "pointer" }),
       pinCardGrid: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 },
       pinMetaBox: { borderRadius: 14, background: "rgba(255,255,255,0.78)", border: "1px solid rgba(15,23,42,0.10)", padding: "10px 10px" },
       pinMetaLabel: { fontSize: 10, fontWeight: 800, color: "#6b7280", marginBottom: 3 },
@@ -1226,9 +1239,6 @@ export default function AddSensor() {
           </div>
         </section>
 
-        {/* ====== โค้ดส่วนที่เหลือตามเดิมทั้งหมด ====== */}
-        {/* (ไม่มีการแก้ logic ส่วนอื่น นอกจากเพิ่มปุ่ม back + import/useRouter + styles ที่เกี่ยวข้อง) */}
-
         <section style={styles.plotPanel}>
           <div style={styles.plotHeaderRow}>
             <div style={styles.plotTitle}>ข้อมูลแปลง: {plotLabel}</div>
@@ -1319,6 +1329,8 @@ export default function AddSensor() {
                   polygons={polygonsToRender}
                   pins={filteredPins}
                   pinIcon={pinIcon}
+                  activePinIcon={activePinIcon}
+                  activePinId={activePinId}
                   readOnly={readOnlyAllPlots}
                   onPick={onPickLatLng}
                   onCreated={(map) => {
@@ -1333,7 +1345,17 @@ export default function AddSensor() {
           </div>
 
           <div style={styles.pinActionsRow}>
-            <button style={styles.pinMetaBtn} type="button" onClick={addPin}>
+            <button
+              style={{
+                ...styles.pinMetaBtn,
+                opacity: selectedPlot === "all" ? 0.5 : 1,
+                cursor: selectedPlot === "all" ? "not-allowed" : "pointer",
+              }}
+              type="button"
+              onClick={addPin}
+              disabled={selectedPlot === "all"}
+              title={selectedPlot === "all" ? "กรุณาเลือกแปลงก่อนเพิ่ม Pin" : "เพิ่ม Pin"}
+            >
               +
             </button>
             <button
