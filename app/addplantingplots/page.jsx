@@ -6,11 +6,13 @@ import "leaflet-draw/dist/leaflet.draw.css";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-// --- ✅ Load react-leaflet + react-leaflet-draw in ONE client-side bundle (fix appendChild/context mismatch) ---
+// --- ✅ Load react-leaflet + react-leaflet-draw in ONE client-side bundle ---
 function useLeafletBundle() {
   const [bundle, setBundle] = useState(null);
+
   useEffect(() => {
     let alive = true;
+
     (async () => {
       const [RL, Draw, L] = await Promise.all([
         import("react-leaflet"),
@@ -18,7 +20,6 @@ function useLeafletBundle() {
         import("leaflet"),
       ]);
 
-      // ✅ Fix default marker icon paths (Next.js)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const anyL = L;
       if (anyL?.Icon?.Default) {
@@ -34,20 +35,20 @@ function useLeafletBundle() {
 
       if (alive) setBundle({ RL, Draw });
     })();
+
     return () => {
       alive = false;
     };
   }, []);
+
   return bundle;
 }
 
-// Use same-origin by default (recommended when you have rewrites)
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001").replace(
   /\/$/,
   ""
 );
 
-// IMPORTANT: your login saves token under AUTH_TOKEN_V1
 function getToken() {
   if (typeof window === "undefined") return "";
   return (
@@ -88,7 +89,6 @@ function isoToThai(iso) {
   return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${yy + 543}`;
 }
 
-// ✅ เวลาไทย (พ.ศ.) สำหรับแสดง “วันที่กลับมา”
 function formatThaiDateTimeBuddhist(isoOrDate) {
   if (!isoOrDate) return "";
   const dt = typeof isoOrDate === "string" ? new Date(isoOrDate) : isoOrDate;
@@ -107,15 +107,25 @@ function formatThaiDateTimeBuddhist(isoOrDate) {
   }
 }
 
+function normalizeCaretaker(v) {
+  const s = String(v || "").trim();
+  if (!s) return "";
+  if (s === "0") return "";
+  if (s.toLowerCase() === "null") return "";
+  if (s.toLowerCase() === "undefined") return "";
+  return s;
+}
+
 function PolyLayer({ leaflet, poly, onReady }) {
   const ref = useRef(null);
+
   useEffect(() => {
     if (ref.current && onReady) onReady(ref.current, poly.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poly?.id]);
 
-  // ✅ กันกรณี bundle ยังโหลดไม่เสร็จ
   if (!leaflet?.RL) return null;
+
   return (
     <leaflet.RL.Polygon
       ref={ref}
@@ -131,7 +141,7 @@ function PolyLayer({ leaflet, poly, onReady }) {
 
 function CurrentLocationLayer({ leaflet, locateTick, onStatus }) {
   const map = leaflet.RL.useMap();
-  const [pos, setPos] = React.useState(null); // { lat, lng, accuracy }
+  const [pos, setPos] = React.useState(null);
 
   React.useEffect(() => {
     if (!locateTick) return;
@@ -163,6 +173,7 @@ function CurrentLocationLayer({ leaflet, locateTick, onStatus }) {
   }, [locateTick]);
 
   if (!pos) return null;
+
   return (
     <>
       <leaflet.RL.Circle
@@ -184,13 +195,11 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   const leaflet = useLeafletBundle();
   const [mounted, setMounted] = useState(false);
 
-  // ✅ Current location (กดปุ่มเพื่อซูมไปตำแหน่งปัจจุบัน)
   const [locateTick, setLocateTick] = useState(0);
   const [locateStatus, setLocateStatus] = useState("");
-  useEffect(() => setMounted(true), []);
 
   const fgRef = useRef(null);
-  const layerIdToPolyIdRef = useRef(new Map()); // leafletLayerId -> polygonDbId
+  const layerIdToPolyIdRef = useRef(new Map());
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -202,12 +211,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
   const [polygonsByPlot, setPolygonsByPlot] = useState({});
   const [notesByPlot, setNotesByPlot] = useState({});
-  const [savedNotesByPlot, setSavedNotesByPlot] = useState({}); // ✅ ต่อหัวข้อใหม่ “แนะนำ / 555.. / เวลา”
-
-  const selectedPlot = useMemo(
-    () => plots.find((p) => String(p.id) === String(selectedPlotId)) || null,
-    [plots, selectedPlotId]
-  );
+  const [savedNotesByPlot, setSavedNotesByPlot] = useState({});
 
   const [plotAlias, setPlotAlias] = useState("");
   const [plotName, setPlotName] = useState("");
@@ -216,56 +220,44 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   const [plantType, setPlantType] = useState("");
   const [plantedAt, setPlantedAt] = useState("");
 
+  useEffect(() => setMounted(true), []);
+
+  const selectedPlot = useMemo(
+    () => plots.find((p) => String(p.id) === String(selectedPlotId)) || null,
+    [plots, selectedPlotId]
+  );
+
   const isReadOnly = !editMode;
   const plotPolygons = polygonsByPlot[selectedPlotId] || [];
   const plotNotes = notesByPlot[selectedPlotId] || [];
   const savedNotes = savedNotesByPlot[selectedPlotId] || [];
-  const latestSaved = savedNotes?.[0] || null; // ✅ ล่าสุด
-
+  const latestSaved = savedNotes?.[0] || null;
+  const effectiveCaretaker = normalizeCaretaker(caretaker) || normalizeCaretaker(currentNickname) || "";
   const makeLocalId = () => `snap_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
-  // ✅ helper: บังคับ “ต้องกด ลบ/แก้ไข ก่อน”
   const requireEditMode = (msg = "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะทำรายการนี้ได้") => {
     if (editMode) return true;
     setErr(msg);
     return false;
   };
 
-  // ✅ ดึงชื่อ employee จากหน้า login (localStorage) แล้ว fallback ไป /me
-  useEffect(() => {
-    (async () => {
-      try {
-        if (typeof window === "undefined") return;
+  async function loadCurrentUserNickname() {
+    try {
+      const token = getToken();
+      if (!token) return "";
 
-        // 1) ✅ เอาจากหน้า login ก่อน (แนะนำให้หน้า login เซฟ key นี้)
-        const cached = (localStorage.getItem("EMPLOYEE_NICKNAME") || "").trim();
-        if (cached) {
-          setCurrentNickname(cached);
-          setCaretaker((prev) => (prev && String(prev).trim() ? prev : cached));
-          return;
-        }
-
-        // 2) fallback: ✅ เรียก /me
-        const token = getToken();
-        if (!token) return;
-
-        const data = await apiFetch("/me");
-        const u = data?.user || {};
-        const role = String(u?.role || "").toLowerCase();
-        const nick = u?.nickname ? String(u.nickname).trim() : "";
-
-        // ✅ เอาเฉพาะ employee เท่านั้น
-        if (role === "employee" && nick) {
-          localStorage.setItem("EMPLOYEE_NICKNAME", nick);
-          setCurrentNickname(nick);
-          setCaretaker((prev) => (prev && String(prev).trim() ? prev : nick));
-        }
-      } catch {
-        // ignore
+      const data = await apiFetch("/me");
+      const u = data?.user || {};
+      const nick = normalizeCaretaker(u?.nickname || "");
+      if (nick) {
+        setCurrentNickname(nick);
+        return nick;
       }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    } catch {
+      // ignore
+    }
+    return "";
+  }
 
   async function loadPlots() {
     const r = await apiFetch("/api/plots");
@@ -300,6 +292,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
     setErr("");
     setLoading(true);
     try {
+      await loadCurrentUserNickname();
       const first = await loadPlots();
       const pid = first || selectedPlotId;
       if (pid) await Promise.all([loadPolygons(pid), loadNotes(pid)]);
@@ -318,7 +311,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
   useEffect(() => {
     if (!selectedPlotId) return;
-    // ✅ เปลี่ยนแปลง -> กลับเป็น read-only
     setEditMode(false);
     layerIdToPolyIdRef.current = new Map();
     Promise.all([loadPolygons(selectedPlotId), loadNotes(selectedPlotId)]).catch(() => {});
@@ -327,29 +319,27 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
   useEffect(() => {
     if (!selectedPlot) return;
+
     setPlotAlias(selectedPlot.alias || selectedPlot.plotName || selectedPlot.name || "");
     setPlotName(selectedPlot.plotName || selectedPlot.name || "");
-
-    // ✅ caretaker: ถ้า plot มี caretaker ให้ใช้ของ plot ก่อน ไม่งั้นใช้ employee ที่ login
-    setCaretaker((prev) => {
-      const fromPlot = (selectedPlot.caretaker || selectedPlot.ownerName || "").trim();
-      if (fromPlot) return fromPlot;
-      const fromLogin = (currentNickname || "").trim();
-      if (fromLogin) return fromLogin;
-      return prev || "";
+    setCaretaker(() => {
+      const fromPlot = normalizeCaretaker(selectedPlot.caretaker || selectedPlot.ownerName || "");
+      const fromLogin = normalizeCaretaker(currentNickname || "");
+      return fromPlot || fromLogin || "";
     });
-
     setPlantType(selectedPlot.plantType || selectedPlot.cropType || "");
     setPlantedAt(selectedPlot.plantedAt || "");
   }, [selectedPlot, currentNickname]);
 
-  // ============ Plot CRUD ============
   async function addPlot() {
-    if (!requireEditMode("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะเพิ่มแปลงได้")) return;
-
     setErr("");
     setBusy(true);
     try {
+      let nicknameToUse = normalizeCaretaker(currentNickname);
+      if (!nicknameToUse) {
+        nicknameToUse = await loadCurrentUserNickname();
+      }
+
       const baseName = `แปลงใหม่ ${new Date().toISOString().slice(0, 10)}`;
       const r = await apiFetch("/api/plots", {
         method: "POST",
@@ -357,11 +347,13 @@ export default function AddPlantingPlotsPageMultiPolygons() {
           plotName: baseName,
           name: baseName,
           alias: baseName,
-          caretaker: "",
+          caretaker: nicknameToUse,
+          ownerName: nicknameToUse,
           plantType: "",
           plantedAt: "",
         },
       });
+
       const created = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
       if (created) {
         setPlots((prev) => [created, ...prev]);
@@ -369,6 +361,10 @@ export default function AddPlantingPlotsPageMultiPolygons() {
         setPolygonsByPlot((prev) => ({ ...prev, [created.id]: [] }));
         setNotesByPlot((prev) => ({ ...prev, [created.id]: [] }));
         setSavedNotesByPlot((prev) => ({ ...prev, [created.id]: [] }));
+        setCaretaker(
+          normalizeCaretaker(created.caretaker || created.ownerName || "") || nicknameToUse || ""
+        );
+        setEditMode(true);
       }
     } catch (e) {
       setErr(e.message || String(e));
@@ -386,10 +382,20 @@ export default function AddPlantingPlotsPageMultiPolygons() {
     try {
       const r = await apiFetch(`/api/plots/${selectedPlotId}`, {
         method: "PATCH",
-        body: { plotName, name: plotName, alias: plotAlias || plotName, caretaker, plantType, plantedAt },
+        body: {
+          plotName,
+          name: plotName,
+          alias: plotAlias || plotName,
+          plantType,
+          plantedAt,
+        },
       });
       const updated = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
-      if (updated) setPlots((prev) => prev.map((p) => (String(p.id) === String(updated.id) ? updated : p)));
+      if (updated) {
+        setPlots((prev) =>
+          prev.map((p) => (String(p.id) === String(updated.id) ? updated : p))
+        );
+      }
       setEditMode(false);
     } catch (e) {
       setErr(e.message || String(e));
@@ -441,7 +447,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
     }
   }
 
-  // ============ Polygon CRUD (MULTI) ============
   async function createPolygon(coords, color = "#2563eb") {
     if (!requireEditMode("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะวาด Polygon ได้")) return;
     if (!selectedPlotId) return;
@@ -525,7 +530,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
     }
   }
 
-  // Leaflet-draw handlers
   const onCreated = async (e) => {
     if (!editMode) {
       setErr("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะวาด Polygon ได้");
@@ -559,9 +563,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
       const latlngs = layer.getLatLngs?.();
       const pts = Array.isArray(latlngs) ? latlngs[0] : [];
       const coords = (pts || []).map((p) => [Number(p.lat), Number(p.lng)]);
-      if (coords.length >= 3) {
-        jobs.push(updatePolygon(polyDbId, coords));
-      }
+      if (coords.length >= 3) jobs.push(updatePolygon(polyDbId, coords));
     });
 
     if (jobs.length) await Promise.all(jobs);
@@ -602,7 +604,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
     layerIdToPolyIdRef.current.set(lid, polygonDbId);
   };
 
-  // ============ Notes CRUD ============
   async function addNote() {
     if (!requireEditMode("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะเพิ่มข้อมูลได้")) return;
     if (!selectedPlotId) return;
@@ -662,7 +663,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
           return { ...prev, [selectedPlotId]: next };
         });
 
-        // ย้ายจากฟอร์ม -> ไปเป็น saved
         setNotesByPlot((prev) => ({
           ...prev,
           [selectedPlotId]: (prev[selectedPlotId] || []).filter((n) => String(n.id) !== String(noteId)),
@@ -707,7 +707,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   return (
     <div className="pui">
       <main className="pui-wrap pui-wrap-wide">
-        {/* ===== HERO ===== */}
         <section className="pui-hero">
           <div className="pui-hero-top">
             <div className="pui-hero-left">
@@ -723,7 +722,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
             </div>
 
             <div style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-              <button className="pui-hero-btn" type="button" onClick={addPlot} disabled={busy || !editMode}>
+              <button className="pui-hero-btn" type="button" onClick={addPlot} disabled={busy}>
                 + เพิ่มแปลง
               </button>
 
@@ -769,7 +768,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
             <div className="pui-alert-title">แจ้งเตือน</div>
             <div className="pui-alert-msg">{err}</div>
             <div className="pui-alert-hint">
-              * token ใช้ key: <b>AUTH_TOKEN_V1</b> (ตามหน้า login ของคุณ) หรือปรับ getToken()
+              * token ใช้ key: <b>AUTH_TOKEN_V1</b>
             </div>
           </div>
         )}
@@ -777,7 +776,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
         {loading ? (
           <div className="pui-empty">Loading...</div>
         ) : !plots.length ? (
-          <div className="pui-empty">ยังไม่มีแปลง — กด “ลบ / แก้ไข” ก่อน แล้วค่อย “+ เพิ่มแปลง”</div>
+          <div className="pui-empty">ยังไม่มีแปลง — กด “+ เพิ่มแปลง” ได้เลย</div>
         ) : (
           <section className="pui-card">
             <div className="pui-card-top">
@@ -802,7 +801,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
               )}
             </div>
 
-            {/* MAP อยู่บน */}
             <div className="pui-mapbox pui-mapbox-top">
               <div className="pui-map-title">Draw Polygons on a Map</div>
 
@@ -869,7 +867,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
               {!editMode && <div className="pui-lockhint">* ต้องกด “ลบ / แก้ไข” ก่อนถึงจะวาด/แก้/ลบ polygon ได้</div>}
             </div>
 
-            {/* Polygons list */}
             <div className="pui-notes-add" style={{ marginTop: 0, paddingTop: 0, borderTop: "none" }}>
               <div className="pui-notes-head">
                 <div className="pui-notes-title">Polygons ของแปลง (ทั้งหมด: {plotPolygons.length})</div>
@@ -908,7 +905,6 @@ export default function AddPlantingPlotsPageMultiPolygons() {
               )}
             </div>
 
-            {/* ฟอร์ม */}
             <div className="pui-formbox">
               <div className="pui-form-grid">
                 <div className="pui-field">
@@ -945,19 +941,15 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
                 <div className="pui-field">
                   <div className="pui-label-dark">ชื่อผู้ดูแล</div>
-
-                  {/* ✅ สำคัญ: ห้าม disabled=true เพราะมัน “กดไม่ได้” */}
                   <select
                     className="pui-input pui-input-short"
-                    value={(caretaker && String(caretaker).trim()) ? caretaker : (currentNickname || "")}
+                    value={effectiveCaretaker}
                     disabled={false}
                     onChange={() => {}}
                     aria-readonly="true"
-                    title="ชื่อผู้ดูแลดึงจากผู้ใช้ที่ล็อกอิน (employee) และแก้ไขไม่ได้"
+                    title="ชื่อผู้ดูแลดึงจากผู้ใช้ที่ล็อกอิน และแก้ไขไม่ได้"
                   >
-                    <option value={(caretaker && String(caretaker).trim()) ? caretaker : (currentNickname || "")}>
-                      {(caretaker && String(caretaker).trim()) ? caretaker : (currentNickname || "")}
-                    </option>
+                    <option value={effectiveCaretaker}>{effectiveCaretaker || "-"}</option>
                   </select>
                 </div>
 
@@ -1018,7 +1010,9 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
                 {!plotNotes.length ? (
                   <div className="pui-empty">
-                    {editMode ? "ยังไม่มีรายการ — กด + เพื่อเพิ่ม" : "ยังไม่มีรายการ (กด “ลบ / แก้ไข” ก่อนถึงจะเพิ่มได้)"}
+                    {editMode
+                      ? "ยังไม่มีรายการ — กด + เพื่อเพิ่ม"
+                      : "ยังไม่มีรายการ (กด “ลบ / แก้ไข” ก่อนถึงจะเพิ่มได้)"}
                   </div>
                 ) : (
                   <div className="pui-notes-list">
