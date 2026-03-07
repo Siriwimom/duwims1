@@ -3,14 +3,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 export default function App() {
-  // screens: login | signup | forgot | otp | reset
   const [screen, setScreen] = useState("login");
 
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
-
-  // ✅ NEW: เก็บ "ชื่อนามสกุล" ลง nickname
   const [nickname, setNickname] = useState("");
 
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
@@ -20,15 +17,13 @@ export default function App() {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const [modal, setModal] = useState(null); // { title, desc, buttonText, onClose }
+  const [modal, setModal] = useState(null);
   const [resetAllowed, setResetAllowed] = useState(false);
 
-  // ✅ IMPORTANT: token ใช้ key: AUTH_TOKEN_V1 (ตามหน้าอื่น ๆ)
-  const LS_TOKEN = "AUTH_TOKEN_V1";
-  // ✅ เพื่อกันชนกับหน้าเก่า/โค้ดเก่า: เก็บซ้ำอีก key ด้วย
   const TOKEN_KEYS_TO_SAVE = ["AUTH_TOKEN_V1", "token"];
 
   function getToken() {
+    if (typeof window === "undefined") return null;
     for (const k of TOKEN_KEYS_TO_SAVE) {
       const v = localStorage.getItem(k);
       if (v) return v;
@@ -37,30 +32,29 @@ export default function App() {
   }
 
   function saveToken(token) {
+    if (typeof window === "undefined" || !token) return;
     TOKEN_KEYS_TO_SAVE.forEach((k) => localStorage.setItem(k, token));
   }
 
   function clearToken() {
+    if (typeof window === "undefined") return;
     TOKEN_KEYS_TO_SAVE.forEach((k) => localStorage.removeItem(k));
   }
 
-  // ✅ backend base (Express/NestJS) เช่น http://localhost:3001
-  // (ตั้ง env ให้ตรงกับที่คุณใช้ได้เลย)
   const API_BASE =
     process.env.NEXT_PUBLIC_API_BASE_URL ||
     process.env.NEXT_PUBLIC_API_BASE ||
     "http://localhost:3001";
 
-  // session (ถ้าเคย login แล้ว)
   const [sessionUser, setSessionUser] = useState(null);
   const [sessionChecking, setSessionChecking] = useState(true);
 
-  // signup option
   const [signupIsOwner, setSignupIsOwner] = useState(false);
 
   function isValidEmail(v) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
   }
+
   function isValidPassword(v) {
     return String(v || "").length >= 6;
   }
@@ -70,7 +64,6 @@ export default function App() {
     setPw2("");
     setOtp(["", "", "", "", "", ""]);
     setErr("");
-    // ✅ NEW
     setNickname("");
   }
 
@@ -95,7 +88,6 @@ export default function App() {
     }
   }
 
-  // ✅ helper เรียก backend ตรง ๆ
   async function api(path, { method = "GET", body, token } = {}) {
     const res = await fetch(`${API_BASE}${path}`, {
       method,
@@ -107,6 +99,7 @@ export default function App() {
     });
 
     const data = await res.json().catch(() => ({}));
+
     if (!res.ok) {
       const msg = data?.error
         ? `${data.message || "Error"}: ${data.error}`
@@ -116,10 +109,10 @@ export default function App() {
       err.payload = data;
       throw err;
     }
+
     return data;
   }
 
-  // ---------- Actions ----------
   function onGo(to) {
     setScreen(to);
     resetFormSensitive();
@@ -139,12 +132,9 @@ export default function App() {
 
       if (!data?.token) throw new Error("Login success but token is missing");
 
-      // ✅ เก็บ token key ให้ตรงกับ Dashboard
       saveToken(data.token);
+      setSessionUser(data.user || null);
 
-      setSessionUser(data.user);
-
-      // ✅ redirect ไป Dashboard (http://localhost:3000)
       window.location.href = "/";
     });
   }
@@ -153,26 +143,24 @@ export default function App() {
     await run(async () => {
       const emailN = email.trim().toLowerCase();
       if (!isValidEmail(emailN)) throw new Error("Invalid email");
-      if (!isValidPassword(pw))
+      if (!isValidPassword(pw)) {
         throw new Error("Password must be at least 6 characters");
+      }
       if (pw !== pw2) throw new Error("Password not match");
 
-      // ✅ NEW: require nickname
       const nick = String(nickname || "").trim();
       if (!nick) throw new Error("กรุณากรอกชื่อนามสกุล");
 
-      // 1) register
       await api("/auth/register", {
         method: "POST",
         body: {
           email: emailN,
           password: pw,
-          nickname: nick, // ✅ ส่งไป backend เป็น nickname
+          nickname: nick,
           role: signupIsOwner ? "owner" : "employee",
         },
       });
 
-      // 2) login automatically to get token
       const data = await api("/auth/login", {
         method: "POST",
         body: { email: emailN, password: pw },
@@ -181,9 +169,8 @@ export default function App() {
       if (!data?.token) throw new Error("Signup success but token is missing");
 
       saveToken(data.token);
-      setSessionUser(data.user);
+      setSessionUser(data.user || null);
 
-      // ✅ redirect ไป Dashboard (ห้ามไป 3001)
       window.location.href = "/";
     });
   }
@@ -196,9 +183,20 @@ export default function App() {
     setPw2("");
     setNickname("");
     setScreen("login");
+
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("token");
+      url.searchParams.delete("error");
+      window.history.replaceState({}, "", url.pathname);
+    }
   }
 
-  // ✅ ส่ง OTP ไปอีเมลจริง (backend จะเป็นคนส่ง)
+  function handleGoogleSignIn() {
+    setErr("");
+    window.location.href = `${API_BASE}/auth/google/start`;
+  }
+
   async function handleSendOtp() {
     await run(async () => {
       const emailN = email.trim().toLowerCase();
@@ -253,8 +251,9 @@ export default function App() {
 
       const emailN = (pendingOtpEmail || email || "").trim().toLowerCase();
       if (!isValidEmail(emailN)) throw new Error("Invalid email");
-      if (!isValidPassword(pw))
+      if (!isValidPassword(pw)) {
         throw new Error("Password must be at least 6 characters");
+      }
       if (pw !== pw2) throw new Error("Password not match");
 
       await api("/auth/reset-password", {
@@ -279,27 +278,74 @@ export default function App() {
     });
   }
 
-  // ถ้าผู้ใช้ refresh หน้า ระหว่าง OTP/reset
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
       try {
-        const t = getToken();
-        if (!t) {
+        const url = new URL(window.location.href);
+        const tokenFromUrl = url.searchParams.get("token");
+        const errorFromUrl = url.searchParams.get("error");
+
+        if (errorFromUrl) {
+          if (!mounted) return;
+          setErr(errorFromUrl);
+          url.searchParams.delete("token");
+          url.searchParams.delete("error");
+          window.history.replaceState({}, "", url.pathname);
           setSessionChecking(false);
           return;
         }
+
+        if (tokenFromUrl) {
+          saveToken(tokenFromUrl);
+
+          url.searchParams.delete("token");
+          url.searchParams.delete("error");
+          window.history.replaceState({}, "", url.pathname);
+
+          try {
+            const me = await api("/me", { token: tokenFromUrl });
+            if (!mounted) return;
+            setSessionUser(me.user || null);
+            setSessionChecking(false);
+
+            window.location.href = "/";
+            return;
+          } catch (e) {
+            clearToken();
+            if (!mounted) return;
+            setSessionUser(null);
+            setErr(e?.message || "Google login failed");
+            setSessionChecking(false);
+            return;
+          }
+        }
+
+        const t = getToken();
+        if (!t) {
+          if (!mounted) return;
+          setSessionChecking(false);
+          return;
+        }
+
         const me = await api("/me", { token: t });
-        setSessionUser(me.user);
+        if (!mounted) return;
+        setSessionUser(me.user || null);
       } catch (e) {
         clearToken();
+        if (!mounted) return;
         setSessionUser(null);
       } finally {
-        setSessionChecking(false);
+        if (mounted) setSessionChecking(false);
       }
     })();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  // ---------- UI ----------
   return (
     <div className="page">
       <style>{css}</style>
@@ -311,9 +357,11 @@ export default function App() {
           ) : sessionUser ? (
             <>
               <div className="sessionLeft">
-                {/* เดิมโชว์ email */}
-                <div className="sessionName">{sessionUser.email}</div>
-                <div className="sessionRole">{sessionUser.role}</div>
+                <div className="sessionName">
+                  {sessionUser.nickname || sessionUser.name || "No username"}
+                </div>
+                <div className="sessionSub">{sessionUser.email || "-"}</div>
+                <div className="sessionRole">{sessionUser.role || "-"}</div>
               </div>
               <button className="btn ghost" onClick={logout} disabled={loading}>
                 Logout
@@ -328,7 +376,6 @@ export default function App() {
 
         {err && <div className="err">{err}</div>}
 
-        {/* LOGIN */}
         {screen === "login" && (
           <>
             <div className="label">Email</div>
@@ -365,9 +412,7 @@ export default function App() {
 
             <button
               className="btn googleBtn"
-              onClick={() =>
-                setErr("Google sign-in: ยังไม่ได้ทำ (ต้องใช้ OAuth)")
-              }
+              onClick={handleGoogleSignIn}
               disabled={loading}
             >
               <span className="gIcon">G</span>
@@ -380,10 +425,8 @@ export default function App() {
           </>
         )}
 
-        {/* SIGNUP */}
         {screen === "signup" && (
           <>
-            {/* ✅ NEW: ชื่อนามสกุล (เก็บเป็น nickname) */}
             <div className="label">ชื่อนามสกุล</div>
             <input
               className="input"
@@ -436,13 +479,11 @@ export default function App() {
 
             <button
               className="btn googleBtn"
-              onClick={() =>
-                setErr("Google sign-in: ยังไม่ได้ทำ (ต้องใช้ OAuth)")
-              }
+              onClick={handleGoogleSignIn}
               disabled={loading}
             >
               <span className="gIcon">G</span>
-              <span>Sign in with Google</span>
+              <span>Sign up with Google</span>
             </button>
 
             <div className="small">
@@ -457,7 +498,6 @@ export default function App() {
           </>
         )}
 
-        {/* FORGOT */}
         {screen === "forgot" && (
           <>
             <div className="label">Email Address</div>
@@ -484,7 +524,6 @@ export default function App() {
           </>
         )}
 
-        {/* OTP */}
         {screen === "otp" && (
           <>
             <div className="otpHint">
@@ -526,7 +565,6 @@ export default function App() {
           </>
         )}
 
-        {/* RESET */}
         {screen === "reset" && (
           <>
             <div className="label">Create Password</div>
@@ -555,7 +593,6 @@ export default function App() {
           </>
         )}
 
-        {/* MODAL */}
         {modal && (
           <div className="modalOverlay" onMouseDown={() => {}}>
             <div className="modal">
@@ -615,7 +652,8 @@ html,body{ height:100%; margin:0; font-family: system-ui, -apple-system, Segoe U
 }
 .sessionLeft{ display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
 .sessionName{ color:#fff; font-weight:800; font-size:14px; line-height:1.1; }
-.sessioanRole{ color:rgba(255,255,255,.7); font-size:12px; font-weight:700; text-transform:capitalize; }
+.sessionSub{ color:rgba(255,255,255,.88); font-size:12px; font-weight:700; }
+.sessionRole{ color:rgba(255,255,255,.7); font-size:12px; font-weight:700; text-transform:capitalize; }
 .muted{ color:rgba(255,255,255,.65); font-size:12px; font-weight:700; }
 .checkboxRow{ width:min(540px, 94vw); margin:8px auto 10px; text-align:left; }
 .check{ display:flex; align-items:center; gap:10px; color:rgba(255,255,255,.85); font-size:13px; font-weight:700; }
