@@ -1,5 +1,6 @@
 "use client";
 
+import { useDuwimsT } from "@/app/TopBar";
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -20,8 +21,10 @@ const FitToAll = dynamic(
 
     return function FitToAllInner({ points = [] }) {
       const map = useMap();
+
       useEffect(() => {
         let cancelled = false;
+
         (async () => {
           try {
             const L = await import("leaflet");
@@ -39,6 +42,7 @@ const FitToAll = dynamic(
             // ignore
           }
         })();
+
         return () => {
           cancelled = true;
         };
@@ -53,8 +57,6 @@ const FitToAll = dynamic(
 // ============================
 // ✅ API CONFIG
 // ============================
-// .env.local (Next):
-// NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 
 // ============================
@@ -66,7 +68,13 @@ const pageStyle = {
   minHeight: "100vh",
   color: "#111827",
 };
-const outerWrap = { width: "100%", display: "flex", justifyContent: "center", overflowX: "hidden", minHeight: "100vh" };
+const outerWrap = {
+  width: "100%",
+  display: "flex",
+  justifyContent: "center",
+  overflowX: "hidden",
+  minHeight: "100vh",
+};
 const bodyStyle = {
   width: "100%",
   maxWidth: 1180,
@@ -131,7 +139,13 @@ const pinInfoPill = {
   overflow: "hidden",
 };
 const pinInfoLabel = { fontSize: 10, color: "#6b7280", marginBottom: 2 };
-const pinInfoValue = { fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+const pinInfoValue = {
+  fontSize: 12,
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
 const pinGroupContainer = {
   borderRadius: 22,
   background: "rgba(255,255,255,0.85)",
@@ -154,13 +168,20 @@ const pinGroupItem = {
   minWidth: 0,
   overflow: "hidden",
 };
-const pinSensorName = { fontWeight: 500, marginBottom: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
-const pinSensorValue = { fontSize: 10, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
-
-// ============================
-// ✅ LocalStorage keys
-// ============================
-const LS_TOKEN = "token";
+const pinSensorName = {
+  fontWeight: 500,
+  marginBottom: 1,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+const pinSensorValue = {
+  fontSize: 10,
+  color: "#6b7280",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
 
 // ============================
 // ✅ Helpers
@@ -178,10 +199,29 @@ function formatThaiDate(d) {
   const yyyy = dt.getFullYear() + 543;
   return `${dd}/${mm}/${yyyy}`;
 }
-function prettyTs(ts) {
+function formatDateByLang(d, lang = "th") {
+  if (!d) return "-";
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return String(d);
+  if (lang === "en") return dt.toLocaleDateString("en-GB");
+  return formatThaiDate(d);
+}
+function prettyTs(ts, lang = "th") {
   if (!ts) return "";
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return String(ts);
+
+  if (lang === "en") {
+    return d.toLocaleString("en-GB", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  }
+
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yyyy = d.getFullYear() + 543;
@@ -191,7 +231,13 @@ function prettyTs(ts) {
 }
 function getStoredToken() {
   try {
-    return localStorage.getItem(LS_TOKEN) || "";
+    return (
+      localStorage.getItem("AUTH_TOKEN_V1") ||
+      localStorage.getItem("token") ||
+      localStorage.getItem("pmtool_token") ||
+      localStorage.getItem("duwims_token") ||
+      ""
+    );
   } catch {
     return "";
   }
@@ -230,12 +276,13 @@ async function apiFetch(path, { method = "GET", token = "", body } = {}) {
 }
 
 // ============================
-// ✅ Weather (Open-Meteo) 7 days
+// ✅ Weather
 // ============================
-function toThaiWeekday(dateStr) {
+function toWeekday(dateStr, lang = "th") {
   const d = new Date(dateStr);
-  const days = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัส", "ศุกร์", "เสาร์"];
-  return days[d.getDay()];
+  const thDays = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัส", "ศุกร์", "เสาร์"];
+  const enDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return (lang === "en" ? enDays : thDays)[d.getDay()];
 }
 function centroidOfPolygon(coords) {
   if (!Array.isArray(coords) || coords.length < 3) return null;
@@ -279,7 +326,6 @@ async function fetchForecast7Days(lat, lng) {
 
   return t.map((dateStr, i) => ({
     date: dateStr,
-    day: toThaiWeekday(dateStr),
     tempMax: Math.round(Number(tmax[i] ?? 0)),
     tempMin: Math.round(Number(tmin[i] ?? 0)),
     rainChance: Number(pop[i] ?? 0),
@@ -288,19 +334,18 @@ async function fetchForecast7Days(lat, lng) {
 }
 
 // ============================
-// ✅ Robust polygon parser (fix missing polygons)
+// ✅ Polygon parser
 // ============================
 function maybeSwapLngLat(pair) {
   const a = Number(pair?.[0]);
   const b = Number(pair?.[1]);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
-  if (Math.abs(a) > 90 && Math.abs(b) <= 90) return [b, a]; // swap if looks like [lng,lat]
-  return [a, b]; // assume [lat,lng]
+  if (Math.abs(a) > 90 && Math.abs(b) <= 90) return [b, a];
+  return [a, b];
 }
 function normalizePairList(list) {
   if (!Array.isArray(list)) return null;
 
-  // [{lat,lng}, ...]
   if (list.length && typeof list[0] === "object" && !Array.isArray(list[0])) {
     const out = list
       .map((p) => {
@@ -313,31 +358,26 @@ function normalizePairList(list) {
     return out.length >= 3 ? out : null;
   }
 
-  // [[x,y], ...]
   const out = list.map((p) => maybeSwapLngLat(p)).filter(Boolean);
   return out.length >= 3 ? out : null;
 }
 function extractRingsFromAny(raw) {
   if (!raw) return [];
 
-  // GeoJSON object
   if (typeof raw === "object" && !Array.isArray(raw) && raw.type && raw.coordinates) {
     raw = raw.coordinates;
   }
 
   if (!Array.isArray(raw)) return [];
 
-  // direct ring: [[lat,lng],...]
   const direct = normalizePairList(raw);
   if (direct) return [direct];
 
-  // Polygon: [ [ [lng,lat],... ], ... ]
   if (Array.isArray(raw[0]) && Array.isArray(raw[0][0]) && typeof raw[0][0][0] === "number") {
     const outer = normalizePairList(raw[0]);
     return outer ? [outer] : [];
   }
 
-  // MultiPolygon: [ [ [ [lng,lat],... ] ], ... ]
   if (
     Array.isArray(raw[0]) &&
     Array.isArray(raw[0][0]) &&
@@ -352,7 +392,6 @@ function extractRingsFromAny(raw) {
     return rings;
   }
 
-  // fallback: try each item
   const rings = [];
   for (const item of raw) {
     const r1 = normalizePairList(item);
@@ -400,13 +439,17 @@ function normalizePolygons(items, plotId = "", plotName = "") {
 }
 
 // ============================
-// ✅ Build groups from backend sensors
+// ✅ Build groups from sensors
 // ============================
-function buildGroupsFromSensors(sensors = [], sensorTypeMap = new Map()) {
+function buildGroupsFromSensors(sensors = [], sensorTypeMap = new Map(), t) {
   const groups = new Map();
+  const noSensorData = t("noSensorData", "ยังไม่มีข้อมูลเซนเซอร์");
+  const sensorGroupPrefix = t("sensorGroupPrefix", "เซนเซอร์");
+  const valuePrefix = t("valuePrefix", "ค่า");
+
   for (const s of sensors) {
     const st = sensorTypeMap.get(s.sensorType) || { label: s.sensorType, unit: s.unit || "" };
-    const groupLabel = `เซนเซอร์ ${st.label || s.sensorType}`.trim();
+    const groupLabel = `${sensorGroupPrefix} ${st.label || s.sensorType}`.trim();
 
     const lastV =
       s?.lastReading?.value !== null && s?.lastReading?.value !== undefined
@@ -414,23 +457,36 @@ function buildGroupsFromSensors(sensors = [], sensorTypeMap = new Map()) {
         : "-";
 
     const isAlert = String(s.status || "").toUpperCase() !== "OK";
-    const item = { name: s.name || st.label || s.sensorType, value: `ค่า - ${lastV}`, isAlert };
+    const item = {
+      name: s.name || st.label || s.sensorType,
+      value: `${valuePrefix} - ${lastV}`,
+      isAlert,
+    };
 
     if (!groups.has(groupLabel)) groups.set(groupLabel, []);
     groups.get(groupLabel).push(item);
   }
 
   const out = [];
-  for (const [group, items] of groups.entries()) out.push({ group, items });
+  for (const [group, items] of groups.entries()) {
+    out.push({ group, items });
+  }
 
   if (!out.length) {
-    return [{ group: "เซนเซอร์", items: [{ name: "—", value: "ยังไม่มีข้อมูลเซนเซอร์", isAlert: false }] }];
+    return [
+      {
+        group: sensorGroupPrefix,
+        items: [{ name: "—", value: noSensorData, isAlert: false }],
+      },
+    ];
   }
+
   return out;
 }
 
 export default function DashboardAllPlotsPage() {
   const router = useRouter();
+  const { t, lang } = useDuwimsT();
 
   const [isClient, setIsClient] = useState(false);
   const [pinIcon, setPinIcon] = useState(null);
@@ -538,34 +594,23 @@ export default function DashboardAllPlotsPage() {
     };
   }, [isClient]);
 
-  // ============================
-  // ✅ Auth + Data state
-  // ============================
   const [token, setToken] = useState("");
-
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [cacheTs, setCacheTs] = useState(null);
-
   const [forecastDays, setForecastDays] = useState([]);
-
-  // ✅ ALL PLOTS
   const [plots, setPlots] = useState([]);
   const [sensorTypes, setSensorTypes] = useState([]);
+  const [polygonsAll, setPolygonsAll] = useState([]);
+  const [pinsAll, setPinsAll] = useState([]);
+  const [sensorsByPinId, setSensorsByPinId] = useState({});
+
   const sensorTypeMap = useMemo(() => {
     const m = new Map();
-    for (const t of sensorTypes || []) m.set(t.key, t);
+    for (const st of sensorTypes || []) m.set(st.key, st);
     return m;
   }, [sensorTypes]);
 
-  // ✅ ALL polygons + ALL pins across all plots
-  const [polygonsAll, setPolygonsAll] = useState([]); // [{id, plotId, plotName, coords, color}]
-  const [pinsAll, setPinsAll] = useState([]); // [{id, plotId, plotName, number, lat, lng}]
-  const [sensorsByPinId, setSensorsByPinId] = useState({}); // pinId -> sensors[]
-
-  // ============================
-  // ✅ Mount: token + redirect
-  // ============================
   useEffect(() => {
     if (!isClient) return;
     const tk = getStoredToken();
@@ -576,35 +621,33 @@ export default function DashboardAllPlotsPage() {
     setToken(tk);
   }, [isClient, router]);
 
-  // ============================
-  // ✅ Load everything (ALL plots)
-  // ============================
   useEffect(() => {
     if (!token) return;
 
     let cancelled = false;
+
     async function loadAll() {
       setLoading(true);
       setLoadError("");
+
       try {
-        // 1) sensor types
         const st = await apiFetch("/api/sensor-types", { token });
         if (cancelled) return;
         setSensorTypes(st?.items || []);
 
-        // 2) plots
         const pl = await apiFetch("/api/plots", { token });
         if (cancelled) return;
+
         const plotItems = (pl?.items || [])
           .map((p) => ({
             ...p,
-            id: String(p.id || p._id || ""),
+            id: String(p._id || p.id || ""),
             plotName: p.plotName || p.name || p.alias || "",
           }))
           .filter((p) => p.id);
+
         setPlots(plotItems);
 
-        // 3) polygons + pins + sensors for each plot (Promise.all)
         const polyPromises = plotItems.map((p) =>
           apiFetch(`/api/plots/${p.id}/polygons`, { token }).then((res) => ({
             plotId: p.id,
@@ -629,14 +672,13 @@ export default function DashboardAllPlotsPage() {
           }))
         );
 
-        const [polysByPlot, pinsByPlot, sensorsByPlot] = await Promise.all([
+        const [polysByPlot, pinsByPlot, sensorsByPlotArr] = await Promise.all([
           Promise.all(polyPromises),
           Promise.all(pinPromises),
           Promise.all(sensorPromises),
         ]);
         if (cancelled) return;
 
-        // normalize polygons
         const allPolys = [];
         for (const pp of polysByPlot) {
           const normalized = normalizePolygons(pp.items, pp.plotId, pp.plotName);
@@ -644,13 +686,12 @@ export default function DashboardAllPlotsPage() {
         }
         setPolygonsAll(allPolys);
 
-        // normalize pins
         const allPins = [];
         for (const pr of pinsByPlot) {
           const pinsNorm = (pr.items || [])
             .map((x) => ({
               ...x,
-              id: String(x.id || x._id || ""),
+              id: String(x._id || x.id || ""),
               plotId: pr.plotId,
               plotName: pr.plotName,
               number: safeNum(x.number, 0),
@@ -663,12 +704,11 @@ export default function DashboardAllPlotsPage() {
         }
         setPinsAll(allPins);
 
-        // normalize sensors map by pin
         const pinMap = {};
-        for (const sr of sensorsByPlot) {
+        for (const sr of sensorsByPlotArr) {
           const sensors = (sr.items || []).map((x) => ({
             ...x,
-            id: String(x.id || x._id || ""),
+            id: String(x._id || x.id || ""),
             pinId: x.pinId ? String(x.pinId) : null,
           }));
           for (const s of sensors) {
@@ -683,7 +723,7 @@ export default function DashboardAllPlotsPage() {
       } catch (e) {
         if (!cancelled) {
           if (e?.status === 401) router.replace("/login");
-          setLoadError(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+          setLoadError(e?.message || t("loadFailed", "โหลดข้อมูลไม่สำเร็จ"));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -691,16 +731,15 @@ export default function DashboardAllPlotsPage() {
     }
 
     loadAll();
+
     return () => {
       cancelled = true;
     };
-  }, [token, router]);
+  }, [token, router, t]);
 
-  // ============================
-  // ✅ Weather effect
-  // ============================
   useEffect(() => {
     let cancelled = false;
+
     async function loadWeather() {
       try {
         let latLng = null;
@@ -718,7 +757,7 @@ export default function DashboardAllPlotsPage() {
           if (firstPin) latLng = [Number(firstPin.lat), Number(firstPin.lng)];
         }
 
-        if (!latLng) latLng = [13.736717, 100.523186]; // fallback only for weather
+        if (!latLng) latLng = [13.736717, 100.523186];
 
         const days = await fetchForecast7Days(latLng[0], latLng[1]);
         if (!cancelled) setForecastDays(days);
@@ -726,15 +765,14 @@ export default function DashboardAllPlotsPage() {
         if (!cancelled) setForecastDays([]);
       }
     }
+
     loadWeather();
+
     return () => {
       cancelled = true;
     };
   }, [polygonsAll, pinsAll]);
 
-  // ============================
-  // ✅ Derived UI (ALL)
-  // ============================
   const allMapPoints = useMemo(() => {
     const pts = [];
     for (const poly of polygonsAll || []) {
@@ -746,7 +784,9 @@ export default function DashboardAllPlotsPage() {
 
   const mapCenter = useMemo(() => {
     const any = allMapPoints?.[0];
-    if (any && Number.isFinite(Number(any[0])) && Number.isFinite(Number(any[1]))) return [Number(any[0]), Number(any[1])];
+    if (any && Number.isFinite(Number(any[0])) && Number.isFinite(Number(any[1]))) {
+      return [Number(any[0]), Number(any[1])];
+    }
     return [13.736717, 100.523186];
   }, [allMapPoints]);
 
@@ -762,10 +802,21 @@ export default function DashboardAllPlotsPage() {
       }));
   }, [pinsAll]);
 
-  // ✅ show ALL pins as cards (no slice)
   const pinCards = useMemo(() => {
     return (pinsAll || []).slice().sort((a, b) => safeNum(a.number, 0) - safeNum(b.number, 0));
   }, [pinsAll]);
+
+  const daysUI = useMemo(() => {
+    if (forecastDays?.length) {
+      return forecastDays.map((d) => ({
+        day: toWeekday(d.date, lang),
+        temp: `${safeNum(d.tempMax, 0)}°`,
+        rain: `${safeNum(d.rainChance, 0)}%`,
+        emoji: weatherEmoji(d.rainChance),
+      }));
+    }
+    return [];
+  }, [forecastDays, lang]);
 
   const today = forecastDays?.[0] || null;
   const tempRangeText = today ? `${safeNum(today.tempMin, 0)} – ${safeNum(today.tempMax, 0)} °C` : "—";
@@ -778,22 +829,34 @@ export default function DashboardAllPlotsPage() {
   }, [forecastDays]);
 
   const adviceText = useMemo(() => {
-    if (!forecastDays?.length) return "กำลังโหลดพยากรณ์อากาศ...";
+    if (!forecastDays?.length) return t("loadingWeatherAdvice", "กำลังโหลดพยากรณ์อากาศ...");
+
     const next3 = forecastDays.slice(0, 3).map((d) => safeNum(d.rainChance, 0));
     const max3 = Math.max(...next3);
+
+    if (lang === "en") {
+      if (max3 >= 70) {
+        return "High chance of rain in the next 2–3 days. Prepare drainage and inspect water paths in the plot.";
+      }
+      if (max3 >= 40) {
+        return "Moderate chance of rain. Monitor soil moisture and adjust irrigation timing accordingly.";
+      }
+      return "Low chance of rain. Suitable for planned irrigation and routine soil-moisture checks.";
+    }
+
     if (max3 >= 70) return "มีโอกาสฝนสูงใน 2–3 วันข้างหน้า ควรเตรียมระบบระบายน้ำ/ตรวจร่องน้ำในแปลง";
     if (max3 >= 40) return "ช่วงนี้มีโอกาสฝนปานกลาง ควรเฝ้าระวังความชื้นดินและปรับรอบให้น้ำให้เหมาะสม";
     return "ฝนค่อนข้างน้อย เหมาะกับการจัดการให้น้ำตามแผน และตรวจความชื้นดินเป็นระยะ";
-  }, [forecastDays]);
+  }, [forecastDays, lang, t]);
 
   const pinCount = (pinsAll || []).length;
   const plotCount = (plots || []).length;
   const polyCount = (polygonsAll || []).length;
 
   const issueCount = useMemo(() => {
-    const allPins = Object.keys(sensorsByPinId || {});
+    const allPinsKeys = Object.keys(sensorsByPinId || {});
     let n = 0;
-    for (const pid of allPins) {
+    for (const pid of allPinsKeys) {
       const arr = sensorsByPinId?.[pid] || [];
       for (const s of arr) {
         if (String(s.status || "").toUpperCase() !== "OK") n += 1;
@@ -803,20 +866,10 @@ export default function DashboardAllPlotsPage() {
   }, [sensorsByPinId]);
 
   const statusText = useMemo(() => {
-    return `อัปเดตจากระบบ${cacheTs ? ` • อัปเดต: ${prettyTs(cacheTs)}` : ""}`;
-  }, [cacheTs]);
-
-  const daysUI = useMemo(() => {
-    if (forecastDays?.length) {
-      return forecastDays.map((d) => ({
-        day: d.day,
-        temp: `${safeNum(d.tempMax, 0)}°`,
-        rain: `${safeNum(d.rainChance, 0)}%`,
-        emoji: weatherEmoji(d.rainChance),
-      }));
-    }
-    return [];
-  }, [forecastDays]);
+    const updatedPrefix = lang === "en" ? "System update" : "อัปเดตจากระบบ";
+    const updatedAtPrefix = lang === "en" ? "Updated" : "อัปเดต";
+    return `${updatedPrefix}${cacheTs ? ` • ${updatedAtPrefix}: ${prettyTs(cacheTs, lang)}` : ""}`;
+  }, [cacheTs, lang]);
 
   return (
     <div style={pageStyle}>
@@ -830,13 +883,10 @@ export default function DashboardAllPlotsPage() {
           }}
           className="du-dashboard"
         >
-          {/* ===== Header Bar REMOVED (ผู้ใช้/แปลง/Logout ถูกลบออกทั้งหมด) ===== */}
-
-          {/* ===== Top Row ===== */}
           <div style={{ ...gridTop, marginBottom: 16 }}>
             <div style={{ ...cardBaseR, gridArea: "forecast" }} className="du-card">
               <div className="du-card-title" style={{ ...title18, marginBottom: 6 }}>
-                พยากรณ์อากาศ 7 วันข้างหน้า
+                {t("weather7days", "พยากรณ์อากาศ 7 วันข้างหน้า")}
               </div>
 
               <div style={{ marginTop: 8, overflowX: isMobile ? "auto" : "visible" }}>
@@ -857,13 +907,20 @@ export default function DashboardAllPlotsPage() {
                     >
                       <div style={{ fontSize: 13, fontWeight: 700 }}>{d.day}</div>
                       <div style={{ fontSize: 22, margin: "6px 0 2px" }}>{d.emoji}</div>
-                      <div style={{ fontSize: isMobile ? 18 : 18, fontWeight: 800, lineHeight: 1.1 }}>{d.temp}</div>
-                      <div style={{ fontSize: 11, color: "#4b5563", marginTop: 4 }}>โอกาสฝนตก {d.rain}</div>
+                      <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.1 }}>{d.temp}</div>
+                      <div style={{ fontSize: 11, color: "#4b5563", marginTop: 4 }}>
+                        {lang === "en" ? `Rain chance ${d.rain}` : `โอกาสฝนตก ${d.rain}`}
+                      </div>
                     </div>
                   ))}
+
                   {!daysUI.length && (
                     <div style={{ padding: 10, color: "#6b7280", fontSize: 12 }}>
-                      {loading ? "กำลังโหลด..." : loadError ? loadError : "กำลังโหลดข้อมูลพยากรณ์อากาศ..."}
+                      {loading
+                        ? t("loading", "กำลังโหลด...")
+                        : loadError
+                        ? loadError
+                        : t("loadingForecast", "กำลังโหลดข้อมูลพยากรณ์อากาศ...")}
                     </div>
                   )}
                 </div>
@@ -873,27 +930,31 @@ export default function DashboardAllPlotsPage() {
             <div style={{ gridArea: "mid", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
               <div style={{ ...cardBaseR, background: "#1d4ed8", color: "#ffffff" }} className="du-card">
                 <div className="du-card-title" style={{ ...title18, marginBottom: 4 }}>
-                  อุณหภูมิปัจจุบัน (วันนี้)
+                  {t("todayTemperature", "อุณหภูมิปัจจุบัน (วันนี้)")}
                 </div>
                 <div style={{ ...bigTemp, marginBottom: 4, color: "#bfdbfe" }}>{tempRangeText}</div>
                 <div style={{ fontSize: 13, color: "#e0e7ff", lineHeight: 1.5 }}>
-                  {forecastDays?.length ? "อิงจากพยากรณ์รายวันของพื้นที่แปลง" : "กำลังโหลด..."}
+                  {forecastDays?.length
+                    ? t("basedOnDailyForecast", "อิงจากพยากรณ์รายวันของพื้นที่แปลง")
+                    : t("loading", "กำลังโหลด...")}
                 </div>
               </div>
 
               <div style={{ ...cardBaseR, background: "#facc15", color: "#111827" }} className="du-card">
                 <div className="du-card-title" style={{ ...title18, marginBottom: 4 }}>
-                  โอกาสฝนตก (วันนี้)
+                  {t("todayRainChance", "โอกาสฝนตก (วันนี้)")}
                 </div>
                 <div style={{ ...bigNum, marginBottom: 2 }}>{forecastDays?.length ? `${rainChanceToday}%` : "—"}</div>
-                <div style={{ fontSize: 12, lineHeight: 1.5 }}>อิงจาก precipitation probability (รายวัน)</div>
+                <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                  {t("basedOnDailyPrecipitation", "อิงจาก precipitation probability (รายวัน)")}
+                </div>
               </div>
             </div>
 
             <div style={{ gridArea: "right", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
               <div className="du-card" style={{ ...cardBaseR, background: "#ef4444", color: "#ffffff" }}>
                 <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
-                  คำแนะนำ
+                  {t("advice", "คำแนะนำ")}
                 </div>
                 <p style={{ fontSize: 14, margin: 0, lineHeight: 1.6 }}>{adviceText}</p>
               </div>
@@ -907,29 +968,38 @@ export default function DashboardAllPlotsPage() {
                 }}
               >
                 <div className="du-card-title" style={{ ...title18, marginBottom: 4 }}>
-                  ปริมาณน้ำฝน (7 วัน)
+                  {t("rain7days", "ปริมาณน้ำฝน (7 วัน)")}
                 </div>
                 <div style={{ ...bigNum, marginBottom: 2 }}>{rainSum7 === null ? "—" : `${rainSum7} mm`}</div>
-                <div style={{ fontSize: 12, opacity: 0.95, lineHeight: 1.5 }}>รวมจาก precipitation_sum รายวัน</div>
+                <div style={{ fontSize: 12, opacity: 0.95, lineHeight: 1.5 }}>
+                  {t("sumFromDailyPrecipitation", "รวมจาก precipitation_sum รายวัน")}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* ===== Middle Row ===== */}
           <div style={{ ...gridMiddle, marginBottom: 16 }} className="du-grid-3">
             <div style={{ ...cardBaseR, gridArea: "map" }} className="du-card">
               <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
-                แผนที่และทรัพยากร (ทุกแปลง)
+                {t("mapAndResourcesAllPlots", "แผนที่และทรัพยากร (ทุกแปลง)")}
               </div>
-              <div style={{ borderRadius: isMobile ? 18 : 22, overflow: "hidden", boxShadow: "0 8px 18px rgba(15,23,42,0.18)" }}>
+
+              <div
+                style={{
+                  borderRadius: isMobile ? 18 : 22,
+                  overflow: "hidden",
+                  boxShadow: "0 8px 18px rgba(15,23,42,0.18)",
+                }}
+              >
                 {isClient && (
                   <MapContainer center={mapCenter} zoom={12} scrollWheelZoom={true} style={{ height: mapHeight, width: "100%" }}>
-                    <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors' url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
+                      url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
 
-                    {/* ✅ Fit ให้เห็นทุกแปลงทั้งหมด */}
                     <FitToAll points={allMapPoints} />
 
-                    {/* ✅ polygons ทุกแปลง */}
                     {(polygonsAll || []).map((poly) => (
                       <Polygon
                         key={poly.id}
@@ -943,7 +1013,6 @@ export default function DashboardAllPlotsPage() {
                       />
                     ))}
 
-                    {/* ✅ pins ทุกแปลง */}
                     {pinIcon &&
                       mapPinsForMap.map((p) => (
                         <Marker key={p.id} position={p.position} icon={pinIcon}>
@@ -957,34 +1026,74 @@ export default function DashboardAllPlotsPage() {
 
             <div style={{ ...cardBaseR, gridArea: "status", background: "#dcfce7" }} className="du-card">
               <div className="du-card-title" style={{ ...title18, marginBottom: 10 }}>
-                สถานะรวม (ทุกแปลง)
+                {t("overallStatusAllPlots", "สถานะรวม (ทุกแปลง)")}
               </div>
+
               <div style={{ fontSize: 12, color: "#166534", marginBottom: 6 }}>{statusText}</div>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <span style={{ padding: "4px 10px", borderRadius: 999, background: "#22c55e", color: "#fff", fontSize: 12, fontWeight: 600 }}>
-                  แปลง {plotCount}
+                <span
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    background: "#22c55e",
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {lang === "en" ? `Plots ${plotCount}` : `แปลง ${plotCount}`}
                 </span>
-                <span style={{ padding: "4px 10px", borderRadius: 999, background: "#22c55e", color: "#fff", fontSize: 12, fontWeight: 600 }}>
-                  Pins {pinCount}
+
+                <span
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    background: "#22c55e",
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {`Pins ${pinCount}`}
                 </span>
-                <span style={{ padding: "4px 10px", borderRadius: 999, background: "#22c55e", color: "#fff", fontSize: 12, fontWeight: 600 }}>
-                  Polygons {polyCount}
+
+                <span
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    background: "#22c55e",
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {`Polygons ${polyCount}`}
                 </span>
               </div>
 
               <div style={{ marginTop: 10, fontSize: 12, color: "#166534" }}>
-                {loading ? "กำลังโหลดข้อมูลทุกแปลง..." : loadError ? `ผิดพลาด: ${loadError}` : "พร้อมใช้งาน"}
+                {loading
+                  ? t("loadingAllPlots", "กำลังโหลดข้อมูลทุกแปลง...")
+                  : loadError
+                  ? `${lang === "en" ? "Error" : "ผิดพลาด"}: ${loadError}`
+                  : t("ready", "พร้อมใช้งาน")}
               </div>
             </div>
 
             <div style={{ ...cardBaseR, gridArea: "issue", background: "#fed7aa" }} className="du-card">
               <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
-                ปัญหารวม (ทุกแปลง)
+                {t("overallIssuesAllPlots", "ปัญหารวม (ทุกแปลง)")}
               </div>
+
               <p style={{ fontSize: 13, marginBottom: 6, lineHeight: 1.55 }}>
-                {issueCount > 0 ? `พบเซนเซอร์ผิดปกติ ${issueCount} รายการ` : "ยังไม่พบปัญหา (ทุกเซนเซอร์สถานะ OK)"}
+                {issueCount > 0
+                  ? lang === "en"
+                    ? `Detected ${issueCount} abnormal sensor item(s)`
+                    : `พบเซนเซอร์ผิดปกติ ${issueCount} รายการ`
+                  : t("noIssueFound", "ยังไม่พบปัญหา (ทุกเซนเซอร์สถานะ OK)")}
               </p>
+
               <span
                 style={{
                   display: "inline-block",
@@ -996,19 +1105,24 @@ export default function DashboardAllPlotsPage() {
                   fontWeight: 600,
                 }}
               >
-                {issueCount > 0 ? "⚠️ ต้องตรวจสอบ" : "✅ ปกติ"}
+                {issueCount > 0
+                  ? lang === "en"
+                    ? "⚠️ Needs checking"
+                    : "⚠️ ต้องตรวจสอบ"
+                  : lang === "en"
+                  ? "✅ Normal"
+                  : "✅ ปกติ"}
               </span>
             </div>
           </div>
 
-          {/* ===== Bottom Row: Pin Cards (ALL PLOTS, ALL PINS) ===== */}
           <div style={gridPins} className="du-grid-3">
             {pinCards.map((pin) => {
               const pinId = String(pin.id || "__no_pin__");
               const pinNumber = safeNum(pin.number, 0);
 
               const sensors = sensorsByPinId?.[pinId] || [];
-              const groups = buildGroupsFromSensors(sensors, sensorTypeMap);
+              const groups = buildGroupsFromSensors(sensors, sensorTypeMap, t);
 
               const hasAlert = sensors.some((s) => String(s.status || "").toUpperCase() !== "OK");
               const backgroundColor = hasAlert ? "#FFBABA" : "#dfffee";
@@ -1035,7 +1149,8 @@ export default function DashboardAllPlotsPage() {
                         {pin.plotName ? `${pin.plotName} • ` : ""}Pin {pinNumber}
                       </span>
                       <span style={pinSubtitle}>
-                        พิกัด {Number(pin.lat).toFixed ? Number(pin.lat).toFixed(5) : pin.lat},{" "}
+                        {lang === "en" ? "Coordinates" : "พิกัด"}{" "}
+                        {Number(pin.lat).toFixed ? Number(pin.lat).toFixed(5) : pin.lat},{" "}
                         {Number(pin.lng).toFixed ? Number(pin.lng).toFixed(5) : pin.lng}
                       </span>
                     </div>
@@ -1044,20 +1159,22 @@ export default function DashboardAllPlotsPage() {
 
                   <div style={pinPillRow}>
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>แปลง</div>
+                      <div style={pinInfoLabel}>{lang === "en" ? "Plot" : "แปลง"}</div>
                       <div style={pinInfoValue}>{pin.plotName || pin.plotId || "—"}</div>
                     </div>
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>พืช</div>
+                      <div style={pinInfoLabel}>{t("plantType", "ประเภทพืช")}</div>
                       <div style={pinInfoValue}>{plotMeta?.plantType || plotMeta?.cropType || "—"}</div>
                     </div>
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>เริ่มปลูก</div>
-                      <div style={pinInfoValue}>{formatThaiDate(plotMeta?.plantedAt) || "-"}</div>
+                      <div style={pinInfoLabel}>{t("plantedAt", "วันที่เริ่มปลูก")}</div>
+                      <div style={pinInfoValue}>{formatDateByLang(plotMeta?.plantedAt, lang)}</div>
                     </div>
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>ชนิดเซนเซอร์</div>
-                      <div style={pinInfoValue}>{`${sensorTypeCount || 0} ชนิด`}</div>
+                      <div style={pinInfoLabel}>{lang === "en" ? "Sensor Types" : "ชนิดเซนเซอร์"}</div>
+                      <div style={pinInfoValue}>
+                        {lang === "en" ? `${sensorTypeCount || 0} type(s)` : `${sensorTypeCount || 0} ชนิด`}
+                      </div>
                     </div>
                   </div>
 
@@ -1065,6 +1182,7 @@ export default function DashboardAllPlotsPage() {
                     {groups.map((g) => (
                       <div key={`${pinId}-${g.group}`} style={pinGroupContainer}>
                         <div style={pinGroupLabel}>{g.group}</div>
+
                         <div style={pinGroupGrid}>
                           {g.items.map((it) => {
                             const isAlertItem = !!it.isAlert;
@@ -1079,6 +1197,7 @@ export default function DashboardAllPlotsPage() {
                               color: isAlertItem ? "#b91c1c" : "#6b7280",
                               fontWeight: isAlertItem ? 600 : 400,
                             };
+
                             return (
                               <div key={`${pinId}-${g.group}-${it.name}`} style={itemStyle}>
                                 <div style={nameStyle}>{it.name}</div>
@@ -1096,7 +1215,7 @@ export default function DashboardAllPlotsPage() {
 
             {!pinCards.length && (
               <div style={{ ...cardBaseR, gridColumn: "1 / -1", color: "#6b7280", fontSize: 13 }} className="du-card">
-                ยังไม่มี Pin ในระบบ
+                {t("noPinsInSystem", "ยังไม่มี Pin ในระบบ")}
               </div>
             )}
           </div>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
+import { useDuwimsT } from "@/app/TopBar";
 
 /* =========================
    ✅ CONFIG
@@ -75,7 +76,6 @@ const LeafletClient = dynamic(
     const RL = await import("react-leaflet");
     const L = await import("leaflet");
 
-    // ✅ Fix default icon path for Next
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyL = L;
     if (anyL?.Icon?.Default) {
@@ -125,7 +125,7 @@ const LeafletClient = dynamic(
       return [13.7563, 100.5018];
     }
 
-    function LeafletMaps({ polygons, pins, styles }) {
+    function LeafletMaps({ polygons, pins, styles, t }) {
       const { MapContainer, TileLayer, Polygon, Marker, Popup } = RL;
 
       const safePolys = (polygons || [])
@@ -155,7 +155,7 @@ const LeafletClient = dynamic(
       return (
         <>
           <div style={styles.mapCard}>
-            <div style={styles.mapTitle}>Polygon แปลง</div>
+            <div style={styles.mapTitle}>{t("polygonsOfPlot", "Plot Polygons")}</div>
             <MapContainer center={center} zoom={11} scrollWheelZoom style={{ height: 230, width: "100%" }}>
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
@@ -172,7 +172,7 @@ const LeafletClient = dynamic(
           </div>
 
           <div style={styles.mapCard}>
-            <div style={styles.mapTitle}>Pin เซนเซอร์</div>
+            <div style={styles.mapTitle}>{t("sensorPinsMap", "Sensor Pins")}</div>
             <MapContainer center={center} zoom={11} scrollWheelZoom style={{ height: 230, width: "100%" }}>
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
@@ -205,7 +205,7 @@ const LeafletClient = dynamic(
 );
 
 /* =========================
-   ✅ STYLES (เหมือนตัวอย่าง)
+   ✅ STYLES
 ========================= */
 const pageStyle = {
   fontFamily: '"Prompt", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -316,20 +316,14 @@ const styles = {
   pinCoord: { fontSize: 12, color: "#000" },
 };
 
-/* =========================
-   ✅ SENSOR OPTION RULES (ตามที่สั่ง)
-   - เลือก Node = air -> เหลือ temp_rh, wind, ppfd, rain
-   - เลือก Node = soil -> เหลือ npk, irrigation, soil_moisture
-   - เลือก Node = all -> แสดงทั้งหมด
-========================= */
 const SENSOR_ALL = [
-  { value: "temp_rh", label: "อุณหภูมิและความชื้น" },
-  { value: "wind", label: "วัดความเร็วลม" },
-  { value: "ppfd", label: "ความเข้มแสง" },
-  { value: "rain", label: "ปริมาณน้ำฝน" },
-  { value: "npk", label: "ความเข้มข้นธาตุอาหาร (N,P,K)" },
-  { value: "irrigation", label: "การให้น้ำ / ความพร้อมใช้น้ำ" },
-  { value: "soil_moisture", label: "ความชื้นในดิน" },
+  { value: "temp_rh", labelKey: "airTempHumidity", fallback: "อุณหภูมิและความชื้น" },
+  { value: "wind", labelKey: "windMeasure", fallback: "วัดความเร็วลม" },
+  { value: "ppfd", labelKey: "lightIntensity", fallback: "ความเข้มแสง" },
+  { value: "rain", labelKey: "rainAmount", fallback: "ปริมาณน้ำฝน" },
+  { value: "npk", labelKey: "npkConcentration", fallback: "ความเข้มข้นธาตุอาหาร (N,P,K)" },
+  { value: "irrigation", labelKey: "irrigationReady", fallback: "การให้น้ำ / ความพร้อมใช้น้ำ" },
+  { value: "soil_moisture", labelKey: "soilMoisture", fallback: "ความชื้นในดิน" },
 ];
 
 const SENSOR_BY_NODE = {
@@ -338,19 +332,13 @@ const SENSOR_BY_NODE = {
   soil: SENSOR_ALL.filter((s) => ["npk", "irrigation", "soil_moisture"].includes(s.value)),
 };
 
-/* =========================
-   ✅ PAGE
-   - (1) เพิ่มปุ่ม "<" ไปหน้า /management
-   - (2) ลบปุ่ม + เพิ่ม PIN และ Sensor ออก
-   - (3) sensorOptions เปลี่ยนตาม nodeCategory + auto-correct ค่า selectedSensorType
-========================= */
-export default function EditAndDelete() {
+export default function EditAndDeletePage() {
   const router = useRouter();
+  const { t } = useDuwimsT();
 
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
-  // responsive
   const [width, setWidth] = useState(1200);
   useEffect(() => {
     if (!hydrated) return;
@@ -381,32 +369,31 @@ export default function EditAndDelete() {
     return { ...styles.pinRow, gridTemplateColumns: isMobile ? "1fr" : "140px 1fr 1fr 60px" };
   }, [isMobile]);
 
-  // filters
   const [selectedPlot, setSelectedPlot] = useState("all");
   const [nodeCategory, setNodeCategory] = useState("all");
   const [selectedSensorType, setSelectedSensorType] = useState("soil_moisture");
 
   const nodeOptions = useMemo(
     () => [
-      { value: "all", label: "ทุก Node" },
-      { value: "air", label: "อากาศ" },
-      { value: "soil", label: "ดิน" },
+      { value: "all", label: t("allNodes", "ทุก Node") },
+      { value: "air", label: t("airShort", "อากาศ") },
+      { value: "soil", label: t("soilShort", "ดิน") },
     ],
-    []
+    [t]
   );
 
-  // ✅ sensorOptions เปลี่ยนตาม nodeCategory (ตามที่สั่ง)
   const sensorOptions = useMemo(() => {
-    return SENSOR_BY_NODE[nodeCategory] || SENSOR_BY_NODE.all;
-  }, [nodeCategory]);
+    return (SENSOR_BY_NODE[nodeCategory] || SENSOR_BY_NODE.all).map((s) => ({
+      value: s.value,
+      label: t(s.labelKey, s.fallback),
+    }));
+  }, [nodeCategory, t]);
 
-  // ✅ ถ้าเปลี่ยน node แล้ว selectedSensorType ไม่อยู่ใน list => set เป็นตัวแรก
   useEffect(() => {
     const ok = sensorOptions.some((s) => s.value === selectedSensorType);
     if (!ok) setSelectedSensorType(sensorOptions[0]?.value || "soil_moisture");
   }, [sensorOptions, selectedSensorType]);
 
-  // data
   const [plots, setPlots] = useState([]);
   const [polygons, setPolygons] = useState([]);
   const [pins, setPins] = useState([]);
@@ -414,16 +401,18 @@ export default function EditAndDelete() {
   const [errMsg, setErrMsg] = useState("");
 
   const plotOptions = useMemo(() => {
-    const base = [{ value: "all", label: "ทุกแปลง" }];
+    const base = [{ value: "all", label: t("allPlots", "ทุกแปลง") }];
     const dyn = (plots || []).map((p) => ({
       value: String(p.id || p._id || ""),
-      label: p.plotName || p.name || p.alias || `แปลง ${String(p.id || p._id || "").slice(-4)}`,
+      label: p.plotName || p.name || p.alias || `${t("plot", "แปลง")} ${String(p.id || p._id || "").slice(-4)}`,
     }));
     return [...base, ...dyn].filter((x) => x.value);
-  }, [plots]);
+  }, [plots, t]);
 
   const currentPlotInfo = useMemo(() => {
-    if (selectedPlot === "all") return { name: "ทุกแปลง", caretaker: "-", plantType: "-", plantedAt: "-" };
+    if (selectedPlot === "all") {
+      return { name: t("allPlots", "ทุกแปลง"), caretaker: "-", plantType: "-", plantedAt: "-" };
+    }
 
     const p = (plots || []).find((x) => String(x.id || x._id) === String(selectedPlot));
     if (!p) return { name: "-", caretaker: "-", plantType: "-", plantedAt: "-" };
@@ -434,12 +423,12 @@ export default function EditAndDelete() {
       plantType: p.plantType || p.cropType || "-",
       plantedAt: p.plantedAt || "-",
     };
-  }, [selectedPlot, plots]);
+  }, [selectedPlot, plots, t]);
 
   const makePlotLabel = (p) => {
     const id = String(p?.id || p?._id || "");
     const name = p?.plotName || p?.name || p?.alias || (id ? id.slice(-4) : "");
-    return name ? `แปลง ${name}` : "แปลง";
+    return name ? `${t("plot", "แปลง")} ${name}` : t("plot", "แปลง");
   };
 
   const polyToUi = (polyDoc, plotLabel, plotId) => {
@@ -458,7 +447,6 @@ export default function EditAndDelete() {
       String(pinDoc?.id || pinDoc?._id || "").trim() ||
       `${plotId}-pin-${pinDoc?.number ?? ""}-${lat}-${lng}`;
 
-    // ส่ง sensorType มาจาก backend ถ้ามี (ใช้โชว์ใน popup)
     const st = String(pinDoc?.sensorType || pinDoc?.type || pinDoc?.sensor_type || "").trim();
 
     return {
@@ -473,7 +461,6 @@ export default function EditAndDelete() {
     };
   };
 
-  // auth guard
   useEffect(() => {
     if (!hydrated) return;
     const tk = getToken();
@@ -498,14 +485,11 @@ export default function EditAndDelete() {
     }
   }, [router]);
 
-  // ✅ ดึง “ครบ” (polygon + pins) ทุกแปลง/แปลงที่เลือก
-  // ✅ สำคัญ: pins ใช้ sensorType=all เสมอ เพื่อไม่ให้โดนกรองหาย
   const loadMapData = useCallback(async () => {
     setLoading(true);
     setErrMsg("");
 
     try {
-      // ensure plots
       let plotItems = plots;
       if (!plotItems?.length) {
         const j = await apiFetchJson("/api/plots");
@@ -607,29 +591,25 @@ export default function EditAndDelete() {
   return (
     <div style={pageStyle}>
       <main style={bodyStyle} className="du-edit-delete">
-        {/* HEADER + FILTERS */}
         <section style={{ ...styles.headerPanel, color: "#000" }}>
           <div style={styles.headerRow}>
-            {/* (1) เพิ่ม "<" กดไปหน้า management */}
             <div style={styles.headerTitleWrap}>
               <button
                 type="button"
                 style={styles.backBtn}
                 onClick={() => router.push("/management")}
-                title="กลับไปหน้า management"
+                title={t("back", "Back")}
                 aria-label="Back to management"
               >
                 {"<"}
               </button>
-              <div style={styles.headerTitle}>ลบและแก้ไขข้อมูล</div>
+              <div style={styles.headerTitle}>{t("editAndDelete", "แก้ไข / ลบ")}</div>
             </div>
-
-            {/* (2) ลบปุ่ม + เพิ่ม PIN และ Sensor ออกแล้ว */}
           </div>
 
           <div style={topGridStyle}>
             <div style={styles.fieldCard}>
-              <label style={styles.fieldLabel}>แปลง</label>
+              <label style={styles.fieldLabel}>{t("plot", "แปลง")}</label>
               <select
                 value={selectedPlot}
                 onChange={(e) => setSelectedPlot(e.target.value)}
@@ -644,7 +624,7 @@ export default function EditAndDelete() {
             </div>
 
             <div style={styles.fieldCard}>
-              <label style={styles.fieldLabel}>เลือก Node</label>
+              <label style={styles.fieldLabel}>{t("selectNode", "เลือก Node")}</label>
               <select
                 value={nodeCategory}
                 onChange={(e) => setNodeCategory(e.target.value)}
@@ -659,7 +639,7 @@ export default function EditAndDelete() {
             </div>
 
             <div style={styles.fieldCard}>
-              <label style={styles.fieldLabel}>ชนิดเซนเซอร์</label>
+              <label style={styles.fieldLabel}>{t("sensorType", "ประเภทเซนเซอร์")}</label>
               <select
                 value={selectedSensorType}
                 onChange={(e) => setSelectedSensorType(e.target.value)}
@@ -681,32 +661,33 @@ export default function EditAndDelete() {
           ) : null}
         </section>
 
-        {/* MAIN PANEL */}
         <section style={styles.bottomPanel}>
           <div style={styles.bottomHeaderRow}>
-            <div style={styles.bottomTitle}>ข้อมูลแปลง</div>
+            <div style={styles.bottomTitle}>{t("plotInformation", "ข้อมูลแปลง")}</div>
             <button style={styles.deleteAllBtn} type="button" onClick={handleDeleteAll} disabled={loading}>
-              ลบทั้งหมด
+              {t("deleteAll", "ลบทั้งหมด")}
             </button>
           </div>
 
-          <div style={styles.bottomSub}>ปรับแก้ Polygon และลบ / เพิ่มตำแหน่ง PIN ของแปลงนี้</div>
+          <div style={styles.bottomSub}>
+            {t("editDeleteDesc", "ปรับแก้ Polygon และลบ / เพิ่มตำแหน่ง PIN ของแปลงนี้")}
+          </div>
 
           <div style={infoGridStyle}>
             <div>
-              <div style={styles.infoLabel}>ชื่อแปลง</div>
-              <div style={styles.infoBox}>{selectedPlot === "all" ? "ทุกแปลง" : currentPlotInfo.name || "-"}</div>
+              <div style={styles.infoLabel}>{t("plot", "แปลง")}</div>
+              <div style={styles.infoBox}>{selectedPlot === "all" ? t("allPlots", "ทุกแปลง") : currentPlotInfo.name || "-"}</div>
             </div>
             <div>
-              <div style={styles.infoLabel}>ผู้ดูแล</div>
+              <div style={styles.infoLabel}>{t("caretaker", "ชื่อผู้ดูแล")}</div>
               <div style={styles.infoBox}>{currentPlotInfo.caretaker || "-"}</div>
             </div>
             <div>
-              <div style={styles.infoLabel}>ประเภทพืช</div>
+              <div style={styles.infoLabel}>{t("plantType", "ประเภทพืช")}</div>
               <div style={styles.infoBox}>{currentPlotInfo.plantType || "-"}</div>
             </div>
             <div>
-              <div style={styles.infoLabel}>วันที่เริ่มปลูก</div>
+              <div style={styles.infoLabel}>{t("plantedAt", "วันที่เริ่มปลูก")}</div>
               <div style={styles.infoBox}>{currentPlotInfo.plantedAt || "-"}</div>
             </div>
           </div>
@@ -714,27 +695,27 @@ export default function EditAndDelete() {
           {!hydrated ? (
             <>
               <div style={styles.mapCard}>
-                <div style={styles.mapTitle}>Polygon แปลง</div>
-                <div style={styles.mapLoading}>Loading map...</div>
+                <div style={styles.mapTitle}>{t("polygonsOfPlot", "Plot Polygons")}</div>
+                <div style={styles.mapLoading}>{t("loadingMap", "Loading map...")}</div>
               </div>
               <div style={styles.mapCard}>
-                <div style={styles.mapTitle}>Pin เซนเซอร์</div>
-                <div style={styles.mapLoading}>Loading map...</div>
+                <div style={styles.mapTitle}>{t("sensorPinsMap", "Sensor Pins")}</div>
+                <div style={styles.mapLoading}>{t("loadingMap", "Loading map...")}</div>
               </div>
             </>
           ) : loading ? (
             <>
               <div style={styles.mapCard}>
-                <div style={styles.mapTitle}>Polygon แปลง</div>
-                <div style={styles.mapLoading}>Loading data...</div>
+                <div style={styles.mapTitle}>{t("polygonsOfPlot", "Plot Polygons")}</div>
+                <div style={styles.mapLoading}>{t("loading", "Loading...")}</div>
               </div>
               <div style={styles.mapCard}>
-                <div style={styles.mapTitle}>Pin เซนเซอร์</div>
-                <div style={styles.mapLoading}>Loading data...</div>
+                <div style={styles.mapTitle}>{t("sensorPinsMap", "Sensor Pins")}</div>
+                <div style={styles.mapLoading}>{t("loading", "Loading...")}</div>
               </div>
             </>
           ) : (
-            <LeafletClient polygons={polygons} pins={pins} styles={styles} />
+            <LeafletClient polygons={polygons} pins={pins} styles={styles} t={t} />
           )}
 
           {(pins || []).map((p, idx) => (
@@ -743,13 +724,13 @@ export default function EditAndDelete() {
                 <div style={styles.pinIconCircle}>📍</div>
                 <div>
                   <div style={styles.pinLabel}>
-                    number #{p.number} {selectedPlot === "all" ? `(${p.plotLabel || "-"})` : ""}
+                    {t("numberLabel", "number")} #{p.number} {selectedPlot === "all" ? `(${p.plotLabel || "-"})` : ""}
                   </div>
                 </div>
               </div>
-              <div style={styles.pinCoord}>ละติจูด&nbsp;&nbsp;{p.lat}</div>
-              <div style={styles.pinCoord}>ลองจิจูด&nbsp;&nbsp;{p.lon}</div>
-              <button style={styles.deleteBtn} type="button" onClick={() => handleDeletePin(p.id)} title="ลบ PIN">
+              <div style={styles.pinCoord}>{t("latitude", "ละติจูด")} {p.lat}</div>
+              <div style={styles.pinCoord}>{t("longitude", "ลองจิจูด")} {p.lon}</div>
+              <button style={styles.deleteBtn} type="button" onClick={() => handleDeletePin(p.id)} title={t("delete", "ลบ")}>
                 🗑️
               </button>
             </div>
@@ -757,12 +738,12 @@ export default function EditAndDelete() {
 
           {!loading && !pins.length ? (
             <div style={{ marginTop: 10, fontSize: 12, fontWeight: 800, color: "#6b7280" }}>
-              ยังไม่มี PIN ในระบบ
+              {t("noPinsInSystem", "ยังไม่มี Pin ในระบบ")}
             </div>
           ) : null}
 
           <button style={styles.saveBtn} type="button" onClick={() => loadMapData()} disabled={loading}>
-            SAVE
+            {t("save", "บันทึก")}
           </button>
         </section>
       </main>

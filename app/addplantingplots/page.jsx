@@ -5,6 +5,7 @@ import "leaflet-draw/dist/leaflet.draw.css";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useDuwimsT } from "@/app/TopBar";
 
 // --- ✅ Load react-leaflet + react-leaflet-draw in ONE client-side bundle ---
 function useLeafletBundle() {
@@ -89,10 +90,22 @@ function isoToThai(iso) {
   return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${yy + 543}`;
 }
 
-function formatThaiDateTimeBuddhist(isoOrDate) {
+function formatDateTimeByLang(isoOrDate, lang = "th") {
   if (!isoOrDate) return "";
   const dt = typeof isoOrDate === "string" ? new Date(isoOrDate) : isoOrDate;
   try {
+    if (lang === "en") {
+      return new Intl.DateTimeFormat("en-US", {
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      }).format(dt);
+    }
+
     return new Intl.DateTimeFormat("th-TH-u-ca-buddhist", {
       year: "numeric",
       month: "numeric",
@@ -103,7 +116,9 @@ function formatThaiDateTimeBuddhist(isoOrDate) {
       hour12: false,
     }).format(dt);
   } catch {
-    return dt.toLocaleString("th-TH", { hour12: false });
+    return dt.toLocaleString(lang === "en" ? "en-US" : "th-TH", {
+      hour12: false,
+    });
   }
 }
 
@@ -139,7 +154,7 @@ function PolyLayer({ leaflet, poly, onReady }) {
   );
 }
 
-function CurrentLocationLayer({ leaflet, locateTick, onStatus }) {
+function CurrentLocationLayer({ leaflet, locateTick, onStatus, lang }) {
   const map = leaflet.RL.useMap();
   const [pos, setPos] = React.useState(null);
 
@@ -149,11 +164,15 @@ function CurrentLocationLayer({ leaflet, locateTick, onStatus }) {
     if (typeof window === "undefined") return;
 
     if (!("geolocation" in navigator)) {
-      onStatus?.("อุปกรณ์/เบราว์เซอร์นี้ไม่รองรับการระบุตำแหน่ง");
+      onStatus?.(
+        lang === "en"
+          ? "This device/browser does not support geolocation"
+          : "อุปกรณ์/เบราว์เซอร์นี้ไม่รองรับการระบุตำแหน่ง"
+      );
       return;
     }
 
-    onStatus?.("กำลังหาตำแหน่งปัจจุบัน...");
+    onStatus?.(lang === "en" ? "Finding current location..." : "กำลังหาตำแหน่งปัจจุบัน...");
     navigator.geolocation.getCurrentPosition(
       (p) => {
         const lat = p.coords.latitude;
@@ -162,10 +181,14 @@ function CurrentLocationLayer({ leaflet, locateTick, onStatus }) {
 
         setPos({ lat, lng, accuracy });
         map.setView([lat, lng], Math.max(map.getZoom() || 16, 17), { animate: true });
-        onStatus?.("พบตำแหน่งแล้ว");
+        onStatus?.(lang === "en" ? "Location found" : "พบตำแหน่งแล้ว");
       },
       (err) => {
-        onStatus?.(`ไม่สามารถหาตำแหน่งได้: ${err?.message || ""}`);
+        onStatus?.(
+          lang === "en"
+            ? `Unable to get location: ${err?.message || ""}`
+            : `ไม่สามารถหาตำแหน่งได้: ${err?.message || ""}`
+        );
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -190,9 +213,11 @@ function CurrentLocationLayer({ leaflet, locateTick, onStatus }) {
   );
 }
 
-export default function AddPlantingPlotsPageMultiPolygons() {
+export default function AddPlantingPlotsPage() {
   const router = useRouter();
   const leaflet = useLeafletBundle();
+  const { t, lang } = useDuwimsT();
+
   const [mounted, setMounted] = useState(false);
 
   const [locateTick, setLocateTick] = useState(0);
@@ -235,7 +260,171 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   const effectiveCaretaker = normalizeCaretaker(caretaker) || normalizeCaretaker(currentNickname) || "";
   const makeLocalId = () => `snap_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
-  const requireEditMode = (msg = "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะทำรายการนี้ได้") => {
+  const txt = {
+    addPlantingPlots: t("addPlantingPlots", "จัดการแปลงปลูก"),
+    polygons: t("polygons", "การจัดการ Polygons"),
+    backToManagement:
+      lang === "en"
+        ? "Back to management page"
+        : "ย้อนกลับไปที่หน้า management",
+    addPlot: t("addPlot", "+ เพิ่มแปลง"),
+    deletePlot: t("deletePlot", "ลบแปลง"),
+    selectPlot: t("selectPlot", "แปลง"),
+    editMode: t(
+      "editMode",
+      "โหมดแก้ไข: สามารถวาด/แก้/ลบ polygon และจัดการข้อมูลได้"
+    ),
+    viewMode: t(
+      "viewMode",
+      "โหมดดูข้อมูล: ต้องกด “ลบ / แก้ไข” ก่อน"
+    ),
+    loading: t("loading", "กำลังโหลด..."),
+    plotInfo: t("plotInfo", "กรอกการจัดการข้อมูลแปลงปลูกพืช"),
+    editDelete: t("editDelete", "ลบ / แก้ไข"),
+    done: t("done", "เสร็จสิ้น"),
+    drawOnMap: t("drawOnMap", "Draw Polygons on a Map"),
+    myLocation: t("myLocation", "ตำแหน่งฉัน"),
+    loadingMap: t("loadingMap", "กำลังโหลดแผนที่..."),
+    polygonsOfPlot: t("polygonsOfPlot", "Polygons ของแปลง"),
+    deleteAll: t("deleteAll", "ลบทั้งหมด"),
+    noPolygon: t(
+      "noPolygon",
+      "ยังไม่มี polygon — เปิด “ลบ / แก้ไข” แล้ววาดบนแผนที่"
+    ),
+    plotDropdownName: t(
+      "plotDropdownName",
+      "ชื่อที่แสดงในรายการแปลง (Dropdown)"
+    ),
+    plotDetail: t("plotDetail", "ข้อมูลแปลงปลูก"),
+    caretaker: t("caretaker", "ชื่อผู้ดูแล"),
+    plantType: t("plantType", "ประเภทพืช"),
+    plantedAt: t("plantedAt", "วันที่เริ่มปลูก"),
+    addInfo: t("addInfo", "เพิ่มข้อมูล"),
+    notes: t("notes", "เพิ่มข้อมูล (หัวข้อเรื่อง + เนื้อหา)"),
+    noteTopic: t("noteTopic", "หัวข้อเรื่อง"),
+    noteContent: t("noteContent", "เนื้อหา"),
+    save: t("save", "บันทึก"),
+    noItems: t("noItems", "ยังไม่มีรายการ"),
+    noList: t("noList", "ยังไม่มีรายการ"),
+    pleaseEditFirst: t("pleaseEditFirst", "ต้องกด “ลบ / แก้ไข” ก่อน"),
+    noPlotYet:
+      lang === "en"
+        ? 'No plots yet — click "+ Add Plot" to start'
+        : "ยังไม่มีแปลง — กด “+ เพิ่มแปลง” ได้เลย",
+    alertTitle: lang === "en" ? "Alert" : "แจ้งเตือน",
+    tokenHint:
+      lang === "en"
+        ? "* token key used: AUTH_TOKEN_V1"
+        : "* token ใช้ key: AUTH_TOKEN_V1",
+    displayNamePlaceholder: lang === "en" ? "Display name" : "ชื่อแสดง",
+    plotNamePlaceholder: lang === "en" ? "Plot name" : "ชื่อแปลง",
+    plantTypePlaceholder: lang === "en" ? "Plant type" : "ประเภทพืช",
+    topicPlaceholder: lang === "en" ? "Topic" : "หัวข้อเรื่อง",
+    contentPlaceholder: lang === "en" ? "Type details..." : "พิมพ์รายละเอียด...",
+    allCount:
+      lang === "en"
+        ? `Plot Polygons (Total: ${plotPolygons.length})`
+        : `Polygons ของแปลง (ทั้งหมด: ${plotPolygons.length})`,
+    confirmDeletePlot:
+      lang === "en"
+        ? "Do you want to delete this plot completely? (including related polygons/notes)"
+        : "ต้องการลบแปลงนี้ทั้งหมดใช่ไหม? (รวม polygons/notes ที่เกี่ยวข้อง)",
+    confirmDeletePolygon:
+      lang === "en" ? "Delete this polygon?" : "ลบ polygon นี้?",
+    confirmDeleteAllPolygons:
+      lang === "en"
+        ? "Delete all polygons of this plot?"
+        : "ลบ polygons ทั้งหมดของแปลงนี้?",
+    confirmDeleteNote:
+      lang === "en" ? "Delete this note?" : "ลบโน้ตนี้?",
+    lockDraw:
+      lang === "en"
+        ? '* Click "Edit / Delete" first to draw/edit/delete polygons'
+        : '* ต้องกด “ลบ / แก้ไข” ก่อนถึงจะวาด/แก้/ลบ polygon ได้',
+    deletePlotTitle:
+      !editMode
+        ? lang === "en"
+          ? 'Click "Edit / Delete" first'
+          : "กด “ลบ / แก้ไข” ก่อน"
+        : lang === "en"
+        ? "Delete this plot from the system"
+        : "ลบแปลงนี้ออกจากระบบ",
+    deleteAllTitle:
+      !editMode
+        ? lang === "en"
+          ? 'Click "Edit / Delete" first'
+          : "กด “ลบ / แก้ไข” ก่อน"
+        : lang === "en"
+        ? "Delete all polygons in this plot"
+        : "ลบ polygons ทั้งหมดของแปลงนี้",
+    deleteOneTitle:
+      !editMode
+        ? lang === "en"
+          ? 'Click "Edit / Delete" first'
+          : "กด “ลบ / แก้ไข” ก่อน"
+        : lang === "en"
+        ? "Delete this polygon"
+        : "ลบ polygon นี้",
+    addItemTitle:
+      !editMode
+        ? lang === "en"
+          ? 'Click "Edit / Delete" first'
+          : "กด “ลบ / แก้ไข” ก่อน"
+        : lang === "en"
+        ? "Add item"
+        : "เพิ่มรายการ",
+    deleteItemTitle:
+      !editMode
+        ? lang === "en"
+          ? 'Click "Edit / Delete" first'
+          : "กด “ลบ / แก้ไข” ก่อน"
+        : lang === "en"
+        ? "Delete this item"
+        : "ลบรายการนี้",
+    saveTitle:
+      !editMode
+        ? lang === "en"
+          ? 'Click "Edit / Delete" first'
+          : "กด “ลบ / แก้ไข” ก่อน"
+        : lang === "en"
+        ? "Save"
+        : "บันทึก",
+    savePlotTitle:
+      !editMode
+        ? lang === "en"
+          ? 'Click "Edit / Delete" first'
+          : "กด “ลบ / แก้ไข” ก่อน"
+        : lang === "en"
+        ? "Save plot information"
+        : "บันทึกข้อมูลแปลง",
+    locateTitle:
+      lang === "en"
+        ? "Get current location and zoom to it"
+        : "ขอตำแหน่งปัจจุบันและซูมไปยังจุดนั้น",
+    caretakerReadonlyTitle:
+      lang === "en"
+        ? "Caretaker is taken from the logged-in user and cannot be edited"
+        : "ชื่อผู้ดูแลดึงจากผู้ใช้ที่ล็อกอิน และแก้ไขไม่ได้",
+    dateDisplayPrefix: lang === "en" ? "Display:" : "แสดงผล:",
+    saveUpper: lang === "en" ? "SAVE" : "SAVE",
+    noListEdit:
+      lang === "en"
+        ? "No items yet — click + to add"
+        : "ยังไม่มีรายการ — กด + เพื่อเพิ่ม",
+    noListView:
+      lang === "en"
+        ? 'No items yet (click "Edit / Delete" first to add)'
+        : "ยังไม่มีรายการ (กด “ลบ / แก้ไข” ก่อนถึงจะเพิ่มได้)",
+    createTopicDefault: lang === "en" ? "Topic" : "หัวข้อเรื่อง",
+    dash: "—",
+    plotWord: lang === "en" ? "Plot" : "แปลง",
+  };
+
+  const requireEditMode = (
+    msg = lang === "en"
+      ? 'Please click "Edit / Delete" first before doing this action'
+      : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะทำรายการนี้ได้"
+  ) => {
     if (editMode) return true;
     setErr(msg);
     return false;
@@ -340,7 +529,11 @@ export default function AddPlantingPlotsPageMultiPolygons() {
         nicknameToUse = await loadCurrentUserNickname();
       }
 
-      const baseName = `แปลงใหม่ ${new Date().toISOString().slice(0, 10)}`;
+      const baseName =
+        lang === "en"
+          ? `New Plot ${new Date().toISOString().slice(0, 10)}`
+          : `แปลงใหม่ ${new Date().toISOString().slice(0, 10)}`;
+
       const r = await apiFetch("/api/plots", {
         method: "POST",
         body: {
@@ -405,11 +598,18 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   }
 
   async function deletePlot(plotId) {
-    if (!requireEditMode("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบแปลงได้")) return;
+    if (
+      !requireEditMode(
+        lang === "en"
+          ? 'Please click "Edit / Delete" first before deleting a plot'
+          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบแปลงได้"
+      )
+    )
+      return;
 
     const pid = String(plotId || selectedPlotId || "");
     if (!pid) return;
-    if (!confirm("ต้องการลบแปลงนี้ทั้งหมดใช่ไหม? (รวม polygons/notes ที่เกี่ยวข้อง)")) return;
+    if (!confirm(txt.confirmDeletePlot)) return;
 
     setErr("");
     setBusy(true);
@@ -448,7 +648,14 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   }
 
   async function createPolygon(coords, color = "#2563eb") {
-    if (!requireEditMode("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะวาด Polygon ได้")) return;
+    if (
+      !requireEditMode(
+        lang === "en"
+          ? 'Please click "Edit / Delete" first before drawing a polygon'
+          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะวาด Polygon ได้"
+      )
+    )
+      return;
     if (!selectedPlotId) return;
 
     setErr("");
@@ -474,7 +681,14 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   }
 
   async function updatePolygon(polygonDbId, coords, color) {
-    if (!requireEditMode("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะแก้ไข Polygon ได้")) return;
+    if (
+      !requireEditMode(
+        lang === "en"
+          ? 'Please click "Edit / Delete" first before editing a polygon'
+          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะแก้ไข Polygon ได้"
+      )
+    )
+      return;
 
     setErr("");
     setBusy(true);
@@ -498,8 +712,15 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   }
 
   async function deletePolygon(polygonDbId) {
-    if (!requireEditMode("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบ Polygon ได้")) return;
-    if (!confirm("ลบ polygon นี้?")) return;
+    if (
+      !requireEditMode(
+        lang === "en"
+          ? 'Please click "Edit / Delete" first before deleting a polygon'
+          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบ Polygon ได้"
+      )
+    )
+      return;
+    if (!confirm(txt.confirmDeletePolygon)) return;
 
     setErr("");
     setBusy(true);
@@ -514,9 +735,16 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   }
 
   async function deleteAllPolygonsOfPlot() {
-    if (!requireEditMode("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบ Polygon ทั้งหมดได้")) return;
+    if (
+      !requireEditMode(
+        lang === "en"
+          ? 'Please click "Edit / Delete" first before deleting all polygons'
+          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบ Polygon ทั้งหมดได้"
+      )
+    )
+      return;
     if (!selectedPlotId) return;
-    if (!confirm("ลบ polygons ทั้งหมดของแปลงนี้?")) return;
+    if (!confirm(txt.confirmDeleteAllPolygons)) return;
 
     setErr("");
     setBusy(true);
@@ -532,7 +760,11 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
   const onCreated = async (e) => {
     if (!editMode) {
-      setErr("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะวาด Polygon ได้");
+      setErr(
+        lang === "en"
+          ? 'Please click "Edit / Delete" first before drawing a polygon'
+          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะวาด Polygon ได้"
+      );
       return;
     }
     const layer = e?.layer;
@@ -548,7 +780,11 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
   const onEdited = async (e) => {
     if (!editMode) {
-      setErr("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะแก้ไข Polygon ได้");
+      setErr(
+        lang === "en"
+          ? 'Please click "Edit / Delete" first before editing a polygon'
+          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะแก้ไข Polygon ได้"
+      );
       return;
     }
     const layers = e?.layers;
@@ -571,7 +807,11 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
   const onDeleted = async (e) => {
     if (!editMode) {
-      setErr("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบ Polygon ได้");
+      setErr(
+        lang === "en"
+          ? 'Please click "Edit / Delete" first before deleting a polygon'
+          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบ Polygon ได้"
+      );
       return;
     }
     const layers = e?.layers;
@@ -605,7 +845,14 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   };
 
   async function addNote() {
-    if (!requireEditMode("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะเพิ่มข้อมูลได้")) return;
+    if (
+      !requireEditMode(
+        lang === "en"
+          ? 'Please click "Edit / Delete" first before adding information'
+          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะเพิ่มข้อมูลได้"
+      )
+    )
+      return;
     if (!selectedPlotId) return;
 
     setErr("");
@@ -613,7 +860,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
     try {
       const r = await apiFetch(`/api/plots/${selectedPlotId}/notes`, {
         method: "POST",
-        body: { topic: "หัวข้อเรื่อง", content: "" },
+        body: { topic: txt.createTopicDefault, content: "" },
       });
       const item = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
       if (item) {
@@ -630,7 +877,14 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   }
 
   async function saveNote(noteId, patch) {
-    if (!requireEditMode("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะบันทึกข้อมูลได้")) return;
+    if (
+      !requireEditMode(
+        lang === "en"
+          ? 'Please click "Edit / Delete" first before saving information'
+          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะบันทึกข้อมูลได้"
+      )
+    )
+      return;
 
     setErr("");
     setBusy(true);
@@ -654,8 +908,8 @@ export default function AddPlantingPlotsPageMultiPolygons() {
           const next = [
             {
               id: makeLocalId(),
-              topic: snapTopic || "—",
-              content: snapContent || "—",
+              topic: snapTopic || txt.dash,
+              content: snapContent || txt.dash,
               createdAt: new Date().toISOString(),
             },
             ...cur,
@@ -676,8 +930,15 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   }
 
   async function deleteNote(noteId) {
-    if (!requireEditMode("ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบข้อมูลได้")) return;
-    if (!confirm("ลบโน้ตนี้?")) return;
+    if (
+      !requireEditMode(
+        lang === "en"
+          ? 'Please click "Edit / Delete" first before deleting information'
+          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบข้อมูลได้"
+      )
+    )
+      return;
+    if (!confirm(txt.confirmDeleteNote)) return;
 
     setErr("");
     setBusy(true);
@@ -695,13 +956,13 @@ export default function AddPlantingPlotsPageMultiPolygons() {
   }
 
   const getPlotDisplayName = (p) => {
-    const t = (p?.alias || p?.plotName || p?.name || "").trim();
-    return t || "แปลง";
+    const nameText = (p?.alias || p?.plotName || p?.name || "").trim();
+    return nameText || txt.plotWord;
   };
 
   if (!mounted) return null;
   if (!leaflet) {
-    return <div style={{ padding: 16 }}>Loading map…</div>;
+    return <div style={{ padding: 16 }}>{txt.loadingMap}</div>;
   }
 
   return (
@@ -714,16 +975,16 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                 type="button"
                 className="pui-back"
                 onClick={() => router.push("/management")}
-                title="ย้อนกลับไปที่หน้า management"
+                title={txt.backToManagement}
               >
                 &lt;
               </button>
-              <div className="pui-hero-title">การจัดการ Polygons</div>
+              <div className="pui-hero-title">{txt.polygons}</div>
             </div>
 
             <div style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
               <button className="pui-hero-btn" type="button" onClick={addPlot} disabled={busy}>
-                + เพิ่มแปลง
+                {txt.addPlot}
               </button>
 
               <button
@@ -731,16 +992,16 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                 type="button"
                 onClick={() => deletePlot(selectedPlotId)}
                 disabled={busy || !selectedPlotId || !plots.length || !editMode}
-                title={!editMode ? "กด “ลบ / แก้ไข” ก่อน" : "ลบแปลงนี้ออกจากระบบ"}
+                title={txt.deletePlotTitle}
               >
-                🗑️ ลบแปลง
+                🗑️ {txt.deletePlot}
               </button>
             </div>
           </div>
 
           <div className="pui-hero-grid">
             <div className="pui-field">
-              <div className="pui-label">แปลง</div>
+              <div className="pui-label">{txt.selectPlot}</div>
               <select
                 className="pui-select"
                 value={selectedPlotId}
@@ -755,9 +1016,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
               </select>
 
               <div className="pui-subhint">
-                {editMode
-                  ? "โหมดแก้ไข: สามารถวาด/แก้/ลบ polygon และจัดการข้อมูลได้"
-                  : "โหมดดูข้อมูล: ต้องกด “ลบ / แก้ไข” ก่อน"}
+                {editMode ? txt.editMode : txt.viewMode}
               </div>
             </div>
           </div>
@@ -765,22 +1024,23 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
         {err && (
           <div className="pui-alert">
-            <div className="pui-alert-title">แจ้งเตือน</div>
+            <div className="pui-alert-title">{txt.alertTitle}</div>
             <div className="pui-alert-msg">{err}</div>
             <div className="pui-alert-hint">
-              * token ใช้ key: <b>AUTH_TOKEN_V1</b>
+              <span>{txt.tokenHint.split("AUTH_TOKEN_V1")[0]}</span>
+              <b>AUTH_TOKEN_V1</b>
             </div>
           </div>
         )}
 
         {loading ? (
-          <div className="pui-empty">Loading...</div>
+          <div className="pui-empty">{txt.loading}</div>
         ) : !plots.length ? (
-          <div className="pui-empty">ยังไม่มีแปลง — กด “+ เพิ่มแปลง” ได้เลย</div>
+          <div className="pui-empty">{txt.noPlotYet}</div>
         ) : (
           <section className="pui-card">
             <div className="pui-card-top">
-              <div className="pui-card-title">กรอกการจัดการข้อมูลแปลงปลูกพืช</div>
+              <div className="pui-card-title">{txt.plotInfo}</div>
 
               {!editMode ? (
                 <button
@@ -792,17 +1052,17 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                   }}
                   disabled={busy}
                 >
-                  ลบ / แก้ไข
+                  {txt.editDelete}
                 </button>
               ) : (
                 <button className="pui-pill done" type="button" onClick={savePlotInfo} disabled={busy}>
-                  เสร็จสิ้น
+                  {txt.done}
                 </button>
               )}
             </div>
 
             <div className="pui-mapbox pui-mapbox-top">
-              <div className="pui-map-title">Draw Polygons on a Map</div>
+              <div className="pui-map-title">{txt.drawOnMap}</div>
 
               <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "8px 0 10px" }}>
                 <button
@@ -810,9 +1070,9 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                   className="pui-pill"
                   onClick={() => setLocateTick((x) => x + 1)}
                   disabled={!mounted}
-                  title="ขอตำแหน่งปัจจุบันและซูมไปยังจุดนั้น"
+                  title={txt.locateTitle}
                 >
-                  📍 ตำแหน่งฉัน
+                  📍 {txt.myLocation}
                 </button>
 
                 {locateStatus ? <div style={{ fontSize: 12 }}>{locateStatus}</div> : null}
@@ -820,7 +1080,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
               <div className="pui-map pui-map-top">
                 {!mounted || !leaflet?.RL ? (
-                  <div className="pui-map-loading">Loading map...</div>
+                  <div className="pui-map-loading">{txt.loadingMap}</div>
                 ) : (
                   <leaflet.RL.MapContainer
                     key={selectedPlotId || "map"}
@@ -834,7 +1094,12 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                       url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     />
 
-                    <CurrentLocationLayer leaflet={leaflet} locateTick={locateTick} onStatus={setLocateStatus} />
+                    <CurrentLocationLayer
+                      leaflet={leaflet}
+                      locateTick={locateTick}
+                      onStatus={setLocateStatus}
+                      lang={lang}
+                    />
 
                     <leaflet.RL.FeatureGroup ref={fgRef}>
                       {plotPolygons.map((poly) => (
@@ -864,26 +1129,26 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                 )}
               </div>
 
-              {!editMode && <div className="pui-lockhint">* ต้องกด “ลบ / แก้ไข” ก่อนถึงจะวาด/แก้/ลบ polygon ได้</div>}
+              {!editMode && <div className="pui-lockhint">{txt.lockDraw}</div>}
             </div>
 
             <div className="pui-notes-add" style={{ marginTop: 0, paddingTop: 0, borderTop: "none" }}>
               <div className="pui-notes-head">
-                <div className="pui-notes-title">Polygons ของแปลง (ทั้งหมด: {plotPolygons.length})</div>
+                <div className="pui-notes-title">{txt.allCount}</div>
 
                 <button
                   className="pui-danger small"
                   type="button"
                   onClick={deleteAllPolygonsOfPlot}
                   disabled={busy || !selectedPlotId || !editMode}
-                  title={!editMode ? "กด “ลบ / แก้ไข” ก่อน" : "ลบ polygons ทั้งหมดของแปลงนี้"}
+                  title={txt.deleteAllTitle}
                 >
-                  ลบทั้งหมด
+                  {txt.deleteAll}
                 </button>
               </div>
 
               {!plotPolygons.length ? (
-                <div className="pui-empty">ยังไม่มี polygon — เปิด “ลบ / แก้ไข” แล้ววาดบนแผนที่</div>
+                <div className="pui-empty">{txt.noPolygon}</div>
               ) : (
                 <div className="pui-polylist">
                   {plotPolygons.map((p) => (
@@ -895,9 +1160,9 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                         type="button"
                         onClick={() => deletePolygon(p.id)}
                         disabled={busy || !editMode}
-                        title={!editMode ? "กด “ลบ / แก้ไข” ก่อน" : "ลบ polygon นี้"}
+                        title={txt.deleteOneTitle}
                       >
-                        ลบ
+                        {txt.delete}
                       </button>
                     </div>
                   ))}
@@ -908,25 +1173,25 @@ export default function AddPlantingPlotsPageMultiPolygons() {
             <div className="pui-formbox">
               <div className="pui-form-grid">
                 <div className="pui-field">
-                  <div className="pui-label-dark">ชื่อที่แสดงในรายการแปลง (Dropdown)</div>
+                  <div className="pui-label-dark">{txt.plotDropdownName}</div>
                   {latestSaved?.topic ? <div className="pui-topnote">{latestSaved.topic}</div> : null}
                   <input
                     className="pui-input pui-input-short"
                     value={plotAlias}
                     onChange={(e) => setPlotAlias(e.target.value)}
-                    placeholder="ชื่อแสดง"
+                    placeholder={txt.displayNamePlaceholder}
                     disabled={busy}
                     readOnly={!editMode}
                   />
                 </div>
 
                 <div className="pui-field">
-                  <div className="pui-label-dark">ข้อมูลแปลงปลูก</div>
+                  <div className="pui-label-dark">{txt.plotDetail}</div>
                   <input
                     className="pui-input pui-input-short"
                     value={plotName}
                     onChange={(e) => setPlotName(e.target.value)}
-                    placeholder="ชื่อแปลง"
+                    placeholder={txt.plotNamePlaceholder}
                     readOnly={isReadOnly}
                     disabled={busy}
                   />
@@ -934,39 +1199,41 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                   {latestSaved?.content ? (
                     <div className="pui-compactbox">
                       <div className="pui-compacttext">{latestSaved.content}</div>
-                      <div className="pui-compacttime">{formatThaiDateTimeBuddhist(latestSaved.createdAt)}</div>
+                      <div className="pui-compacttime">
+                        {formatDateTimeByLang(latestSaved.createdAt, lang)}
+                      </div>
                     </div>
                   ) : null}
                 </div>
 
                 <div className="pui-field">
-                  <div className="pui-label-dark">ชื่อผู้ดูแล</div>
+                  <div className="pui-label-dark">{txt.caretaker}</div>
                   <select
                     className="pui-input pui-input-short"
                     value={effectiveCaretaker}
                     disabled={false}
                     onChange={() => {}}
                     aria-readonly="true"
-                    title="ชื่อผู้ดูแลดึงจากผู้ใช้ที่ล็อกอิน และแก้ไขไม่ได้"
+                    title={txt.caretakerReadonlyTitle}
                   >
                     <option value={effectiveCaretaker}>{effectiveCaretaker || "-"}</option>
                   </select>
                 </div>
 
                 <div className="pui-field">
-                  <div className="pui-label-dark">ประเภทพืช</div>
+                  <div className="pui-label-dark">{txt.plantType}</div>
                   <input
                     className="pui-input pui-input-short"
                     value={plantType}
                     onChange={(e) => setPlantType(e.target.value)}
-                    placeholder="ประเภทพืช"
+                    placeholder={txt.plantTypePlaceholder}
                     readOnly={isReadOnly}
                     disabled={busy}
                   />
                 </div>
 
                 <div className="pui-field">
-                  <div className="pui-label-dark">วันที่เริ่มปลูก</div>
+                  <div className="pui-label-dark">{txt.plantedAt}</div>
                   <input
                     className="pui-input pui-input-short"
                     type="date"
@@ -975,7 +1242,11 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                     readOnly={isReadOnly}
                     disabled={busy || isReadOnly}
                   />
-                  {plantedAt && <div className="pui-datehint">แสดงผล: {isoToThai(plantedAt)}</div>}
+                  {plantedAt && (
+                    <div className="pui-datehint">
+                      {txt.dateDisplayPrefix} {isoToThai(plantedAt)}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -983,9 +1254,11 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                 <div className="pui-inline-saved">
                   {savedNotes.map((n) => (
                     <div className="pui-snap" key={n.id}>
-                      <div className="pui-snap-topic">{n.topic || "—"}</div>
-                      <div className="pui-snap-content">{n.content || "—"}</div>
-                      <div className="pui-snap-time">{formatThaiDateTimeBuddhist(n.createdAt)}</div>
+                      <div className="pui-snap-topic">{n.topic || txt.dash}</div>
+                      <div className="pui-snap-content">{n.content || txt.dash}</div>
+                      <div className="pui-snap-time">
+                        {formatDateTimeByLang(n.createdAt, lang)}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -993,7 +1266,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
               <div className="pui-notes-add">
                 <div className="pui-notes-head">
-                  <div className="pui-notes-title">เพิ่มข้อมูล (หัวข้อเรื่อง + เนื้อหา)</div>
+                  <div className="pui-notes-title">{txt.notes}</div>
 
                   <div className="pui-notes-actions">
                     <button
@@ -1001,7 +1274,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                       type="button"
                       onClick={addNote}
                       disabled={busy || !selectedPlotId || !editMode}
-                      title={!editMode ? "กด “ลบ / แก้ไข” ก่อน" : "เพิ่มรายการ"}
+                      title={txt.addItemTitle}
                     >
                       +
                     </button>
@@ -1010,9 +1283,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
 
                 {!plotNotes.length ? (
                   <div className="pui-empty">
-                    {editMode
-                      ? "ยังไม่มีรายการ — กด + เพื่อเพิ่ม"
-                      : "ยังไม่มีรายการ (กด “ลบ / แก้ไข” ก่อนถึงจะเพิ่มได้)"}
+                    {editMode ? txt.noListEdit : txt.noListView}
                   </div>
                 ) : (
                   <div className="pui-notes-list">
@@ -1020,7 +1291,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                       <div className="pui-note" key={n.id}>
                         <div className="pui-note-row">
                           <div className="pui-note-col">
-                            <div className="pui-label-dark">หัวข้อเรื่อง</div>
+                            <div className="pui-label-dark">{txt.noteTopic}</div>
                             <input
                               className="pui-input"
                               value={n.topic || ""}
@@ -1036,7 +1307,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                               }}
                               disabled={busy || !editMode}
                               readOnly={!editMode}
-                              placeholder="หัวข้อเรื่อง"
+                              placeholder={txt.topicPlaceholder}
                             />
                           </div>
 
@@ -1045,14 +1316,14 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                             type="button"
                             onClick={() => deleteNote(n.id)}
                             disabled={busy || !editMode}
-                            title={!editMode ? "กด “ลบ / แก้ไข” ก่อน" : "ลบรายการนี้"}
+                            title={txt.deleteItemTitle}
                           >
-                            ลบ
+                            {txt.delete}
                           </button>
                         </div>
 
                         <div className="pui-note-col">
-                          <div className="pui-label-dark">เนื้อหา</div>
+                          <div className="pui-label-dark">{txt.noteContent}</div>
                           <textarea
                             className="pui-textarea"
                             rows={3}
@@ -1069,7 +1340,7 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                             }}
                             disabled={busy || !editMode}
                             readOnly={!editMode}
-                            placeholder="พิมพ์รายละเอียด..."
+                            placeholder={txt.contentPlaceholder}
                           />
                         </div>
 
@@ -1079,9 +1350,9 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                             type="button"
                             onClick={() => saveNote(n.id, { topic: n.topic, content: n.content })}
                             disabled={busy || !editMode}
-                            title={!editMode ? "กด “ลบ / แก้ไข” ก่อน" : "บันทึก"}
+                            title={txt.saveTitle}
                           >
-                            บันทึก
+                            {txt.save}
                           </button>
                         </div>
                       </div>
@@ -1096,9 +1367,9 @@ export default function AddPlantingPlotsPageMultiPolygons() {
                   type="button"
                   disabled={!editMode || busy}
                   onClick={savePlotInfo}
-                  title={!editMode ? "กด “ลบ / แก้ไข” ก่อน" : "บันทึกข้อมูลแปลง"}
+                  title={txt.savePlotTitle}
                 >
-                  SAVE
+                  {txt.saveUpper}
                 </button>
               </div>
             </div>

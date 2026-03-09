@@ -5,49 +5,443 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const LOGIN_PATH = "/login";
-const TOKEN_KEY = "token";
-const LANG_KEY = "duwims_lang"; // th | en
+const TOKEN_KEYS = ["AUTH_TOKEN_V1", "token", "pmtool_token", "duwims_token"];
+const LANG_KEY = "duwims_lang";
 
+// =========================
+// auth helpers
+// =========================
 function getToken() {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  for (const key of TOKEN_KEYS) {
+    const v = localStorage.getItem(key);
+    if (v) return v;
+  }
+  return null;
 }
+
 function clearToken() {
   if (typeof window === "undefined") return;
-  localStorage.removeItem(TOKEN_KEY);
+  for (const key of TOKEN_KEYS) {
+    localStorage.removeItem(key);
+  }
 }
 
-function getLang() {
+// =========================
+// i18n dictionary
+// =========================
+export const DUWIMS_DICT = {
+  th: {
+    dashboard: "แดชบอร์ด",
+    history: "ประวัติ & วิเคราะห์",
+    management: "จัดการ",
+    login: "เข้าสู่ระบบ",
+    logout: "ออกจากระบบ",
+    langBtn: "TH / EN",
+
+    weather7days: "พยากรณ์อากาศ 7 วันข้างหน้า",
+    todayTemperature: "อุณหภูมิปัจจุบัน (วันนี้)",
+    basedOnDailyForecast: "อิงจากพยากรณ์รายวันของพื้นที่แปลง",
+    todayRainChance: "โอกาสฝนตก (วันนี้)",
+    basedOnDailyPrecipitation: "อิงจาก precipitation probability (รายวัน)",
+    advice: "คำแนะนำ",
+    rain7days: "ปริมาณน้ำฝน (7 วัน)",
+    sumFromDailyPrecipitation: "รวมจาก precipitation_sum รายวัน",
+    mapAndResourcesAllPlots: "แผนที่และทรัพยากร (ทุกแปลง)",
+    overallStatusAllPlots: "สถานะรวม (ทุกแปลง)",
+    overallIssuesAllPlots: "ปัญหารวม (ทุกแปลง)",
+    loadingForecast: "กำลังโหลดข้อมูลพยากรณ์อากาศ...",
+    loadingAllPlots: "กำลังโหลดข้อมูลทุกแปลง...",
+    loadingWeatherAdvice: "กำลังโหลดพยากรณ์อากาศ...",
+    ready: "พร้อมใช้งาน",
+    noIssueFound: "ยังไม่พบปัญหา (ทุกเซนเซอร์สถานะ OK)",
+    loadFailed: "โหลดข้อมูลไม่สำเร็จ",
+    noPinsInSystem: "ยังไม่มี Pin ในระบบ",
+    sensorGroupPrefix: "เซนเซอร์",
+    valuePrefix: "ค่า",
+    noSensorData: "ยังไม่มีข้อมูลเซนเซอร์",
+    plot: "แปลง",
+    coordinates: "พิกัด",
+    sensorTypes: "ชนิดเซนเซอร์",
+    plots: "แปลง",
+    plantType: "ประเภทพืช",
+    plantedAt: "วันที่เริ่มปลูก",
+
+    addPlantingPlots: "จัดการแปลงปลูก",
+    addplantingplots: "จัดการแปลงปลูก",
+    addSensor: "เพิ่ม Sensor",
+    editAndDelete: "แก้ไข / ลบ",
+    polygons: "การจัดการ Polygons",
+    back: "ย้อนกลับ",
+    addPlot: "+ เพิ่มแปลง",
+    deletePlot: "ลบแปลง",
+    selectPlot: "แปลง",
+    viewMode: "โหมดดูข้อมูล: ต้องกด “ลบ / แก้ไข” ก่อน",
+    editMode: "โหมดแก้ไข: สามารถวาด/แก้/ลบ polygon และจัดการข้อมูลได้",
+    loading: "กำลังโหลด...",
+    save: "บันทึก",
+    done: "เสร็จสิ้น",
+    plotInfo: "กรอกการจัดการข้อมูลแปลงปลูกพืช",
+    caretaker: "ชื่อผู้ดูแล",
+    notes: "เพิ่มข้อมูล (หัวข้อเรื่อง + เนื้อหา)",
+    noItems: "ยังไม่มีรายการ",
+    myLocation: "ตำแหน่งฉัน",
+    drawOnMap: "Draw Polygons on a Map",
+    delete: "ลบ",
+    editDelete: "ลบ / แก้ไข",
+    plotDropdownName: "ชื่อที่แสดงในรายการแปลง (Dropdown)",
+    plotDetail: "ข้อมูลแปลงปลูก",
+    polygonsOfPlot: "Polygons ของแปลง",
+    deleteAll: "ลบทั้งหมด",
+    noPolygon: "ยังไม่มี polygon — เปิด “ลบ / แก้ไข” แล้ววาดบนแผนที่",
+    noteTopic: "หัวข้อเรื่อง",
+    noteContent: "เนื้อหา",
+    addInfo: "เพิ่มข้อมูล",
+    noList: "ยังไม่มีรายการ",
+    pleaseEditFirst: "ต้องกด “ลบ / แก้ไข” ก่อน",
+    historyAnalytics: "ประวัติ & วิเคราะห์",
+    sensorManagement: "จัดการ PIN และ Sensor",
+    plotManagement: "จัดการแปลง",
+    loadingMap: "กำลังโหลดแผนที่...",
+
+    // History page
+    historyFilters: "ฟิลเตอร์ข้อมูลย้อนหลัง",
+    historyFiltersDesc: "เลือกช่วงวันที่ / เซนเซอร์ / แปลง เพื่อดูข้อมูลย้อนหลังและกราฟ",
+    quickRange: "ช่วงเวลาเร็ว",
+    today: "วันนี้",
+    last7Days: "7 วันล่าสุด",
+    last30Days: "30 วันล่าสุด",
+    startDate: "วันที่เริ่มต้น",
+    endDate: "วันที่สิ้นสุด",
+    sensorType: "ประเภทเซนเซอร์",
+    selectSensorType: "เลือกประเภทเซนเซอร์",
+    multiSelectAllowed: "เลือกได้หลายตัว",
+    clear: "ล้าง",
+    selected: "เลือกแล้ว",
+    plotsMulti: "แปลง (เลือกได้หลายแปลง)",
+    allPlots: "ทุกแปลง",
+    selectMultiplePlotsToCompare: "เลือกหลายแปลงเพื่อเทียบกราฟ",
+    selectAll: "เลือกทั้งหมด",
+    currentValueFirstSelectedPlot: "ค่าปัจจุบัน (แปลงแรกที่เลือก)",
+    latestUpdate: "อัปเดตล่าสุด",
+    averageAllSelectedPlots: "ค่าเฉลี่ย (รวมทุกแปลงที่เลือก)",
+    minimumValue: "ค่าต่ำสุด",
+    minimumOfAllSelectedPlots: "ต่ำสุดของทุกแปลงที่เลือก",
+    maximumValue: "ค่าสูงสุด",
+    maximumOfAllSelectedPlots: "สูงสุดของทุกแปลงที่เลือก",
+    weatherHeatMapThailand: "Weather Heat Map (Thailand)",
+    weatherHeatMapDesc: "ตัวอย่างแผนที่ประเทศไทย + จุดข้อมูล (rain intensity)",
+    range: "ช่วง",
+    to: "ถึง",
+    legendRainIntensity: "Legend (Rain Intensity)",
+    low: "น้อย",
+    high: "มาก",
+    samplePoints: "จุดข้อมูลตัวอย่าง",
+    plotComparisonGraph: "กราฟเปรียบเทียบแปลง",
+    plotComparisonLabel: "แปลง",
+    graphCompareNote:
+      "กราฟนี้เทียบ “แปลง” ด้วย sensor ตัวแรกที่เลือก (เพื่ออ่านง่าย) • แต่ CSV จะ export ทุก sensor ที่เลือก",
+    measurementSummarySelectedRange: "สรุปการวัดข้อมูล (เฉลี่ยช่วงที่เลือก)",
+    summaryApiNote:
+      "แสดงค่าจริงจาก API (ช่วงวันที่ที่เลือก ถ้าไม่มี reading จะ fallback เป็นค่า avg/last จาก summary)",
+    soilMoisture: "ความชื้นในดิน",
+    temperature: "อุณหภูมิ",
+    relativeHumidity: "ความชื้นสัมพัทธ์",
+    lightIntensity: "ความเข้มแสง",
+    rainAmount: "ปริมาณน้ำฝน",
+    windSpeed: "ความเร็วลม",
+    irrigation: "การให้น้ำ",
+    intensity: "ความเข้ม",
+
+    // Management page / AddSensor / EditAndDelete
+    allSensors: "ทุกเซนเซอร์",
+    allSensorTypes: "ทุกชนิดเซนเซอร์",
+    points: "จุด",
+    items: "รายการ",
+    airTempHumidity: "อุณหภูมิและความชื้น",
+    windMeasure: "วัดความเร็วลม",
+    npkConcentration: "ความเข้มข้นธาตุอาหาร (N,P,K)",
+    irrigationReady: "การให้น้ำ / ความพร้อมใช้น้ำ",
+    auth401: "401: ยังไม่ได้ล็อกอิน หรือ token ไม่ถูกต้อง (กรุณา login ก่อน)",
+    loadPlotFailed: "โหลดแปลงไม่สำเร็จ",
+    loadDataFailed: "โหลดข้อมูลไม่สำเร็จ",
+    selectNode: "เลือก Node",
+    allNodes: "ทุก Node",
+    airNode: "Node อากาศ",
+    soilNode: "Node ดิน",
+    pinAndSensorManagement: "จัดการ PIN และ Sensor",
+    addPinAndSensor: "+ เพิ่ม PIN และ Sensor",
+    plotInformation: "ข้อมูลแปลง",
+    sensorLabel: "เซนเซอร์",
+    sensorItemsLabel: "รายการเซนเซอร์",
+    caretakerLabel: "ผู้ปลูก",
+    pinSensorCountLabel: "จำนวน PIN / เซนเซอร์",
+    latestLabel: "ล่าสุด",
+    timeLabel: "เวลา",
+    statusLabel: "สถานะ",
+    noSensorInFilter: "ยังไม่มีข้อมูลเซนเซอร์ในเงื่อนไขที่เลือก",
+    airShort: "อากาศ",
+    soilShort: "ดิน",
+
+    // EditAndDelete page
+    editDeleteTitle: "ลบและแก้ไขข้อมูล",
+    plotPolygons: "Polygon แปลง",
+    sensorPins: "Pin เซนเซอร์",
+    plotName: "ชื่อแปลง",
+    deletePin: "ลบ PIN",
+    editDeleteDescription: "ปรับแก้ Polygon และลบ / เพิ่มตำแหน่ง PIN ของแปลงนี้",
+    loadingData: "กำลังโหลดข้อมูล...",
+    numberLabel: "number",
+    latitude: "ละติจูด",
+    longitude: "ลองจิจูด",
+    allPlotsLabel: "ทุกแปลง",
+    noPinsSystem: "ยังไม่มี PIN ในระบบ",
+  },
+
+  en: {
+    dashboard: "Dashboard",
+    history: "History & Analytics",
+    management: "Management",
+    login: "Login",
+    logout: "Logout",
+    langBtn: "TH / EN",
+
+    weather7days: "7-Day Weather Forecast",
+    todayTemperature: "Current Temperature (Today)",
+    basedOnDailyForecast: "Based on the plot area's daily forecast",
+    todayRainChance: "Rain Chance (Today)",
+    basedOnDailyPrecipitation: "Based on daily precipitation probability",
+    advice: "Advice",
+    rain7days: "Rainfall (7 Days)",
+    sumFromDailyPrecipitation: "Sum from daily precipitation_sum",
+    mapAndResourcesAllPlots: "Map and Resources (All Plots)",
+    overallStatusAllPlots: "Overall Status (All Plots)",
+    overallIssuesAllPlots: "Overall Issues (All Plots)",
+    loadingForecast: "Loading weather forecast...",
+    loadingAllPlots: "Loading all plot data...",
+    loadingWeatherAdvice: "Loading weather forecast...",
+    ready: "Ready",
+    noIssueFound: "No issues found (all sensors are OK)",
+    loadFailed: "Failed to load data",
+    noPinsInSystem: "No pins in the system",
+    sensorGroupPrefix: "Sensor",
+    valuePrefix: "Value",
+    noSensorData: "No sensor data yet",
+    plot: "Plot",
+    coordinates: "Coordinates",
+    sensorTypes: "Sensor Types",
+    plots: "Plots",
+    plantType: "Plant Type",
+    plantedAt: "Planting Date",
+
+    addPlantingPlots: "Add Planting Plots",
+    addplantingplots: "Add Planting Plots",
+    addSensor: "Add Sensor",
+    editAndDelete: "Edit / Delete",
+    polygons: "Polygon Management",
+    back: "Back",
+    addPlot: "+ Add Plot",
+    deletePlot: "Delete Plot",
+    selectPlot: "Plot",
+    viewMode: 'View mode: click "Edit / Delete" first',
+    editMode: "Edit mode: you can draw, edit, delete polygons, and manage data",
+    loading: "Loading...",
+    save: "Save",
+    done: "Done",
+    plotInfo: "Planting Plot Management",
+    caretaker: "Caretaker",
+    notes: "Add Information (Topic + Content)",
+    noItems: "No items yet",
+    myLocation: "My Location",
+    drawOnMap: "Draw Polygons on a Map",
+    delete: "Delete",
+    editDelete: "Edit / Delete",
+    plotDropdownName: "Plot Name Shown in Dropdown",
+    plotDetail: "Plot Information",
+    polygonsOfPlot: "Plot Polygons",
+    deleteAll: "Delete All",
+    noPolygon: 'No polygon yet — turn on "Edit / Delete" and draw on the map',
+    noteTopic: "Topic",
+    noteContent: "Content",
+    addInfo: "Add Information",
+    noList: "No items yet",
+    pleaseEditFirst: 'Please click "Edit / Delete" first',
+    historyAnalytics: "History & Analytics",
+    sensorManagement: "PIN & Sensor Management",
+    plotManagement: "Plot Management",
+    loadingMap: "Loading map...",
+
+    // History page
+    historyFilters: "History Filters",
+    historyFiltersDesc:
+      "Choose date range, sensors, and plots to view historical data and graphs",
+    quickRange: "Quick Range",
+    today: "Today",
+    last7Days: "Last 7 Days",
+    last30Days: "Last 30 Days",
+    startDate: "Start Date",
+    endDate: "End Date",
+    sensorType: "Sensor Type",
+    selectSensorType: "Select Sensor Type",
+    multiSelectAllowed: "Multiple selection allowed",
+    clear: "Clear",
+    selected: "Selected",
+    plotsMulti: "Plots (multiple selection)",
+    allPlots: "All Plots",
+    selectMultiplePlotsToCompare: "Select multiple plots to compare",
+    selectAll: "Select All",
+    currentValueFirstSelectedPlot: "Current Value (First Selected Plot)",
+    latestUpdate: "Latest Update",
+    averageAllSelectedPlots: "Average (All Selected Plots)",
+    minimumValue: "Minimum Value",
+    minimumOfAllSelectedPlots: "Minimum across selected plots",
+    maximumValue: "Maximum Value",
+    maximumOfAllSelectedPlots: "Maximum across selected plots",
+    weatherHeatMapThailand: "Weather Heat Map (Thailand)",
+    weatherHeatMapDesc: "Thailand map example with sample data points (rain intensity)",
+    range: "Range",
+    to: "to",
+    legendRainIntensity: "Legend (Rain Intensity)",
+    low: "Low",
+    high: "High",
+    samplePoints: "Sample Points",
+    plotComparisonGraph: "Plot Comparison Graph",
+    plotComparisonLabel: "Plots",
+    graphCompareNote:
+      "This graph compares plots using the first selected sensor for readability • CSV exports all selected sensors",
+    measurementSummarySelectedRange: "Measurement Summary (Average in Selected Range)",
+    summaryApiNote:
+      "Shows real values from API. If there are no readings in the selected range, it falls back to avg/last from summary",
+    soilMoisture: "Soil Moisture",
+    temperature: "Temperature",
+    relativeHumidity: "Relative Humidity",
+    lightIntensity: "Light Intensity",
+    rainAmount: "Rainfall",
+    windSpeed: "Wind Speed",
+    irrigation: "Irrigation",
+    intensity: "Intensity",
+
+    // Management page / AddSensor / EditAndDelete
+    allSensors: "All Sensors",
+    allSensorTypes: "All Sensor Types",
+    points: "points",
+    items: "items",
+    airTempHumidity: "Temperature and Humidity",
+    windMeasure: "Wind Speed",
+    npkConcentration: "Nutrient Concentration (N,P,K)",
+    irrigationReady: "Irrigation / Water Availability",
+    auth401: "401: Not logged in or token is invalid (please login first)",
+    loadPlotFailed: "Failed to load plots",
+    loadDataFailed: "Failed to load data",
+    selectNode: "Select Node",
+    allNodes: "All Nodes",
+    airNode: "Air Node",
+    soilNode: "Soil Node",
+    pinAndSensorManagement: "PIN & Sensor Management",
+    addPinAndSensor: "+ Add PIN & Sensor",
+    plotInformation: "Plot Information",
+    sensorLabel: "Sensor",
+    sensorItemsLabel: "Sensor Items",
+    caretakerLabel: "Caretaker",
+    pinSensorCountLabel: "PIN / Sensor Count",
+    latestLabel: "Latest",
+    timeLabel: "Time",
+    statusLabel: "Status",
+    noSensorInFilter: "No sensor data for the selected conditions",
+    airShort: "Air",
+    soilShort: "Soil",
+
+    // EditAndDelete page
+    editDeleteTitle: "Edit / Delete Data",
+    plotPolygons: "Plot Polygons",
+    sensorPins: "Sensor Pins",
+    plotName: "Plot",
+    deletePin: "Delete PIN",
+    editDeleteDescription: "Adjust polygons and delete / add PIN positions for this plot",
+    loadingData: "Loading data...",
+    numberLabel: "number",
+    latitude: "Latitude",
+    longitude: "Longitude",
+    allPlotsLabel: "All Plots",
+    noPinsSystem: "No PIN in the system",
+  },
+};
+
+// =========================
+// i18n helpers
+// =========================
+export function getDuwimsLang() {
   if (typeof window === "undefined") return "th";
-  return localStorage.getItem(LANG_KEY) || "th";
+  return localStorage.getItem(LANG_KEY) === "en" ? "en" : "th";
 }
 
-// ✅ ศูนย์กลาง: apply language to whole document + broadcast
-function applyLang(lang) {
-  const v = lang === "en" ? "en" : "th";
+export function setDuwimsLang(lang) {
+  const next = lang === "en" ? "en" : "th";
 
-  // persist
   try {
-    localStorage.setItem(LANG_KEY, v);
+    localStorage.setItem(LANG_KEY, next);
   } catch {}
 
-  // apply to document (ทั้งระบบ)
   try {
-    document.documentElement.lang = v === "en" ? "en" : "th";
-    document.documentElement.setAttribute("data-duwims-lang", v);
+    document.documentElement.lang = next;
+    document.documentElement.setAttribute("data-duwims-lang", next);
   } catch {}
 
-  // broadcast for any page that wants to react
   try {
-    window.dispatchEvent(new CustomEvent("duwims:lang", { detail: { lang: v } }));
+    window.dispatchEvent(new CustomEvent("duwims:lang", { detail: { lang: next } }));
   } catch {}
 
-  return v;
+  return next;
 }
 
+export function translateDuwims(key, fallback, lang) {
+  const current = lang === "en" ? "en" : "th";
+  const table = DUWIMS_DICT[current] || DUWIMS_DICT.th;
+  return table?.[key] ?? fallback ?? key;
+}
+
+export function useDuwimsT() {
+  const [lang, setLang] = useState("th");
+
+  useEffect(() => {
+    const current = getDuwimsLang();
+    setLang(current);
+    setDuwimsLang(current);
+
+    const onLang = (e) => {
+      const next = e?.detail?.lang === "en" ? "en" : "th";
+      setLang(next);
+    };
+
+    const onStorage = (e) => {
+      if (e.key === LANG_KEY) {
+        setLang(getDuwimsLang());
+      }
+    };
+
+    window.addEventListener("duwims:lang", onLang);
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      window.removeEventListener("duwims:lang", onLang);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  const t = useMemo(() => {
+    return (key, fallback) => translateDuwims(key, fallback, lang);
+  }, [lang]);
+
+  return { lang, setLang, t };
+}
+
+// =========================
+// TopBar component
+// =========================
 export default function TopBar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { lang, t } = useDuwimsT();
 
   const activeTab =
     pathname === "/"
@@ -61,92 +455,22 @@ export default function TopBar() {
   const [isMobile, setIsMobile] = useState(false);
   const [isTablet, setIsTablet] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [authed, setAuthed] = useState(false);
 
   const menuRef = useRef(null);
 
-  // auth + lang
-  const [authed, setAuthed] = useState(false);
-  const [lang, setLangState] = useState("th");
-
-  // ✅ Dictionary กลาง (อยู่ในไฟล์เดียว)
-  const dict = useMemo(
-    () => ({
-      th: {
-        dashboard: "แดชบอร์ด",
-        history: "ประวัติ & วิเคราะห์",
-        management: "จัดการ",
-        login: "เข้าสู่ระบบ",
-        logout: "ออกจากระบบ",
-        langBtn: "ไทย / English",
-      },
-      en: {
-        dashboard: "Dashboard",
-        history: "History & Analytics",
-        management: "Management",
-        login: "Login",
-        logout: "Logout",
-        langBtn: "TH / EN",
-      },
-    }),
-    []
-  );
-
-  // ✅ translator function
-  const t = useMemo(() => {
-    const table = dict[lang] || dict.th;
-    return (key, fallback) => table?.[key] ?? fallback ?? key;
-  }, [dict, lang]);
-
-  // ✅ expose global helpers (optional แต่ช่วยให้หน้าอื่น “เรียกใช้ได้” โดยไม่ต้องทำ provider)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    window.duwimsGetLang = () => getLang();
-    window.duwimsSetLang = (l) => {
-      const next = applyLang(l);
-      setLangState(next);
-      return next;
-    };
-    window.__DUWIMS_T = (key, fallback) => {
-      const current = getLang();
-      const table = dict[current] || dict.th;
-      return table?.[key] ?? fallback ?? key;
-    };
-  }, [dict]);
-
-  // init
   useEffect(() => {
     setAuthed(!!getToken());
-    const l = applyLang(getLang()); // ✅ apply to whole doc on mount
-    setLangState(l);
   }, []);
 
-  // sync authed + lang across tabs/windows
   useEffect(() => {
     const onStorage = (e) => {
-      if (e.key === TOKEN_KEY) setAuthed(!!getToken());
-      if (e.key === LANG_KEY) {
-        const l = applyLang(getLang());
-        setLangState(l);
-      }
+      if (TOKEN_KEYS.includes(e.key)) setAuthed(!!getToken());
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  // sync inside same tab via custom event
-  useEffect(() => {
-    const onLang = (e) => {
-      const next = e?.detail?.lang;
-      if (!next) return;
-      const l = applyLang(next);
-      setLangState(l);
-    };
-    window.addEventListener("duwims:lang", onLang);
-    return () => window.removeEventListener("duwims:lang", onLang);
-  }, []);
-
-  // responsive
   useEffect(() => {
     const calc = () => {
       const w = window.innerWidth;
@@ -174,8 +498,8 @@ export default function TopBar() {
   const tabs = useMemo(
     () => [
       { key: "dashboard", href: "/", icon: "🏠", label: t("dashboard") },
-      { key: "history", href: "/history", icon: "📊", label: t("history") },
-      { key: "management", href: "/management", icon: "🛠️", label: t("management") },
+      { key: "history", href: "/history", icon: "📚", label: t("history") },
+      { key: "management", href: "/management", icon: "🛠", label: t("management") },
     ],
     [t]
   );
@@ -220,8 +544,7 @@ export default function TopBar() {
 
   const toggleLang = () => {
     const next = lang === "th" ? "en" : "th";
-    const l = applyLang(next); // ✅ apply to whole system
-    setLangState(l);
+    setDuwimsLang(next);
   };
 
   const handleLogout = () => {
@@ -252,7 +575,6 @@ export default function TopBar() {
           gap: 16,
         }}
       >
-        {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div
             style={{
@@ -272,7 +594,6 @@ export default function TopBar() {
           <span style={{ fontWeight: 700, fontSize: isMobile ? 18 : 20 }}>DuWIMS</span>
         </div>
 
-        {/* Desktop / Tablet */}
         {!isMobile && (
           <>
             <nav
@@ -304,7 +625,6 @@ export default function TopBar() {
               })}
             </nav>
 
-            {/* Actions */}
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               <button type="button" onClick={toggleLang} style={actionBtnStyle} title="Change language">
                 🌐 <span>{t("langBtn")}</span>
@@ -325,7 +645,6 @@ export default function TopBar() {
           </>
         )}
 
-        {/* Mobile */}
         {isMobile && (
           <div style={{ marginLeft: "auto", position: "relative" }} ref={menuRef}>
             <button

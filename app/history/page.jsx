@@ -1,5 +1,6 @@
 "use client";
 
+import { useDuwimsT } from "@/app/TopBar";
 import { useMemo, useRef, useState, useEffect } from "react";
 import Image from "next/image";
 
@@ -47,16 +48,17 @@ const SENSOR_OPTIONS = [
   { key: "water", label: "การให้น้ำ", unit: "L" },
 ];
 
-// ---- Thailand points (ตัวอย่างตำแหน่งบน SVG) ----
+// ---- Thailand points (ชลบุรีขึ้นก่อน) ----
 const TH_POINTS = [
-  { id: "cnx", name: "เชียงใหม่", x: 112, y: 90, value: 18 },
-  { id: "lpg", name: "ลำปาง", x: 122, y: 110, value: 22 },
-  { id: "kkc", name: "ขอนแก่น", x: 154, y: 170, value: 34 },
-  { id: "ubn", name: "อุบลฯ", x: 172, y: 205, value: 49 },
-  { id: "bkk", name: "กรุงเทพฯ", x: 142, y: 260, value: 56 },
-  { id: "pkn", name: "ประจวบฯ", x: 124, y: 310, value: 44 },
-  { id: "pkt", name: "ภูเก็ต", x: 92, y: 360, value: 72 },
-  { id: "sri", name: "สงขลา", x: 132, y: 382, value: 61 },
+  { id: "chon", nameTh: "ชลบุรี", nameEn: "Chonburi", x: 146, y: 248, value: 58 },
+  { id: "cnx", nameTh: "เชียงใหม่", nameEn: "Chiang Mai", x: 112, y: 90, value: 18 },
+  { id: "lpg", nameTh: "ลำปาง", nameEn: "Lampang", x: 122, y: 110, value: 22 },
+  { id: "kkc", nameTh: "ขอนแก่น", nameEn: "Khon Kaen", x: 154, y: 170, value: 34 },
+  { id: "ubn", nameTh: "อุบลฯ", nameEn: "Ubon", x: 172, y: 205, value: 49 },
+  { id: "bkk", nameTh: "กรุงเทพฯ", nameEn: "Bangkok", x: 142, y: 260, value: 56 },
+  { id: "pkn", nameTh: "ประจวบฯ", nameEn: "Prachuap", x: 124, y: 310, value: 44 },
+  { id: "pkt", nameTh: "ภูเก็ต", nameEn: "Phuket", x: 92, y: 360, value: 72 },
+  { id: "sgk", nameTh: "สงขลา", nameEn: "Songkhla", x: 132, y: 382, value: 61 },
 ];
 
 const PLOT_OPTIONS = [
@@ -65,32 +67,18 @@ const PLOT_OPTIONS = [
   { id: "3", name: "แปลง 3" },
 ];
 
-// palette สำหรับ compare plot
 const PLOT_COLORS = ["#2563eb", "#16a34a", "#f97316", "#a855f7", "#ef4444"];
 
 function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n));
 }
 
-// map 0..100 -> rgba blue intensity
 function blue(v) {
   const alpha = 0.15 + (clamp(v, 0, 100) / 100) * 0.75;
   return `rgba(37,99,235,${alpha})`;
 }
 
-// deterministic pseudo random (stable)
-function hashTo01(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  // 0..1
-  return ((h >>> 0) % 100000) / 100000;
-}
-
-function formatDateLabel(iso) {
-  // "2025-09-01" -> "01 ก.ย."
+function formatDateLabel(iso, lang = "th") {
   const d = new Date(iso + "T00:00:00");
   const thMonths = [
     "ม.ค.",
@@ -106,8 +94,22 @@ function formatDateLabel(iso) {
     "พ.ย.",
     "ธ.ค.",
   ];
+  const enMonths = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
   const dd = String(d.getDate()).padStart(2, "0");
-  return `${dd} ${thMonths[d.getMonth()]}`;
+  return `${dd} ${lang === "en" ? enMonths[d.getMonth()] : thMonths[d.getMonth()]}`;
 }
 
 function toCSV(rows) {
@@ -125,19 +127,17 @@ function toCSV(rows) {
   return lines.join("\n");
 }
 
-// ✅ y tick formatter: ทำเลขยาวให้สั้น อ่านง่าย
 function formatTick(v, sensorKey) {
   if (!isFinite(v)) return "-";
 
   const compactK = (num) => {
     const n = Math.round(num);
-    if (Math.abs(n) >= 10000) return `${Math.round(n / 1000)}k`; // 18000 -> 18k
+    if (Math.abs(n) >= 10000) return `${Math.round(n / 1000)}k`;
     return n.toLocaleString("en-US");
   };
 
   if (sensorKey === "light") return compactK(v);
   if (sensorKey === "water") return compactK(v);
-
   if (sensorKey === "rain") return (Math.round(v * 10) / 10).toFixed(1);
   if (sensorKey === "wind") return (Math.round(v * 10) / 10).toFixed(1);
 
@@ -147,17 +147,18 @@ function formatTick(v, sensorKey) {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
 
-// ใช้กับ backend ใน server.js (ต้องแนบ Bearer token เพราะ /api/* มี auth middleware)
 async function apiFetch(path, opts = {}) {
   const method = opts.method || "GET";
   const body = opts.body;
-  // รองรับ key หลายแบบ (กันคนละหน้าเก็บ token คนละชื่อ)
   const token =
     opts.token ||
     (typeof window !== "undefined" &&
-      (localStorage.getItem("token") ||
+      (localStorage.getItem("AUTH_TOKEN_V1") ||
+        localStorage.getItem("token") ||
         localStorage.getItem("access_token") ||
-        localStorage.getItem("jwt"))) ||
+        localStorage.getItem("jwt") ||
+        localStorage.getItem("pmtool_token") ||
+        localStorage.getItem("duwims_token"))) ||
     null;
 
   const res = await fetch(API_BASE + path, {
@@ -190,10 +191,34 @@ async function apiFetch(path, opts = {}) {
 }
 
 export default function HistoryPage() {
+  const { t, lang } = useDuwimsT();
+
   const sensorDropdownRef = useRef(null);
   const plotDropdownRef = useRef(null);
 
-  // responsive breakpoint
+  const sensorOptionsI18n = useMemo(
+    () => [
+      { key: "soil", label: t("soilMoisture", "ความชื้นในดิน"), unit: "%" },
+      { key: "temp", label: t("temperature", "อุณหภูมิ"), unit: "°C" },
+      { key: "rh", label: t("relativeHumidity", "ความชื้นสัมพัทธ์"), unit: "%" },
+      { key: "npk", label: "NPK", unit: "" },
+      { key: "light", label: t("lightIntensity", "ความเข้มแสง"), unit: "lux" },
+      { key: "rain", label: t("rainAmount", "ปริมาณน้ำฝน"), unit: "mm" },
+      { key: "wind", label: t("windSpeed", "ความเร็วลม"), unit: "m/s" },
+      { key: "water", label: t("irrigation", "การให้น้ำ"), unit: "L" },
+    ],
+    [t]
+  );
+
+  const defaultPlotOptionsI18n = useMemo(
+    () => [
+      { id: "1", name: `${t("plot", "แปลง")} 1` },
+      { id: "2", name: `${t("plot", "แปลง")} 2` },
+      { id: "3", name: `${t("plot", "แปลง")} 3` },
+    ],
+    [t]
+  );
+
   const [vw, setVw] = useState(1280);
   useEffect(() => {
     const onResize = () => setVw(window.innerWidth || 1280);
@@ -204,67 +229,82 @@ export default function HistoryPage() {
   const isMobile = vw < 640;
   const isTablet = vw >= 640 && vw < 1024;
 
-  // quick range state
-  const [quickRange, setQuickRange] = useState("7 วันล่าสุด");
+  const [quickRange, setQuickRange] = useState(t("last7Days", "7 วันล่าสุด"));
 
-  // dropdown (checkbox) state
+  useEffect(() => {
+    setQuickRange((prev) => {
+      const mapToKey = {
+        วันนี้: "today",
+        "7 วันล่าสุด": "last7Days",
+        "30 วันล่าสุด": "last30Days",
+        Today: "today",
+        "Last 7 Days": "last7Days",
+        "Last 30 Days": "last30Days",
+      };
+      const key = mapToKey[prev] || "last7Days";
+      return t(key, prev);
+    });
+  }, [t]);
+
+  const quickRangeOptions = useMemo(
+    () => [
+      t("today", "วันนี้"),
+      t("last7Days", "7 วันล่าสุด"),
+      t("last30Days", "30 วันล่าสุด"),
+    ],
+    [t]
+  );
+
   const [sensorDropdownOpen, setSensorDropdownOpen] = useState(false);
   const [selectedSensors, setSelectedSensors] = useState(["soil"]);
 
   const [plotDropdownOpen, setPlotDropdownOpen] = useState(false);
 
-// ====== plots (ดึงจาก backend) ======
-const [plotOptions, setPlotOptions] = useState([]);
-const [plotsLoading, setPlotsLoading] = useState(false);
-const [plotsError, setPlotsError] = useState("");
+  const [plotOptions, setPlotOptions] = useState([]);
+  const [plotsLoading, setPlotsLoading] = useState(false);
+  const [plotsError, setPlotsError] = useState("");
 
-// ✅ รายการแปลงที่ใช้จริง: ถ้าโหลดจาก API ได้ใช้ API, ไม่งั้น fallback เป็น mock
-const plotList = useMemo(() => {
-  return plotOptions.length ? plotOptions : PLOT_OPTIONS;
-}, [plotOptions]);
+  const plotList = useMemo(() => {
+    return plotOptions.length ? plotOptions : defaultPlotOptionsI18n;
+  }, [plotOptions, defaultPlotOptionsI18n]);
 
-// ✅ เริ่มต้นเป็น "ทุกแปลง" (default = เลือกครบ)
-const [selectedPlots, setSelectedPlots] = useState(() =>
-  PLOT_OPTIONS.map((p) => p.id)
-);
+  const [selectedPlots, setSelectedPlots] = useState(() =>
+    PLOT_OPTIONS.map((p) => p.id)
+  );
 
-// โหลด plots จาก API (GET /api/plots)
-useEffect(() => {
-  let cancelled = false;
-  (async () => {
-    try {
-      setPlotsLoading(true);
-      setPlotsError("");
-      const data = await apiFetch("/api/plots");
-      const items = Array.isArray(data?.items) ? data.items : [];
-      const mapped = items.map((p, i) => ({
-        id: String(p.id || p._id || i),
-        // server.js เก็บชื่อแปลงไว้ที่ plotName/alias และมี backward compat name
-        name: p.alias || p.plotName || p.name || `แปลง ${i + 1}`,
-        raw: p,
-      }));
-      if (!cancelled) {
-        setPlotOptions(mapped);
-        // ถ้าเคยเป็นค่า default เลือกครบ (จาก mock) ให้ sync ไปเป็นเลือกครบของ API ด้วย
-        setSelectedPlots(
-          mapped.length ? mapped.map((x) => x.id) : PLOT_OPTIONS.map((p) => p.id)
-        );
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setPlotsLoading(true);
+        setPlotsError("");
+        const data = await apiFetch("/api/plots");
+        const items = Array.isArray(data?.items) ? data.items : [];
+        const mapped = items.map((p, i) => ({
+          id: String(p.id || p._id || i),
+          name: p.alias || p.plotName || p.name || `${t("plot", "แปลง")} ${i + 1}`,
+          raw: p,
+        }));
+        if (!cancelled) {
+          setPlotOptions(mapped);
+          setSelectedPlots(
+            mapped.length ? mapped.map((x) => x.id) : defaultPlotOptionsI18n.map((p) => p.id)
+          );
+        }
+      } catch (e) {
+        if (!cancelled) setPlotsError(String(e?.message || e));
+      } finally {
+        if (!cancelled) setPlotsLoading(false);
       }
-    } catch (e) {
-      if (!cancelled) setPlotsError(String(e?.message || e));
-    } finally {
-      if (!cancelled) setPlotsLoading(false);
-    }
-  })();
-  return () => {
-    cancelled = true;
-  };
-}, []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [t, defaultPlotOptionsI18n]);
 
   const [startDate, setStartDate] = useState("2025-09-01");
   const [endDate, setEndDate] = useState("2025-09-30");
 
-  // ====== sensor-types (ดึงจาก backend เพื่อใช้ label/unit) ======
   const [sensorTypeItems, setSensorTypeItems] = useState([]);
   useEffect(() => {
     let cancelled = false;
@@ -273,19 +313,14 @@ useEffect(() => {
         const data = await apiFetch("/api/sensor-types");
         const items = Array.isArray(data?.items) ? data.items : [];
         if (!cancelled) setSensorTypeItems(items);
-      } catch {
-        // ไม่ critical: ถ้าดึงไม่ได้ จะ fallback ใช้ SENSOR_OPTIONS ด้านบน
-      }
+      } catch {}
     })();
     return () => { cancelled = true; };
   }, []);
 
-  // ====== history data (ใช้จริง: summary + readings) ======
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
-  // summaryByPlot[plotId] = summary.items จาก GET /api/plots/:plotId/summary
   const [summaryByPlot, setSummaryByPlot] = useState({});
-  // readingsByPlot[plotId] = readings.items จาก GET /api/readings?plotId=...&from=...&to=...
   const [readingsByPlot, setReadingsByPlot] = useState({});
 
   const toIsoFromDate = (d, endOfDay = false) => {
@@ -293,7 +328,6 @@ useEffect(() => {
     return endOfDay ? `${d}T23:59:59.999Z` : `${d}T00:00:00.000Z`;
   };
 
-  // map sensor meta -> column key ที่ UI ใช้ (soil/temp/rh/npk/light/rain/wind/water)
   const sensorMetaToKey = (meta) => {
     const st = String(meta?.sensorType || "");
     const name = String(meta?.name || "");
@@ -308,7 +342,6 @@ useEffect(() => {
       if (unit.includes("°") || name.includes("อุณหภูมิ") || name.toLowerCase().includes("temp")) return "temp";
       return "rh";
     }
-    // เผื่อ backend มี key ตรง ๆ
     if (st === "temp") return "temp";
     if (st === "rh") return "rh";
     if (st === "light") return "light";
@@ -316,7 +349,6 @@ useEffect(() => {
     return null;
   };
 
-  // โหลด summary + readings ตามแปลงที่เลือกและช่วงวันที่
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -327,7 +359,6 @@ useEffect(() => {
         const plots = (selectedPlots.length ? selectedPlots : plotList.map((p) => p.id))
           .filter(Boolean);
 
-        // ถ้าไม่มี plot จาก API (เช่นยังโหลดไม่เสร็จ) ให้หยุดก่อน
         if (!plots.length) {
           if (!cancelled) {
             setSummaryByPlot({});
@@ -339,12 +370,10 @@ useEffect(() => {
         const fromIso = toIsoFromDate(startDate, false);
         const toIso = toIsoFromDate(endDate, true);
 
-        // 1) summary
         const summaries = await Promise.all(
           plots.map((pid) => apiFetch(`/api/plots/${encodeURIComponent(pid)}/summary`))
         );
 
-        // 2) readings (ตามช่วงเวลา)
         const readingsList = await Promise.all(
           plots.map((pid) =>
             apiFetch(
@@ -376,7 +405,6 @@ useEffect(() => {
     return () => { cancelled = true; };
   }, [selectedPlots, plotList, startDate, endDate]);
 
-
   const toggleSensor = (key) => {
     setSelectedSensors((prev) => {
       if (prev.includes(key)) return prev.filter((k) => k !== key);
@@ -384,7 +412,6 @@ useEffect(() => {
     });
   };
 
-  // ✅ ห้ามเหลือว่าง: ถ้ายกเลิกหมดจะกลับเป็นทุกแปลง
   const togglePlot = (id) => {
     setSelectedPlots((prev) => {
       const next = prev.includes(id)
@@ -395,7 +422,6 @@ useEffect(() => {
     });
   };
 
-  // ปิด dropdown เมื่อคลิกนอกกล่อง
   const onRootClick = (e) => {
     if (sensorDropdownOpen) {
       if (
@@ -417,31 +443,29 @@ useEffect(() => {
 
   const selectedSensorNames = useMemo(() => {
     return selectedSensors
-      .map((k) => SENSOR_OPTIONS.find((s) => s.key === k)?.label)
+      .map((k) => sensorOptionsI18n.find((s) => s.key === k)?.label)
       .filter(Boolean);
-  }, [selectedSensors]);
+  }, [selectedSensors, sensorOptionsI18n]);
 
   const sensorDropdownLabel = useMemo(() => {
-    if (selectedSensorNames.length === 0) return "เลือกประเภทเซนเซอร์";
+    if (selectedSensorNames.length === 0) return t("selectSensorType", "เลือกประเภทเซนเซอร์");
     if (selectedSensorNames.length === 1) return selectedSensorNames[0];
     return `${selectedSensorNames[0]} +${selectedSensorNames.length - 1}`;
-  }, [selectedSensorNames]);
+  }, [selectedSensorNames, t]);
 
   const selectedPlotNames = useMemo(() => {
     return selectedPlots
       .map((id) => plotList.find((p) => p.id === id)?.name)
       .filter(Boolean);
-  }, [selectedPlots]);
+  }, [selectedPlots, plotList]);
 
-  // ✅ เลือกครบ = "ทุกแปลง"
   const plotDropdownLabel = useMemo(() => {
-    if (selectedPlots.length === plotList.length) return "ทุกแปลง";
-    if (selectedPlotNames.length === 0) return "ทุกแปลง";
+    if (selectedPlots.length === plotList.length) return t("allPlots", "ทุกแปลง");
+    if (selectedPlotNames.length === 0) return t("allPlots", "ทุกแปลง");
     if (selectedPlotNames.length === 1) return selectedPlotNames[0];
     return `${selectedPlotNames[0]} +${selectedPlotNames.length - 1}`;
-  }, [selectedPlots, selectedPlotNames]);
+  }, [selectedPlots, selectedPlotNames, plotList.length, t]);
 
-  // responsive card padding
   const cardPad = isMobile ? 14 : isTablet ? 16 : 20;
   const cardRadius = isMobile ? 18 : 24;
   const cardR = useMemo(() => {
@@ -489,15 +513,7 @@ useEffect(() => {
     return { display: "grid", gridTemplateColumns: "1fr 260px", gap: 12 };
   }, [isMobile]);
 
-  // =========================
-  // MOCK SERIES (พร้อมเสียบ API)
-  // =========================
-
-  // =========================
-  // สร้างแกนเวลา (baseTimes) ตามช่วงวันที่จริง
-  // =========================
   const baseTimes = useMemo(() => {
-    // ถ้า range สั้น (<= 12 วัน) ใช้ทุกวัน
     const start = new Date(`${startDate}T00:00:00Z`);
     const end = new Date(`${endDate}T00:00:00Z`);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
@@ -510,20 +526,19 @@ useEffect(() => {
       for (let i = 0; i < days; i++) {
         const d = new Date(start.getTime() + i * 86400000);
         const ds = d.toISOString().slice(0, 10);
-        points.push({ ts: `${ds}T12:00:00Z`, label: formatDateLabel(ds), day: ds });
+        points.push({ ts: `${ds}T12:00:00Z`, label: formatDateLabel(ds, lang), day: ds });
       }
       return points;
     }
 
-    // range ยาว: sample 8 จุดเพื่อให้กราฟอ่านง่าย
     const N = 8;
     for (let i = 0; i < N; i++) {
-      const t = i / (N - 1);
-      const d = new Date(start.getTime() + t * (end.getTime() - start.getTime()));
+      const tt = i / (N - 1);
+      const d = new Date(start.getTime() + tt * (end.getTime() - start.getTime()));
       const ds = d.toISOString().slice(0, 10);
-      points.push({ ts: `${ds}T12:00:00Z`, label: formatDateLabel(ds), day: ds });
+      points.push({ ts: `${ds}T12:00:00Z`, label: formatDateLabel(ds, lang), day: ds });
     }
-    // กันวันซ้ำจากการปัด
+
     const uniq = [];
     const seen = new Set();
     for (const p of points) {
@@ -532,13 +547,8 @@ useEffect(() => {
       uniq.push(p);
     }
     return uniq;
-  }, [startDate, endDate]);
+  }, [startDate, endDate, lang]);
 
-  // =========================
-  // seriesByPlot: ใช้ข้อมูลจริงจาก backend
-  // - ใช้ summary เพื่อรู้ว่า sensorId ไหนเป็นคอลัมน์อะไร
-  // - ใช้ readings ในช่วงวันที่เพื่อคำนวณค่าเฉลี่ยของแต่ละ "จุด" ในกราฟ
-  // =========================
   const seriesByPlot = useMemo(() => {
     const plots = selectedPlots.length ? selectedPlots : plotList.map((p) => p.id);
     const sensors = selectedSensors.length ? selectedSensors : ["soil"];
@@ -548,10 +558,8 @@ useEffect(() => {
       const metaItems = Array.isArray(summaryByPlot?.[pid]) ? summaryByPlot[pid] : [];
       const readings = Array.isArray(readingsByPlot?.[pid]) ? readingsByPlot[pid] : [];
 
-      // sensorId -> meta
       const metaBySensorId = new Map(metaItems.map((m) => [String(m.sensorId), m]));
 
-      // day -> sensorId -> {sum,count}
       const bucket = new Map();
       for (const r of readings) {
         const sid = String(r.sensorId || "");
@@ -571,16 +579,15 @@ useEffect(() => {
 
       out[pid] = {};
       for (const sk of sensors) {
-        // sensorIds ที่ map เข้าคอลัมน์นี้
         const sensorIds = metaItems
           .filter((m) => sensorMetaToKey(m) === sk)
           .map((m) => String(m.sensorId));
 
-        const pts = baseTimes.map((t) => {
+        const pts = baseTimes.map((tt) => {
           let sum = 0;
           let count = 0;
 
-          const byDay = bucket.get(t.day);
+          const byDay = bucket.get(tt.day);
           if (byDay && sensorIds.length) {
             for (const sid of sensorIds) {
               const acc = byDay.get(sid);
@@ -591,11 +598,9 @@ useEffect(() => {
             }
           }
 
-          // fallback: ถ้าไม่มี reading ในวันนั้น ใช้ last/avg จาก summary (เป็นค่า "ภาพรวม")
           let value = null;
           if (count > 0) value = Math.round((sum / count) * 10) / 10;
           else if (sensorIds.length) {
-            // รวม avg ของแต่ละ sensor ในคอลัมน์นั้น
             const avgs = sensorIds
               .map((sid) => metaBySensorId.get(String(sid)))
               .filter(Boolean)
@@ -604,7 +609,7 @@ useEffect(() => {
             if (avgs.length) value = Math.round((avgs.reduce((a, b) => a + b, 0) / avgs.length) * 10) / 10;
           }
 
-          return { ts: t.ts, label: t.label, value: value ?? 0 };
+          return { ts: tt.ts, label: tt.label, value: value ?? 0 };
         });
 
         out[pid][sk] = pts;
@@ -614,11 +619,9 @@ useEffect(() => {
     return out;
   }, [selectedPlots, plotList, selectedSensors, baseTimes, summaryByPlot, readingsByPlot, startDate, endDate, quickRange]);
 
-
-  // แสดงกราฟ: โฟกัส sensor ตัวแรก (เลือกไว้) เพื่อเปรียบเทียบแปลงแบบชัด ๆ
   const activeSensorKey = selectedSensors[0] || "soil";
   const activeSensorMeta =
-    SENSOR_OPTIONS.find((s) => s.key === activeSensorKey) || SENSOR_OPTIONS[0];
+    sensorOptionsI18n.find((s) => s.key === activeSensorKey) || sensorOptionsI18n[0];
 
   const compareSeries = useMemo(() => {
     const plots = selectedPlots.length
@@ -630,13 +633,13 @@ useEffect(() => {
         return {
           plotId: pid,
           plotName:
-            plotList.find((p) => p.id === pid)?.name || `แปลง ${pid}`,
+            plotList.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${pid}`,
           color: PLOT_COLORS[idx % PLOT_COLORS.length],
           points: pts,
         };
       })
       .filter((s) => s.points.length);
-  }, [selectedPlots, seriesByPlot, activeSensorKey]);
+  }, [selectedPlots, plotList, seriesByPlot, activeSensorKey, t]);
 
   const stats = useMemo(() => {
     const all = compareSeries.flatMap((s) => s.points.map((p) => p.value));
@@ -657,14 +660,9 @@ useEffect(() => {
     return { minVal, maxVal, avgVal, currentVal, lastLabel };
   }, [compareSeries]);
 
-  // =========================
-  // SVG chart helpers
-  // =========================
   const chart = useMemo(() => {
     const W = 100;
     const H = 60;
-
-    // ✅ ปรับให้ชิดซ้ายขึ้น
     const padL = 9;
     const padR = 2;
     const padT = 5;
@@ -691,8 +689,8 @@ useEffect(() => {
 
     const ticks = 5;
     const yTicks = Array.from({ length: ticks }, (_, i) => {
-      const t = i / (ticks - 1);
-      const v = yMax - t * span;
+      const tt = i / (ticks - 1);
+      const v = yMax - tt * span;
       const y = yFor(v);
       return { y, v: Math.round(v * 10) / 10 };
     });
@@ -702,9 +700,6 @@ useEffect(() => {
     return { yMin, yMax, yTicks, polylines, xLabels, padL, padR, padT, padB };
   }, [compareSeries]);
 
-  // =========================
-  // EXPORT CSV (plots x sensors)
-  // =========================
   const onExportCSV = () => {
     const plots = selectedPlots.length
       ? selectedPlots
@@ -714,9 +709,9 @@ useEffect(() => {
     const rows = [];
     for (const pid of plots) {
       const plotName =
-        plotList.find((p) => p.id === pid)?.name || `แปลง ${pid}`;
+        plotList.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${pid}`;
       for (const sk of sensors) {
-        const meta = SENSOR_OPTIONS.find((s) => s.key === sk);
+        const meta = sensorOptionsI18n.find((s) => s.key === sk);
         const unit = meta?.unit ?? "";
         const pts = seriesByPlot?.[pid]?.[sk] || [];
         for (const p of pts) {
@@ -751,10 +746,6 @@ useEffect(() => {
     URL.revokeObjectURL(url);
   };
 
-  // =========================
-  // TABLE rows (ใช้ค่าจาก mock เฉลี่ย)
-  // =========================
-
   const tableRows = useMemo(() => {
     const plots = selectedPlots.length ? selectedPlots : plotList.map((p) => p.id);
 
@@ -782,7 +773,6 @@ useEffect(() => {
       let v = null;
       if (count > 0) v = sum / count;
       else {
-        // fallback เป็นค่า avg/last จาก summary (กรณีไม่มี reading ในช่วงที่เลือก)
         const avgs = metaItems
           .filter((m) => sensorIds.includes(String(m.sensorId)))
           .map((m) => Number(m.avg ?? m.last))
@@ -797,7 +787,7 @@ useEffect(() => {
     };
 
     return plots.map((pid, i) => {
-      const plotName = plotList.find((p) => p.id === pid)?.name || `แปลง ${pid}`;
+      const plotName = plotList.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${pid}`;
       return {
         plotId: String(pid),
         plot: plotName,
@@ -812,8 +802,7 @@ useEffect(() => {
         bg: i % 2 === 0 ? "#f9fafb" : "#eef2ff",
       };
     });
-  }, [selectedPlots, plotList, summaryByPlot, readingsByPlot]);
-
+  }, [selectedPlots, plotList, summaryByPlot, readingsByPlot, sensorOptionsI18n, t]);
 
   return (
     <div style={pageStyle} onClick={onRootClick}>
@@ -827,7 +816,6 @@ useEffect(() => {
           }}
           className="du-history"
         >
-          {/* ===== FILTER PANEL ===== */}
           <div
             className="du-card"
             style={{
@@ -855,14 +843,13 @@ useEffect(() => {
                   fontWeight: 700,
                 }}
               >
-                ฟิลเตอร์ข้อมูลย้อนหลัง
+                {t("historyFilters", "ฟิลเตอร์ข้อมูลย้อนหลัง")}
               </div>
               <span style={{ fontSize: 12, opacity: 0.9, lineHeight: 1.4 }}>
-                เลือกช่วงวันที่ / เซนเซอร์ / แปลง เพื่อดูข้อมูลย้อนหลังและกราฟ
+                {t("historyFiltersDesc", "เลือกช่วงวันที่ / เซนเซอร์ / แปลง เพื่อดูข้อมูลย้อนหลังและกราฟ")}
               </span>
             </div>
 
-            {/* quick chips */}
             <div
               style={{
                 marginBottom: 10,
@@ -872,8 +859,8 @@ useEffect(() => {
                 gap: 6,
               }}
             >
-              <span style={{ marginRight: 2 }}>ช่วงเวลาเร็ว:</span>
-              {["วันนี้", "7 วันล่าสุด", "30 วันล่าสุด"].map((l) => {
+              <span style={{ marginRight: 2 }}>{t("quickRange", "ช่วงเวลาเร็ว")}:</span>
+              {quickRangeOptions.map((l) => {
                 const active = quickRange === l;
                 return (
                   <button
@@ -902,11 +889,10 @@ useEffect(() => {
               })}
             </div>
 
-            {/* dates */}
             <div style={{ ...grid2, marginBottom: 8 }}>
               <div className="du-field" style={{ fontSize: 13, minWidth: 0 }}>
                 <label style={{ display: "block", marginBottom: 4, color: "#fff" }}>
-                  วันที่เริ่มต้น
+                  {t("startDate", "วันที่เริ่มต้น")}
                 </label>
                 <input
                   type="date"
@@ -926,7 +912,7 @@ useEffect(() => {
 
               <div className="du-field" style={{ fontSize: 13, minWidth: 0 }}>
                 <label style={{ display: "block", marginBottom: 4, color: "#fff" }}>
-                  วันที่สิ้นสุด
+                  {t("endDate", "วันที่สิ้นสุด")}
                 </label>
                 <input
                   type="date"
@@ -945,12 +931,10 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* sensor dropdown + plot checkbox dropdown */}
             <div style={grid2}>
-              {/* sensor */}
               <div className="du-field" style={{ fontSize: 13, minWidth: 0 }}>
                 <label style={{ display: "block", marginBottom: 4, color: "#fff" }}>
-                  ประเภทเซนเซอร์
+                  {t("sensorType", "ประเภทเซนเซอร์")}
                 </label>
 
                 <div ref={sensorDropdownRef} style={{ position: "relative", minWidth: 0 }}>
@@ -1017,7 +1001,7 @@ useEffect(() => {
                         }}
                       >
                         <div style={{ fontSize: 12, fontWeight: 900, color: "#0f172a" }}>
-                          เลือกได้หลายตัว
+                          {t("multiSelectAllowed", "เลือกได้หลายตัว")}
                         </div>
                         <button
                           type="button"
@@ -1032,7 +1016,7 @@ useEffect(() => {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          ล้าง
+                          {t("clear", "ล้าง")}
                         </button>
                       </div>
 
@@ -1045,7 +1029,7 @@ useEffect(() => {
                           gap: 8,
                         }}
                       >
-                        {SENSOR_OPTIONS.map((s) => {
+                        {sensorOptionsI18n.map((s) => {
                           const checked = selectedSensors.includes(s.key);
                           return (
                             <label
@@ -1108,7 +1092,7 @@ useEffect(() => {
                             fontSize: 12,
                           }}
                         >
-                          Done
+                          {t("done", "Done")}
                         </button>
                       </div>
                     </div>
@@ -1116,15 +1100,14 @@ useEffect(() => {
                 </div>
 
                 <div style={{ marginTop: 6, fontSize: 11, opacity: 0.95 }}>
-                  เลือกแล้ว:{" "}
+                  {t("selected", "เลือกแล้ว")}:{" "}
                   {selectedSensorNames.length ? selectedSensorNames.join(", ") : "—"}
                 </div>
               </div>
 
-              {/* plot (checkbox multi-select) */}
               <div className="du-field" style={{ fontSize: 13, minWidth: 0 }}>
                 <label style={{ display: "block", marginBottom: 4, color: "#fff" }}>
-                  แปลง (เลือกได้หลายแปลง)
+                  {t("plotsMulti", "แปลง (เลือกได้หลายแปลง)")}
                 </label>
 
                 <div ref={plotDropdownRef} style={{ position: "relative", minWidth: 0 }}>
@@ -1191,7 +1174,7 @@ useEffect(() => {
                         }}
                       >
                         <div style={{ fontSize: 12, fontWeight: 900, color: "#0f172a" }}>
-                          เลือกหลายแปลงเพื่อเทียบกราฟ
+                          {t("selectMultiplePlotsToCompare", "เลือกหลายแปลงเพื่อเทียบกราฟ")}
                         </div>
 
                         <button
@@ -1207,7 +1190,7 @@ useEffect(() => {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          เลือกทั้งหมด
+                          {t("selectAll", "เลือกทั้งหมด")}
                         </button>
                       </div>
 
@@ -1267,7 +1250,7 @@ useEffect(() => {
                             fontSize: 12,
                           }}
                         >
-                          Done
+                          {t("done", "Done")}
                         </button>
                       </div>
                     </div>
@@ -1275,26 +1258,25 @@ useEffect(() => {
                 </div>
 
                 <div style={{ marginTop: 6, fontSize: 11, opacity: 0.95 }}>
-                  เลือกแล้ว:{" "}
-                  {selectedPlotNames.length ? selectedPlotNames.join(", ") : "ทุกแปลง"}
+                  {t("selected", "เลือกแล้ว")}:{" "}
+                  {selectedPlotNames.length ? selectedPlotNames.join(", ") : t("allPlots", "ทุกแปลง")}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* ===== SUMMARY BADGE ROW ===== */}
           <section style={summaryGrid}>
             {[
               {
-                title: "ค่าปัจจุบัน (แปลงแรกที่เลือก)",
+                title: t("currentValueFirstSelectedPlot", "ค่าปัจจุบัน (แปลงแรกที่เลือก)"),
                 value: `${stats.currentVal}${activeSensorMeta.unit}`,
-                sub: `อัปเดตล่าสุด ${stats.lastLabel}`,
+                sub: `${t("latestUpdate", "อัปเดตล่าสุด")} ${stats.lastLabel}`,
                 bg: "linear-gradient(135deg,#dbeafe 0%,#eff6ff 45%,#ffffff 100%)",
                 titleColor: "#64748b",
                 valueColor: "#1d4ed8",
               },
               {
-                title: "ค่าเฉลี่ย (รวมทุกแปลงที่เลือก)",
+                title: t("averageAllSelectedPlots", "ค่าเฉลี่ย (รวมทุกแปลงที่เลือก)"),
                 value: `${stats.avgVal}${activeSensorMeta.unit}`,
                 sub: `sensor: ${activeSensorMeta.label}`,
                 bg: "linear-gradient(135deg,#dcfce7 0%,#ecfdf5 45%,#ffffff 100%)",
@@ -1302,17 +1284,17 @@ useEffect(() => {
                 valueColor: "#16a34a",
               },
               {
-                title: "ค่าต่ำสุด",
+                title: t("minimumValue", "ค่าต่ำสุด"),
                 value: `${stats.minVal}${activeSensorMeta.unit}`,
-                sub: "ต่ำสุดของทุกแปลงที่เลือก",
+                sub: t("minimumOfAllSelectedPlots", "ต่ำสุดของทุกแปลงที่เลือก"),
                 bg: "linear-gradient(135deg,#fef9c3 0%,#fffbeb 45%,#ffffff 100%)",
                 titleColor: "#92400e",
                 valueColor: "#f97316",
               },
               {
-                title: "ค่าสูงสุด",
+                title: t("maximumValue", "ค่าสูงสุด"),
                 value: `${stats.maxVal}${activeSensorMeta.unit}`,
-                sub: "สูงสุดของทุกแปลงที่เลือก",
+                sub: t("maximumOfAllSelectedPlots", "สูงสุดของทุกแปลงที่เลือก"),
                 bg: "linear-gradient(135deg,#fee2e2 0%,#fef2f2 45%,#ffffff 100%)",
                 titleColor: "#b91c1c",
                 valueColor: "#dc2626",
@@ -1365,7 +1347,6 @@ useEffect(() => {
             ))}
           </section>
 
-          {/* ===== WEATHER HEAT MAP: THAILAND MAP ===== */}
           <div
             className="du-card"
             style={{
@@ -1386,14 +1367,14 @@ useEffect(() => {
             >
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 900 }}>
-                  Weather Heat Map (Thailand)
+                  {t("weatherHeatMapThailand", "Weather Heat Map (Thailand)")}
                 </div>
                 <div style={{ fontSize: 12, color: "#475569", lineHeight: 1.4 }}>
-                  ตัวอย่างแผนที่ประเทศไทย + จุดข้อมูล (rain intensity)
+                  {t("weatherHeatMapDesc", "ตัวอย่างแผนที่ประเทศไทย + จุดข้อมูล (rain intensity)")}
                 </div>
               </div>
               <div style={{ fontSize: 12, color: "#475569", whiteSpace: "nowrap" }}>
-                ช่วง: <b>{quickRange}</b> • {startDate} ถึง {endDate}
+                {t("range", "ช่วง")}: <b>{quickRange}</b> • {startDate} {t("to", "ถึง")} {endDate}
               </div>
             </div>
 
@@ -1439,7 +1420,7 @@ useEffect(() => {
                   }}
                 >
                   <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 8 }}>
-                    Legend (Rain Intensity)
+                    {t("legendRainIntensity", "Legend (Rain Intensity)")}
                   </div>
 
                   <div
@@ -1461,65 +1442,67 @@ useEffect(() => {
                       marginBottom: 10,
                     }}
                   >
-                    <span>น้อย</span>
-                    <span>มาก</span>
+                    <span>{t("low", "น้อย")}</span>
+                    <span>{t("high", "มาก")}</span>
                   </div>
 
                   <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 6 }}>
-                    จุดข้อมูลตัวอย่าง
+                    {t("samplePoints", "จุดข้อมูลตัวอย่าง")}
                   </div>
 
                   <div style={{ display: "grid", gap: 8 }}>
-                    {TH_POINTS.map((p) => (
-                      <div
-                        key={p.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          padding: "8px 10px",
-                          borderRadius: 12,
-                          border: "1px solid rgba(15,23,42,0.08)",
-                          background: "#f8fafc",
-                          minWidth: 0,
-                        }}
-                      >
+                    {TH_POINTS.map((p) => {
+                      const pointName = lang === "en" ? p.nameEn : p.nameTh;
+                      return (
                         <div
+                          key={p.id}
                           style={{
-                            width: 14,
-                            height: 14,
-                            borderRadius: 999,
-                            background: blue(p.value),
-                            border: "1px solid rgba(15,23,42,0.18)",
-                            flex: "0 0 auto",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            padding: "8px 10px",
+                            borderRadius: 12,
+                            border: "1px solid rgba(15,23,42,0.08)",
+                            background: "#f8fafc",
+                            minWidth: 0,
                           }}
-                        />
-                        <div style={{ flex: 1, minWidth: 0 }}>
+                        >
                           <div
                             style={{
-                              fontSize: 12,
-                              fontWeight: 900,
-                              color: "#0f172a",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
+                              width: 14,
+                              height: 14,
+                              borderRadius: 999,
+                              background: blue(p.value),
+                              border: "1px solid rgba(15,23,42,0.18)",
+                              flex: "0 0 auto",
                             }}
-                          >
-                            {p.name}
-                          </div>
-                          <div style={{ fontSize: 11, color: "#64748b" }}>
-                            intensity: <b>{p.value}</b>/100
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 900,
+                                color: "#0f172a",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {pointName}
+                            </div>
+                            <div style={{ fontSize: 11, color: "#64748b" }}>
+                              {lang === "en" ? "Intensity" : "ความเข้ม"}: <b>{p.value}</b>/100
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* ===== GRAPH SECTION (COMPARE PLOTS) ===== */}
           <div
             className="du-card"
             style={{
@@ -1540,11 +1523,11 @@ useEffect(() => {
             >
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 900 }}>
-                  กราฟเปรียบเทียบแปลง
+                  {t("plotComparisonGraph", "กราฟเปรียบเทียบแปลง")}
                 </div>
                 <p style={{ fontSize: 12, marginTop: 2, color: "#4b5563" }}>
-                  sensor: <b>{activeSensorMeta.label}</b> • แปลง:{" "}
-                  {selectedPlotNames.length ? selectedPlotNames.join(", ") : "ทุกแปลง"}
+                  sensor: <b>{activeSensorMeta.label}</b> • {t("plots", "แปลง")}:{" "}
+                  {selectedPlotNames.length ? selectedPlotNames.join(", ") : t("allPlots", "ทุกแปลง")}
                 </p>
               </div>
 
@@ -1607,20 +1590,18 @@ useEffect(() => {
               }}
             >
               <svg viewBox="0 0 100 60" preserveAspectRatio="none" style={{ width: "100%", height: 220 }}>
-                {/* grid */}
-                {chart.yTicks.map((t, i) => (
+                {chart.yTicks.map((tt, i) => (
                   <line
                     key={i}
                     x1={chart.padL}
                     x2="98"
-                    y1={t.y}
-                    y2={t.y}
+                    y1={tt.y}
+                    y2={tt.y}
                     stroke="#e5edf7"
                     strokeWidth="0.5"
                   />
                 ))}
 
-                {/* y axis */}
                 <line
                   x1={chart.padL}
                   x2={chart.padL}
@@ -1630,31 +1611,29 @@ useEffect(() => {
                   strokeWidth="0.8"
                 />
 
-                {/* y tick labels (ชิดซ้ายขึ้น) */}
-                {chart.yTicks.map((t, i) => (
+                {chart.yTicks.map((tt, i) => (
                   <g key={i}>
                     <line
                       x1={chart.padL}
                       x2={chart.padL - 1.0}
-                      y1={t.y}
-                      y2={t.y}
+                      y1={tt.y}
+                      y2={tt.y}
                       stroke="#cbd5e1"
                       strokeWidth="0.6"
                     />
                     <text
                       x="1.4"
-                      y={t.y + 1.2}
+                      y={tt.y + 1.2}
                       fontSize="3.2"
                       fontWeight="900"
                       fill="#64748b"
                       textAnchor="start"
                     >
-                      {formatTick(t.v, activeSensorKey)}
+                      {formatTick(tt.v, activeSensorKey)}
                     </text>
                   </g>
                 ))}
 
-                {/* unit */}
                 <text
                   x="1.4"
                   y={chart.padT + 2.2}
@@ -1666,7 +1645,6 @@ useEffect(() => {
                   {activeSensorMeta.unit || ""}
                 </text>
 
-                {/* polylines */}
                 {chart.polylines.map((pl) => (
                   <polyline
                     key={pl.plotId}
@@ -1709,14 +1687,13 @@ useEffect(() => {
             </div>
 
             <div style={{ marginTop: 8, fontSize: 11, color: "#64748b" }}>
-              * กราฟนี้เทียบ “แปลง” ด้วย sensor ตัวแรกที่เลือก (เพื่ออ่านง่าย) • แต่ CSV จะ export ทุก sensor ที่เลือก
+              * {t("graphCompareNote", "กราฟนี้เทียบ “แปลง” ด้วย sensor ตัวแรกที่เลือก (เพื่ออ่านง่าย) • แต่ CSV จะ export ทุก sensor ที่เลือก")}
             </div>
           </div>
 
-          {/* ===== SUMMARY TABLE (WITH BORDER) ===== */}
           <div className="du-card" style={cardR}>
             <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 900, marginBottom: 10 }}>
-              สรุปการวัดข้อมูล (เฉลี่ยช่วงที่เลือก)
+              {t("measurementSummarySelectedRange", "สรุปการวัดข้อมูล (เฉลี่ยช่วงที่เลือก)")}
             </div>
 
             <div
@@ -1741,15 +1718,15 @@ useEffect(() => {
                 <thead>
                   <tr style={{ background: "#f1f5f9" }}>
                     {[
-                      "แปลง",
-                      "ความชื้นในดิน (%)",
-                      "อุณหภูมิ (°C)",
-                      "ความชื้นสัมพัทธ์ (%)",
+                      t("plot", "แปลง"),
+                      `${t("soilMoisture", "ความชื้นในดิน")} (%)`,
+                      `${t("temperature", "อุณหภูมิ")} (°C)`,
+                      `${t("relativeHumidity", "ความชื้นสัมพัทธ์")} (%)`,
                       "NPK",
-                      "ความเข้มแสง (lux)",
-                      "ปริมาณน้ำฝน (mm)",
-                      "ความเร็วลม (m/s)",
-                      "การให้น้ำ (L)",
+                      `${t("lightIntensity", "ความเข้มแสง")} (lux)`,
+                      `${t("rainAmount", "ปริมาณน้ำฝน")} (mm)`,
+                      `${t("windSpeed", "ความเร็วลม")} (m/s)`,
+                      `${t("irrigation", "การให้น้ำ")} (L)`,
                     ].map((h) => (
                       <th
                         key={h}
@@ -1782,15 +1759,15 @@ useEffect(() => {
                         row.rain,
                         row.wind,
                         row.water,
-                      ].map((cell, idx) => (
+                      ].map((cell, idx2) => (
                         <td
-                          key={idx}
+                          key={idx2}
                           style={{
                             padding: "9px 8px",
                             borderBottom: "1px solid #e5e7eb",
                             borderRight: "1px solid #e5e7eb",
-                            textAlign: idx === 0 ? "left" : "center",
-                            fontWeight: idx === 0 ? 900 : 700,
+                            textAlign: idx2 === 0 ? "left" : "center",
+                            fontWeight: idx2 === 0 ? 900 : 700,
                             color: "#0f172a",
                             whiteSpace: "nowrap",
                           }}
@@ -1805,7 +1782,7 @@ useEffect(() => {
             </div>
 
             <div style={{ marginTop: 8, fontSize: 11, color: "#64748b" }}>
-              * แสดงค่าจริงจาก API (ช่วงวันที่ที่เลือก ถ้าไม่มี reading จะ fallback เป็นค่า avg/last จาก summary)
+              * {t("summaryApiNote", "แสดงค่าจริงจาก API (ช่วงวันที่ที่เลือก ถ้าไม่มี reading จะ fallback เป็นค่า avg/last จาก summary)")}
             </div>
           </div>
         </main>
