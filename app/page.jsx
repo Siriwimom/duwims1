@@ -1,54 +1,103 @@
 "use client";
 
 import { useDuwimsT } from "@/app/TopBar";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import "leaflet/dist/leaflet.css";
 
-// --- dynamic import React-Leaflet (client only) ---
-const MapContainer = dynamic(() => import("react-leaflet").then((m) => m.MapContainer), { ssr: false });
-const TileLayer = dynamic(() => import("react-leaflet").then((m) => m.TileLayer), { ssr: false });
-const Polygon = dynamic(() => import("react-leaflet").then((m) => m.Polygon), { ssr: false });
-const Marker = dynamic(() => import("react-leaflet").then((m) => m.Marker), { ssr: false });
-const Popup = dynamic(() => import("react-leaflet").then((m) => m.Popup), { ssr: false });
-
-// ✅ Fit bounds helper component (client only)
-const FitToAll = dynamic(
+// ============================
+// ✅ Load react-leaflet in ONE bundle
+// ============================
+const LeafletBundle = dynamic(
   async () => {
     const RL = await import("react-leaflet");
-    const { useMap } = RL;
+    return function LeafletMapBundle(props) {
+      const {
+        center,
+        height,
+        allMapPoints,
+        polygonsAll,
+        mapPinsForMap,
+        pinIcon,
+        onMapCreated,
+      } = props;
 
-    return function FitToAllInner({ points = [] }) {
-      const map = useMap();
+      const {
+        MapContainer,
+        TileLayer,
+        Polygon,
+        Marker,
+        Popup,
+        useMap,
+      } = RL;
 
-      useEffect(() => {
-        let cancelled = false;
+      function FitToAllInner({ points = [] }) {
+        const map = useMap();
 
-        (async () => {
-          try {
-            const L = await import("leaflet");
-            if (cancelled) return;
+        useEffect(() => {
+          let cancelled = false;
 
-            const valid = (points || [])
-              .map((p) => [Number(p?.[0]), Number(p?.[1])])
-              .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+          (async () => {
+            try {
+              const L = await import("leaflet");
+              if (cancelled || !map) return;
 
-            if (!valid.length) return;
+              const valid = (points || [])
+                .map((p) => [Number(p?.[0]), Number(p?.[1])])
+                .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
 
-            const bounds = L.latLngBounds(valid.map((p) => L.latLng(p[0], p[1])));
-            map.fitBounds(bounds.pad(0.12), { animate: false });
-          } catch {
-            // ignore
-          }
-        })();
+              if (!valid.length) return;
 
-        return () => {
-          cancelled = true;
-        };
-      }, [map, points]);
+              const bounds = L.latLngBounds(valid.map((p) => L.latLng(p[0], p[1])));
+              map.fitBounds(bounds.pad(0.12), { animate: false });
+            } catch {
+              // ignore
+            }
+          })();
 
-      return null;
+          return () => {
+            cancelled = true;
+          };
+        }, [map, points]);
+
+        return null;
+      }
+
+      return (
+        <MapContainer
+          center={center}
+          zoom={12}
+          scrollWheelZoom={true}
+          attributionControl={false}
+          style={{ height, width: "100%" }}
+          whenCreated={onMapCreated}
+        >
+          <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
+
+          <FitToAllInner points={allMapPoints} />
+
+          {(polygonsAll || []).map((poly) => (
+            <Polygon
+              key={poly.id}
+              positions={poly.coords}
+              pathOptions={{
+                color: poly.color || "#16a34a",
+                weight: 2,
+                fillColor: "#86efac",
+                fillOpacity: 0.4,
+              }}
+            />
+          ))}
+
+          {pinIcon &&
+            (mapPinsForMap || []).map((p) => (
+              <Marker key={p.id} position={p.position} icon={pinIcon}>
+                <Popup>{p.label}</Popup>
+              </Marker>
+            ))}
+        </MapContainer>
+      );
     };
   },
   { ssr: false }
@@ -68,6 +117,7 @@ const pageStyle = {
   minHeight: "100vh",
   color: "#111827",
 };
+
 const outerWrap = {
   width: "100%",
   display: "flex",
@@ -75,6 +125,7 @@ const outerWrap = {
   overflowX: "hidden",
   minHeight: "100vh",
 };
+
 const bodyStyle = {
   width: "100%",
   maxWidth: 1180,
@@ -85,9 +136,10 @@ const bodyStyle = {
   paddingLeft: 16,
   paddingRight: 16,
 };
+
 const cardBase = {
   background: "#f9fafb",
-  borderRadius: 24,
+  borderRadius: 18,
   paddingTop: 18,
   paddingRight: 20,
   paddingBottom: 18,
@@ -98,14 +150,13 @@ const cardBase = {
   boxSizing: "border-box",
 };
 
-// ===== PIN CARD STYLES =====
 const pinCardBase = {
-  borderRadius: 30,
+  borderRadius: 20,
   background: "#dfffee",
-  paddingTop: 14,
-  paddingRight: 14,
-  paddingBottom: 16,
-  paddingLeft: 14,
+  paddingTop: 12,
+  paddingRight: 12,
+  paddingBottom: 12,
+  paddingLeft: 12,
   boxShadow: "0 10px 24px rgba(15,23,42,0.12)",
   display: "flex",
   flexDirection: "column",
@@ -113,7 +164,9 @@ const pinCardBase = {
   minWidth: 0,
   overflow: "hidden",
   boxSizing: "border-box",
+  border: "1px solid rgba(148,163,184,0.25)",
 };
+
 const pinHeaderRow = {
   display: "flex",
   justifyContent: "space-between",
@@ -122,65 +175,129 @@ const pinHeaderRow = {
   gap: 10,
   flexWrap: "wrap",
 };
-const pinTitleBlock = { display: "flex", flexDirection: "column", gap: 2, minWidth: 0 };
-const pinTitle = { fontSize: 18, fontWeight: 700 };
-const pinSubtitle = { fontSize: 11, color: "#6b7280" };
-const pinStatus = { fontSize: 18, fontWeight: 700, color: "#16a34a" };
+
+const pinTitleBlock = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+  minWidth: 0,
+  flex: 1,
+};
+
+const pinTitle = {
+  fontSize: 16,
+  fontWeight: 500,
+  lineHeight: 1.35,
+  wordBreak: "normal",
+  overflowWrap: "break-word",
+  whiteSpace: "normal",
+};
+
+const pinSubtitle = {
+  fontSize: 12,
+  color: "#4b5563",
+  lineHeight: 1.4,
+  wordBreak: "normal",
+  overflowWrap: "break-word",
+  whiteSpace: "normal",
+};
+
+const pinStatus = {
+  fontSize: 13,
+  fontWeight: 600,
+  color: "#ffffff",
+  background: "#16a34a",
+  padding: "5px 11px",
+  borderRadius: 10,
+  minWidth: 54,
+  textAlign: "center",
+};
+
 const pinInfoPill = {
-  borderRadius: 999,
+  borderRadius: 10,
   background: "#ffffff",
-  paddingTop: 6,
+  paddingTop: 7,
   paddingRight: 10,
-  paddingBottom: 6,
+  paddingBottom: 7,
   paddingLeft: 10,
-  fontSize: 11,
-  boxShadow: "0 1px 3px rgba(148,163,184,0.35)",
+  fontSize: 12,
+  boxShadow: "0 1px 3px rgba(148,163,184,0.20)",
   minWidth: 0,
   overflow: "hidden",
+  border: "1px solid #e5e7eb",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  minHeight: 0,
 };
-const pinInfoLabel = { fontSize: 10, color: "#6b7280", marginBottom: 2 };
+
+const pinInfoLabel = {
+  fontSize: 11,
+  color: "#6b7280",
+  marginBottom: 2,
+  fontWeight: 400,
+  lineHeight: 1.3,
+  whiteSpace: "normal",
+  wordBreak: "normal",
+};
+
 const pinInfoValue = {
   fontSize: 12,
-  fontWeight: 600,
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
+  fontWeight: 400,
+  whiteSpace: "normal",
+  wordBreak: "normal",
+  overflowWrap: "break-word",
+  lineHeight: 1.35,
 };
+
 const pinGroupContainer = {
-  borderRadius: 22,
-  background: "rgba(255,255,255,0.85)",
-  paddingTop: 8,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.92)",
+  paddingTop: 9,
   paddingRight: 10,
   paddingBottom: 10,
   paddingLeft: 10,
-  marginBottom: 6,
+  marginBottom: 8,
+  border: "1px solid #e5e7eb",
 };
-const pinGroupLabel = { fontSize: 12, fontWeight: 600, marginBottom: 4 };
+
+const pinGroupLabel = {
+  fontSize: 12,
+  fontWeight: 500,
+  marginBottom: 7,
+};
+
 const pinGroupItem = {
-  borderRadius: 999,
+  borderRadius: 10,
   background: "#f9fafb",
-  paddingTop: 5,
-  paddingRight: 8,
-  paddingBottom: 5,
-  paddingLeft: 8,
-  fontSize: 11,
-  boxShadow: "0 1px 2px rgba(148,163,184,0.35)",
+  paddingTop: 7,
+  paddingRight: 9,
+  paddingBottom: 7,
+  paddingLeft: 9,
+  fontSize: 12,
+  boxShadow: "0 1px 2px rgba(148,163,184,0.18)",
   minWidth: 0,
   overflow: "hidden",
+  border: "1px solid #e5e7eb",
 };
+
 const pinSensorName = {
   fontWeight: 500,
-  marginBottom: 1,
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
+  marginBottom: 3,
+  whiteSpace: "normal",
+  wordBreak: "normal",
+  overflowWrap: "break-word",
+  lineHeight: 1.4,
+  fontSize: 12,
 };
+
 const pinSensorValue = {
-  fontSize: 10,
+  fontSize: 12,
   color: "#6b7280",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
+  whiteSpace: "normal",
+  wordBreak: "normal",
+  overflowWrap: "break-word",
+  lineHeight: 1.45,
 };
 
 // ============================
@@ -190,6 +307,7 @@ function safeNum(x, fallback = 0) {
   const n = Number(x);
   return Number.isFinite(n) ? n : fallback;
 }
+
 function formatThaiDate(d) {
   if (!d) return "-";
   const dt = new Date(d);
@@ -199,6 +317,7 @@ function formatThaiDate(d) {
   const yyyy = dt.getFullYear() + 543;
   return `${dd}/${mm}/${yyyy}`;
 }
+
 function formatDateByLang(d, lang = "th") {
   if (!d) return "-";
   const dt = new Date(d);
@@ -206,6 +325,7 @@ function formatDateByLang(d, lang = "th") {
   if (lang === "en") return dt.toLocaleDateString("en-GB");
   return formatThaiDate(d);
 }
+
 function prettyTs(ts, lang = "th") {
   if (!ts) return "";
   const d = new Date(ts);
@@ -229,6 +349,7 @@ function prettyTs(ts, lang = "th") {
   const mi = String(d.getMinutes()).padStart(2, "0");
   return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
 }
+
 function getStoredToken() {
   try {
     return (
@@ -241,6 +362,79 @@ function getStoredToken() {
   } catch {
     return "";
   }
+}
+
+function firstNonEmpty(...values) {
+  for (const v of values) {
+    if (v === 0) return 0;
+    if (v === false) return false;
+    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+  }
+  return "";
+}
+
+function pickPlotName(obj = {}) {
+  return firstNonEmpty(
+    obj.plotName,
+    obj.name,
+    obj.alias,
+    obj.dropdownName,
+    obj.displayName,
+    obj.plotLabel,
+    obj.label
+  );
+}
+
+function pickPlantType(obj = {}) {
+  return firstNonEmpty(
+    obj.plantType,
+    obj.cropType,
+    obj.plant_name,
+    obj.crop_name,
+    obj.type,
+    obj.crop
+  );
+}
+
+function pickPlantedAt(obj = {}) {
+  return firstNonEmpty(
+    obj.plantedAt,
+    obj.startDate,
+    obj.startedAt,
+    obj.plantDate,
+    obj.datePlanted,
+    obj.createdAt
+  );
+}
+
+function pickCaretaker(obj = {}) {
+  return firstNonEmpty(
+    obj.caretakerName,
+    obj.caretaker,
+    obj.ownerName,
+    obj.managerName,
+    obj.nickname,
+    obj.userNickname,
+    obj.createdByName,
+    obj.createdByNickname
+  );
+}
+
+function pickNodeId(obj = {}) {
+  return firstNonEmpty(obj.nodeId, obj.node, obj.nodeName, obj.nodeLabel);
+}
+
+function mergePlotMeta(plot = {}, pin = {}) {
+  return {
+    id: String(firstNonEmpty(plot.id, plot._id, pin.plotId, pin.plot_id, "")),
+    plotName: pickPlotName(plot) || pickPlotName(pin) || "",
+    plantType: pickPlantType(plot) || pickPlantType(pin) || "",
+    plantedAt: pickPlantedAt(plot) || pickPlantedAt(pin) || "",
+    caretakerName: pickCaretaker(plot) || pickCaretaker(pin) || "",
+    nodeId: pickNodeId(pin) || pickNodeId(plot) || "",
+    rawPlot: plot,
+    rawPin: pin,
+  };
 }
 
 // ============================
@@ -284,6 +478,7 @@ function toWeekday(dateStr, lang = "th") {
   const enDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   return (lang === "en" ? enDays : thDays)[d.getDay()];
 }
+
 function centroidOfPolygon(coords) {
   if (!Array.isArray(coords) || coords.length < 3) return null;
   let sumLat = 0;
@@ -299,12 +494,14 @@ function centroidOfPolygon(coords) {
   }
   return n ? [sumLat / n, sumLng / n] : null;
 }
+
 function weatherEmoji(pop) {
   const p = safeNum(pop, 0);
   if (p >= 70) return "🌧️";
   if (p >= 40) return "🌦️";
   return "🌤️";
 }
+
 async function fetchForecast7Days(lat, lng) {
   const url =
     `https://api.open-meteo.com/v1/forecast` +
@@ -343,6 +540,7 @@ function maybeSwapLngLat(pair) {
   if (Math.abs(a) > 90 && Math.abs(b) <= 90) return [b, a];
   return [a, b];
 }
+
 function normalizePairList(list) {
   if (!Array.isArray(list)) return null;
 
@@ -361,6 +559,7 @@ function normalizePairList(list) {
   const out = list.map((p) => maybeSwapLngLat(p)).filter(Boolean);
   return out.length >= 3 ? out : null;
 }
+
 function extractRingsFromAny(raw) {
   if (!raw) return [];
 
@@ -403,6 +602,7 @@ function extractRingsFromAny(raw) {
   }
   return rings;
 }
+
 function normalizePolygons(items, plotId = "", plotName = "") {
   const list = Array.isArray(items) ? items : [];
   const out = [];
@@ -449,7 +649,7 @@ function buildGroupsFromSensors(sensors = [], sensorTypeMap = new Map(), t) {
 
   for (const s of sensors) {
     const st = sensorTypeMap.get(s.sensorType) || { label: s.sensorType, unit: s.unit || "" };
-    const groupLabel = `${sensorGroupPrefix} ${st.label || s.sensorType}`.trim();
+    const groupLabel = `${sensorGroupPrefix} ${st.label || s.sensorType || "-"}`.trim();
 
     const lastV =
       s?.lastReading?.value !== null && s?.lastReading?.value !== undefined
@@ -458,8 +658,8 @@ function buildGroupsFromSensors(sensors = [], sensorTypeMap = new Map(), t) {
 
     const isAlert = String(s.status || "").toUpperCase() !== "OK";
     const item = {
-      name: s.name || st.label || s.sensorType,
-      value: `${valuePrefix} - ${lastV}`,
+      name: s.name || st.label || s.sensorType || "-",
+      value: `${valuePrefix}: ${lastV}`,
       isAlert,
     };
 
@@ -489,6 +689,8 @@ export default function DashboardAllPlotsPage() {
   const { t, lang } = useDuwimsT();
 
   const [isClient, setIsClient] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
+  const mapRef = useRef(null);
   const [pinIcon, setPinIcon] = useState(null);
 
   const [vw, setVw] = useState(1280);
@@ -503,7 +705,7 @@ export default function DashboardAllPlotsPage() {
   const isTablet = vw >= 640 && vw < 1024;
 
   const cardPad = isMobile ? 14 : isTablet ? 16 : 20;
-  const cardRadius = isMobile ? 18 : 24;
+  const cardRadius = isMobile ? 14 : 18;
 
   const cardBaseR = useMemo(() => {
     return {
@@ -561,34 +763,51 @@ export default function DashboardAllPlotsPage() {
   }, [isMobile]);
 
   const pinPillRow = useMemo(() => {
-    if (isMobile) return { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginBottom: 12 };
-    return { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginBottom: 12 };
+    return {
+      display: "grid",
+      gridTemplateColumns: isMobile ? "1fr" : "repeat(6, minmax(0, 1fr))",
+      gap: 6,
+      marginBottom: 10,
+    };
   }, [isMobile]);
 
   const pinGroupGrid = useMemo(() => {
-    if (isMobile) return { display: "grid", gridTemplateColumns: "1fr", gap: 6 };
-    return { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 6 };
+    if (isMobile) return { display: "grid", gridTemplateColumns: "1fr", gap: 8 };
+    return { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 };
   }, [isMobile]);
 
-  const title18 = { fontSize: isMobile ? 16 : 18, fontWeight: 700 };
-  const bigTemp = { fontSize: isMobile ? 24 : 28, fontWeight: 800 };
-  const bigNum = { fontSize: isMobile ? 22 : 24, fontWeight: 800 };
+  const title18 = { fontSize: isMobile ? 16 : 18, fontWeight: 600 };
+  const bigTemp = { fontSize: isMobile ? 22 : 26, fontWeight: 600 };
+  const bigNum = { fontSize: isMobile ? 20 : 22, fontWeight: 600 };
 
   useEffect(() => setIsClient(true), []);
 
   useEffect(() => {
     if (!isClient) return;
     let mounted = true;
+
     import("leaflet").then((L) => {
       if (!mounted) return;
+
+      delete L.Icon.Default.prototype._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+        iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
+        shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+      });
+
       const icon = new L.Icon({
         iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+        iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
         shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
         iconSize: [25, 41],
         iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41],
       });
       setPinIcon(icon);
     });
+
     return () => {
       mounted = false;
     };
@@ -641,8 +860,11 @@ export default function DashboardAllPlotsPage() {
         const plotItems = (pl?.items || [])
           .map((p) => ({
             ...p,
-            id: String(p._id || p.id || ""),
-            plotName: p.plotName || p.name || p.alias || "",
+            id: String(firstNonEmpty(p._id, p.id, "")),
+            plotName: pickPlotName(p),
+            plantType: pickPlantType(p),
+            plantedAt: pickPlantedAt(p),
+            caretakerName: pickCaretaker(p),
           }))
           .filter((p) => p.id);
 
@@ -688,18 +910,25 @@ export default function DashboardAllPlotsPage() {
 
         const allPins = [];
         for (const pr of pinsByPlot) {
+          const plotMeta = plotItems.find((p) => String(p.id) === String(pr.plotId)) || null;
+
           const pinsNorm = (pr.items || [])
-            .map((x) => ({
-              ...x,
-              id: String(x._id || x.id || ""),
-              plotId: pr.plotId,
-              plotName: pr.plotName,
-              number: safeNum(x.number, 0),
-              lat: Number(x.lat),
-              lng: Number(x.lng),
-              nodeId: x.nodeId ? String(x.nodeId) : null,
-            }))
+            .map((x) => {
+              const merged = mergePlotMeta(plotMeta || {}, x || {});
+              return {
+                ...x,
+                id: String(firstNonEmpty(x._id, x.id, "")),
+                plotId: String(firstNonEmpty(pr.plotId, x.plotId, x.plot_id, merged.id, "")),
+                plotName: merged.plotName || pr.plotName || "",
+                plotMetaMerged: merged,
+                number: safeNum(firstNonEmpty(x.number, x.pinNumber, x.no, 0), 0),
+                lat: Number(firstNonEmpty(x.lat, x.latitude)),
+                lng: Number(firstNonEmpty(x.lng, x.longitude)),
+                nodeId: firstNonEmpty(x.nodeId, x.node, x.nodeName, merged.nodeId, null),
+              };
+            })
             .filter((p) => p.id && Number.isFinite(p.lat) && Number.isFinite(p.lng));
+
           allPins.push(...pinsNorm);
         }
         setPinsAll(allPins);
@@ -708,9 +937,10 @@ export default function DashboardAllPlotsPage() {
         for (const sr of sensorsByPlotArr) {
           const sensors = (sr.items || []).map((x) => ({
             ...x,
-            id: String(x._id || x.id || ""),
+            id: String(firstNonEmpty(x._id, x.id, "")),
             pinId: x.pinId ? String(x.pinId) : null,
           }));
+
           for (const s of sensors) {
             const pid = s.pinId || "__no_pin__";
             if (!pinMap[pid]) pinMap[pid] = [];
@@ -773,6 +1003,18 @@ export default function DashboardAllPlotsPage() {
     };
   }, [polygonsAll, pinsAll]);
 
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const id = requestAnimationFrame(() => {
+      try {
+        mapRef.current.invalidateSize(false);
+      } catch {
+        // ignore
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [mapReady, vw, polygonsAll, pinsAll]);
+
   const allMapPoints = useMemo(() => {
     const pts = [];
     for (const poly of polygonsAll || []) {
@@ -789,6 +1031,14 @@ export default function DashboardAllPlotsPage() {
     }
     return [13.736717, 100.523186];
   }, [allMapPoints]);
+
+  const plotMetaMap = useMemo(() => {
+    const m = new Map();
+    for (const p of plots || []) {
+      m.set(String(p.id), mergePlotMeta(p, {}));
+    }
+    return m;
+  }, [plots]);
 
   const mapPinsForMap = useMemo(() => {
     return (pinsAll || [])
@@ -835,12 +1085,8 @@ export default function DashboardAllPlotsPage() {
     const max3 = Math.max(...next3);
 
     if (lang === "en") {
-      if (max3 >= 70) {
-        return "High chance of rain in the next 2–3 days. Prepare drainage and inspect water paths in the plot.";
-      }
-      if (max3 >= 40) {
-        return "Moderate chance of rain. Monitor soil moisture and adjust irrigation timing accordingly.";
-      }
+      if (max3 >= 70) return "High chance of rain in the next 2–3 days. Prepare drainage and inspect water paths in the plot.";
+      if (max3 >= 40) return "Moderate chance of rain. Monitor soil moisture and adjust irrigation timing accordingly.";
       return "Low chance of rain. Suitable for planned irrigation and routine soil-moisture checks.";
     }
 
@@ -890,13 +1136,13 @@ export default function DashboardAllPlotsPage() {
               </div>
 
               <div style={{ marginTop: 8, overflowX: isMobile ? "auto" : "visible" }}>
-                <div style={gridWeather} className="du-grid-4">
-                  {daysUI.map((d) => (
+                <div style={gridWeather}>
+                  {daysUI.map((d, idx) => (
                     <div
-                      key={d.day}
+                      key={`${d.day}-${idx}`}
                       style={{
                         background: "#eef3ff",
-                        borderRadius: 18,
+                        borderRadius: 12,
                         padding: isMobile ? 10 : 8,
                         textAlign: "center",
                         minWidth: 0,
@@ -905,9 +1151,9 @@ export default function DashboardAllPlotsPage() {
                         border: "1px solid rgba(148,163,184,0.35)",
                       }}
                     >
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>{d.day}</div>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{d.day}</div>
                       <div style={{ fontSize: 22, margin: "6px 0 2px" }}>{d.emoji}</div>
-                      <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.1 }}>{d.temp}</div>
+                      <div style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.1 }}>{d.temp}</div>
                       <div style={{ fontSize: 11, color: "#4b5563", marginTop: 4 }}>
                         {lang === "en" ? `Rain chance ${d.rain}` : `โอกาสฝนตก ${d.rain}`}
                       </div>
@@ -928,10 +1174,8 @@ export default function DashboardAllPlotsPage() {
             </div>
 
             <div style={{ gridArea: "mid", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
-              <div style={{ ...cardBaseR, background: "#1d4ed8", color: "#ffffff" }} className="du-card">
-                <div className="du-card-title" style={{ ...title18, marginBottom: 4 }}>
-                  {t("todayTemperature", "อุณหภูมิปัจจุบัน (วันนี้)")}
-                </div>
+              <div style={{ ...cardBaseR, background: "#1d4ed8", color: "#ffffff" }}>
+                <div style={{ ...title18, marginBottom: 4 }}>{t("todayTemperature", "อุณหภูมิปัจจุบัน (วันนี้)")}</div>
                 <div style={{ ...bigTemp, marginBottom: 4, color: "#bfdbfe" }}>{tempRangeText}</div>
                 <div style={{ fontSize: 13, color: "#e0e7ff", lineHeight: 1.5 }}>
                   {forecastDays?.length
@@ -940,10 +1184,8 @@ export default function DashboardAllPlotsPage() {
                 </div>
               </div>
 
-              <div style={{ ...cardBaseR, background: "#facc15", color: "#111827" }} className="du-card">
-                <div className="du-card-title" style={{ ...title18, marginBottom: 4 }}>
-                  {t("todayRainChance", "โอกาสฝนตก (วันนี้)")}
-                </div>
+              <div style={{ ...cardBaseR, background: "#facc15", color: "#111827" }}>
+                <div style={{ ...title18, marginBottom: 4 }}>{t("todayRainChance", "โอกาสฝนตก (วันนี้)")}</div>
                 <div style={{ ...bigNum, marginBottom: 2 }}>{forecastDays?.length ? `${rainChanceToday}%` : "—"}</div>
                 <div style={{ fontSize: 12, lineHeight: 1.5 }}>
                   {t("basedOnDailyPrecipitation", "อิงจาก precipitation probability (รายวัน)")}
@@ -952,24 +1194,19 @@ export default function DashboardAllPlotsPage() {
             </div>
 
             <div style={{ gridArea: "right", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
-              <div className="du-card" style={{ ...cardBaseR, background: "#ef4444", color: "#ffffff" }}>
-                <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
-                  {t("advice", "คำแนะนำ")}
-                </div>
-                <p style={{ fontSize: 14, margin: 0, lineHeight: 1.6 }}>{adviceText}</p>
+              <div style={{ ...cardBaseR, background: "#ef4444", color: "#ffffff" }}>
+                <div style={{ ...title18, marginBottom: 8 }}>{t("advice", "คำแนะนำ")}</div>
+                <p style={{ fontSize: 14, margin: 0, lineHeight: 1.6, fontWeight: 400 }}>{adviceText}</p>
               </div>
 
               <div
-                className="du-card"
                 style={{
                   ...cardBaseR,
                   background: "linear-gradient(135deg,#16a34a 0%,#22c55e 50%,#4ade80 100%)",
                   color: "#f0fdf4",
                 }}
               >
-                <div className="du-card-title" style={{ ...title18, marginBottom: 4 }}>
-                  {t("rain7days", "ปริมาณน้ำฝน (7 วัน)")}
-                </div>
+                <div style={{ ...title18, marginBottom: 4 }}>{t("rain7days", "ปริมาณน้ำฝน (7 วัน)")}</div>
                 <div style={{ ...bigNum, marginBottom: 2 }}>{rainSum7 === null ? "—" : `${rainSum7} mm`}</div>
                 <div style={{ fontSize: 12, opacity: 0.95, lineHeight: 1.5 }}>
                   {t("sumFromDailyPrecipitation", "รวมจาก precipitation_sum รายวัน")}
@@ -978,101 +1215,67 @@ export default function DashboardAllPlotsPage() {
             </div>
           </div>
 
-          <div style={{ ...gridMiddle, marginBottom: 16 }} className="du-grid-3">
-            <div style={{ ...cardBaseR, gridArea: "map" }} className="du-card">
-              <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
-                {t("mapAndResourcesAllPlots", "แผนที่และทรัพยากร (ทุกแปลง)")}
-              </div>
+          <div style={{ ...gridMiddle, marginBottom: 16 }}>
+            <div style={{ ...cardBaseR, gridArea: "map" }}>
+              <div style={{ ...title18, marginBottom: 8 }}>{t("mapAndResourcesAllPlots", "แผนที่และทรัพยากร (ทุกแปลง)")}</div>
 
               <div
                 style={{
-                  borderRadius: isMobile ? 18 : 22,
+                  borderRadius: 14,
                   overflow: "hidden",
                   boxShadow: "0 8px 18px rgba(15,23,42,0.18)",
+                  minHeight: mapHeight,
+                  background: "#dbeafe",
                 }}
               >
-                {isClient && (
-                  <MapContainer center={mapCenter} zoom={12} scrollWheelZoom={true} style={{ height: mapHeight, width: "100%" }}>
-                    <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
-                      url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
-
-                    <FitToAll points={allMapPoints} />
-
-                    {(polygonsAll || []).map((poly) => (
-                      <Polygon
-                        key={poly.id}
-                        positions={poly.coords}
-                        pathOptions={{
-                          color: poly.color || "#16a34a",
-                          weight: 2,
-                          fillColor: "#86efac",
-                          fillOpacity: 0.4,
-                        }}
-                      />
-                    ))}
-
-                    {pinIcon &&
-                      mapPinsForMap.map((p) => (
-                        <Marker key={p.id} position={p.position} icon={pinIcon}>
-                          <Popup>{p.label}</Popup>
-                        </Marker>
-                      ))}
-                  </MapContainer>
+                {isClient && pinIcon ? (
+                  <LeafletBundle
+                    center={mapCenter}
+                    height={mapHeight}
+                    allMapPoints={allMapPoints}
+                    polygonsAll={polygonsAll}
+                    mapPinsForMap={mapPinsForMap}
+                    pinIcon={pinIcon}
+                    onMapCreated={(map) => {
+                      mapRef.current = map;
+                      setMapReady(true);
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      height: mapHeight,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#475569",
+                      fontSize: 13,
+                    }}
+                  >
+                    {t("loading", "กำลังโหลด...")}
+                  </div>
                 )}
               </div>
             </div>
 
-            <div style={{ ...cardBaseR, gridArea: "status", background: "#dcfce7" }} className="du-card">
-              <div className="du-card-title" style={{ ...title18, marginBottom: 10 }}>
-                {t("overallStatusAllPlots", "สถานะรวม (ทุกแปลง)")}
-              </div>
+            <div style={{ ...cardBaseR, gridArea: "status", background: "#dcfce7" }}>
+              <div style={{ ...title18, marginBottom: 10 }}>{t("overallStatusAllPlots", "สถานะรวม (ทุกแปลง)")}</div>
 
-              <div style={{ fontSize: 12, color: "#166534", marginBottom: 6 }}>{statusText}</div>
+              <div style={{ fontSize: 12, color: "#166534", marginBottom: 8, lineHeight: 1.5 }}>{statusText}</div>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <span
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 999,
-                    background: "#22c55e",
-                    color: "#fff",
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
+                <span style={{ padding: "6px 12px", borderRadius: 10, background: "#22c55e", color: "#fff", fontSize: 12, fontWeight: 500 }}>
                   {lang === "en" ? `Plots ${plotCount}` : `แปลง ${plotCount}`}
                 </span>
-
-                <span
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 999,
-                    background: "#22c55e",
-                    color: "#fff",
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
+                <span style={{ padding: "6px 12px", borderRadius: 10, background: "#22c55e", color: "#fff", fontSize: 12, fontWeight: 500 }}>
                   {`Pins ${pinCount}`}
                 </span>
-
-                <span
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 999,
-                    background: "#22c55e",
-                    color: "#fff",
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
+                <span style={{ padding: "6px 12px", borderRadius: 10, background: "#22c55e", color: "#fff", fontSize: 12, fontWeight: 500 }}>
                   {`Polygons ${polyCount}`}
                 </span>
               </div>
 
-              <div style={{ marginTop: 10, fontSize: 12, color: "#166534" }}>
+              <div style={{ marginTop: 10, fontSize: 13, color: "#166534", lineHeight: 1.5 }}>
                 {loading
                   ? t("loadingAllPlots", "กำลังโหลดข้อมูลทุกแปลง...")
                   : loadError
@@ -1081,12 +1284,10 @@ export default function DashboardAllPlotsPage() {
               </div>
             </div>
 
-            <div style={{ ...cardBaseR, gridArea: "issue", background: "#fed7aa" }} className="du-card">
-              <div className="du-card-title" style={{ ...title18, marginBottom: 8 }}>
-                {t("overallIssuesAllPlots", "ปัญหารวม (ทุกแปลง)")}
-              </div>
+            <div style={{ ...cardBaseR, gridArea: "issue", background: "#fed7aa" }}>
+              <div style={{ ...title18, marginBottom: 8 }}>{t("overallIssuesAllPlots", "ปัญหารวม (ทุกแปลง)")}</div>
 
-              <p style={{ fontSize: 13, marginBottom: 6, lineHeight: 1.55 }}>
+              <p style={{ fontSize: 13, marginBottom: 8, lineHeight: 1.6, fontWeight: 400 }}>
                 {issueCount > 0
                   ? lang === "en"
                     ? `Detected ${issueCount} abnormal sensor item(s)`
@@ -1097,12 +1298,12 @@ export default function DashboardAllPlotsPage() {
               <span
                 style={{
                   display: "inline-block",
-                  padding: "4px 10px",
-                  borderRadius: 999,
+                  padding: "6px 12px",
+                  borderRadius: 10,
                   background: issueCount > 0 ? "#f97316" : "#22c55e",
                   color: "#fff",
                   fontSize: 12,
-                  fontWeight: 600,
+                  fontWeight: 500,
                 }}
               >
                 {issueCount > 0
@@ -1116,7 +1317,7 @@ export default function DashboardAllPlotsPage() {
             </div>
           </div>
 
-          <div style={gridPins} className="du-grid-3">
+          <div style={gridPins}>
             {pinCards.map((pin) => {
               const pinId = String(pin.id || "__no_pin__");
               const pinNumber = safeNum(pin.number, 0);
@@ -1125,10 +1326,13 @@ export default function DashboardAllPlotsPage() {
               const groups = buildGroupsFromSensors(sensors, sensorTypeMap, t);
 
               const hasAlert = sensors.some((s) => String(s.status || "").toUpperCase() !== "OK");
-              const backgroundColor = hasAlert ? "#FFBABA" : "#dfffee";
+              const backgroundColor = hasAlert ? "#ffe1e1" : "#dfffee";
               const sensorTypeCount = new Set(sensors.map((s) => s.sensorType).filter(Boolean)).size;
 
-              const plotMeta = plots.find((p) => String(p.id) === String(pin.plotId)) || null;
+              const plotMeta = mergePlotMeta(
+                plotMetaMap.get(String(pin.plotId)) || {},
+                pin.plotMetaMerged || pin || {}
+              );
 
               return (
                 <div
@@ -1136,41 +1340,58 @@ export default function DashboardAllPlotsPage() {
                   style={{
                     ...pinCardBase,
                     background: backgroundColor,
-                    borderRadius: isMobile ? 22 : 30,
-                    paddingTop: isMobile ? 12 : 14,
-                    paddingRight: isMobile ? 12 : 14,
-                    paddingBottom: isMobile ? 12 : 16,
-                    paddingLeft: isMobile ? 12 : 14,
+                    borderRadius: isMobile ? 16 : 20,
+                    paddingTop: isMobile ? 11 : 12,
+                    paddingRight: isMobile ? 11 : 12,
+                    paddingBottom: isMobile ? 11 : 12,
+                    paddingLeft: isMobile ? 11 : 12,
                   }}
                 >
                   <div style={pinHeaderRow}>
                     <div style={pinTitleBlock}>
-                      <span style={{ ...pinTitle, fontSize: isMobile ? 16 : 18 }}>
-                        {pin.plotName ? `${pin.plotName} • ` : ""}Pin {pinNumber}
+                      <span style={{ ...pinTitle, fontSize: isMobile ? 15 : 16 }}>
+                        {plotMeta.plotName ? `${plotMeta.plotName} • ` : ""}Pin {pinNumber}
                       </span>
                       <span style={pinSubtitle}>
-                        {lang === "en" ? "Coordinates" : "พิกัด"}{" "}
-                        {Number(pin.lat).toFixed ? Number(pin.lat).toFixed(5) : pin.lat},{" "}
-                        {Number(pin.lng).toFixed ? Number(pin.lng).toFixed(5) : pin.lng}
+                        {lang === "en" ? "Coordinates" : "พิกัด"}:{" "}
+                        {Number.isFinite(Number(pin.lat)) ? Number(pin.lat).toFixed(5) : "-"},{" "}
+                        {Number.isFinite(Number(pin.lng)) ? Number(pin.lng).toFixed(5) : "-"}
                       </span>
                     </div>
-                    <span style={{ ...pinStatus, fontSize: isMobile ? 16 : 18 }}>{hasAlert ? "WARN" : "ON"}</span>
+
+                    <span
+                      style={{
+                        ...pinStatus,
+                        background: hasAlert ? "#dc2626" : "#16a34a",
+                        fontSize: isMobile ? 12 : 13,
+                      }}
+                    >
+                      {hasAlert ? "WARN" : "ON"}
+                    </span>
                   </div>
 
                   <div style={pinPillRow}>
-                    <div style={pinInfoPill}>
+                    <div style={{ ...pinInfoPill, gridColumn: isMobile ? "auto" : "span 2" }}>
                       <div style={pinInfoLabel}>{lang === "en" ? "Plot" : "แปลง"}</div>
-                      <div style={pinInfoValue}>{pin.plotName || pin.plotId || "—"}</div>
+                      <div style={pinInfoValue}>{plotMeta.plotName || pin.plotId || "—"}</div>
                     </div>
-                    <div style={pinInfoPill}>
+
+                    <div style={{ ...pinInfoPill, gridColumn: isMobile ? "auto" : "span 2" }}>
                       <div style={pinInfoLabel}>{t("plantType", "ประเภทพืช")}</div>
-                      <div style={pinInfoValue}>{plotMeta?.plantType || plotMeta?.cropType || "—"}</div>
+                      <div style={pinInfoValue}>{plotMeta.plantType || "—"}</div>
                     </div>
-                    <div style={pinInfoPill}>
+
+                    <div style={{ ...pinInfoPill, gridColumn: isMobile ? "auto" : "span 2" }}>
                       <div style={pinInfoLabel}>{t("plantedAt", "วันที่เริ่มปลูก")}</div>
-                      <div style={pinInfoValue}>{formatDateByLang(plotMeta?.plantedAt, lang)}</div>
+                      <div style={pinInfoValue}>{formatDateByLang(plotMeta.plantedAt, lang)}</div>
                     </div>
-                    <div style={pinInfoPill}>
+
+                    <div style={{ ...pinInfoPill, gridColumn: isMobile ? "auto" : "span 3" }}>
+                      <div style={pinInfoLabel}>{lang === "en" ? "Caretaker" : "ผู้ดูแล"}</div>
+                      <div style={pinInfoValue}>{plotMeta.caretakerName || "—"}</div>
+                    </div>
+
+                    <div style={{ ...pinInfoPill, gridColumn: isMobile ? "auto" : "span 3" }}>
                       <div style={pinInfoLabel}>{lang === "en" ? "Sensor Types" : "ชนิดเซนเซอร์"}</div>
                       <div style={pinInfoValue}>
                         {lang === "en" ? `${sensorTypeCount || 0} type(s)` : `${sensorTypeCount || 0} ชนิด`}
@@ -1184,22 +1405,22 @@ export default function DashboardAllPlotsPage() {
                         <div style={pinGroupLabel}>{g.group}</div>
 
                         <div style={pinGroupGrid}>
-                          {g.items.map((it) => {
+                          {g.items.map((it, idx) => {
                             const isAlertItem = !!it.isAlert;
                             const itemStyle = {
                               ...pinGroupItem,
-                              background: isAlertItem ? "#fef9c3" : "#f9fafb",
+                              background: isAlertItem ? "#fff7d6" : "#f9fafb",
                               boxShadow: isAlertItem ? "0 0 0 1px #facc15" : pinGroupItem.boxShadow,
                             };
                             const nameStyle = { ...pinSensorName, color: isAlertItem ? "#b91c1c" : "#111827" };
                             const valueStyle = {
                               ...pinSensorValue,
                               color: isAlertItem ? "#b91c1c" : "#6b7280",
-                              fontWeight: isAlertItem ? 600 : 400,
+                              fontWeight: isAlertItem ? 500 : 400,
                             };
 
                             return (
-                              <div key={`${pinId}-${g.group}-${it.name}`} style={itemStyle}>
+                              <div key={`${pinId}-${g.group}-${it.name}-${idx}`} style={itemStyle}>
                                 <div style={nameStyle}>{it.name}</div>
                                 <div style={valueStyle}>{it.value}</div>
                               </div>
@@ -1214,7 +1435,7 @@ export default function DashboardAllPlotsPage() {
             })}
 
             {!pinCards.length && (
-              <div style={{ ...cardBaseR, gridColumn: "1 / -1", color: "#6b7280", fontSize: 13 }} className="du-card">
+              <div style={{ ...cardBaseR, gridColumn: "1 / -1", color: "#6b7280", fontSize: 13 }}>
                 {t("noPinsInSystem", "ยังไม่มี Pin ในระบบ")}
               </div>
             )}

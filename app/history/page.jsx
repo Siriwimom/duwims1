@@ -2,7 +2,6 @@
 
 import { useDuwimsT } from "@/app/TopBar";
 import { useMemo, useRef, useState, useEffect } from "react";
-import Image from "next/image";
 
 const pageStyle = {
   fontFamily:
@@ -37,37 +36,19 @@ const cardBase = {
   boxSizing: "border-box",
 };
 
-const SENSOR_OPTIONS = [
-  { key: "soil", label: "ความชื้นในดิน", unit: "%" },
-  { key: "temp", label: "อุณหภูมิ", unit: "°C" },
-  { key: "rh", label: "ความชื้นสัมพัทธ์", unit: "%" },
-  { key: "npk", label: "NPK", unit: "" },
-  { key: "light", label: "ความเข้มแสง", unit: "lux" },
-  { key: "rain", label: "ปริมาณน้ำฝน", unit: "mm" },
-  { key: "wind", label: "ความเร็วลม", unit: "m/s" },
-  { key: "water", label: "การให้น้ำ", unit: "L" },
-];
-
-// ---- Thailand points (ชลบุรีขึ้นก่อน) ----
-const TH_POINTS = [
-  { id: "chon", nameTh: "ชลบุรี", nameEn: "Chonburi", x: 146, y: 248, value: 58 },
-  { id: "cnx", nameTh: "เชียงใหม่", nameEn: "Chiang Mai", x: 112, y: 90, value: 18 },
-  { id: "lpg", nameTh: "ลำปาง", nameEn: "Lampang", x: 122, y: 110, value: 22 },
-  { id: "kkc", nameTh: "ขอนแก่น", nameEn: "Khon Kaen", x: 154, y: 170, value: 34 },
-  { id: "ubn", nameTh: "อุบลฯ", nameEn: "Ubon", x: 172, y: 205, value: 49 },
-  { id: "bkk", nameTh: "กรุงเทพฯ", nameEn: "Bangkok", x: 142, y: 260, value: 56 },
-  { id: "pkn", nameTh: "ประจวบฯ", nameEn: "Prachuap", x: 124, y: 310, value: 44 },
-  { id: "pkt", nameTh: "ภูเก็ต", nameEn: "Phuket", x: 92, y: 360, value: 72 },
-  { id: "sgk", nameTh: "สงขลา", nameEn: "Songkhla", x: 132, y: 382, value: 61 },
-];
-
-const PLOT_OPTIONS = [
-  { id: "1", name: "แปลง 1" },
-  { id: "2", name: "แปลง 2" },
-  { id: "3", name: "แปลง 3" },
-];
-
 const PLOT_COLORS = ["#2563eb", "#16a34a", "#f97316", "#a855f7", "#ef4444"];
+
+const TH_POINTS = [
+  { id: "chon", nameTh: "ชลบุรี", nameEn: "Chonburi", value: 58 },
+  { id: "cnx", nameTh: "เชียงใหม่", nameEn: "Chiang Mai", value: 18 },
+  { id: "lpg", nameTh: "ลำปาง", nameEn: "Lampang", value: 22 },
+  { id: "kkc", nameTh: "ขอนแก่น", nameEn: "Khon Kaen", value: 34 },
+  { id: "ubn", nameTh: "อุบลฯ", nameEn: "Ubon", value: 49 },
+  { id: "bkk", nameTh: "กรุงเทพฯ", nameEn: "Bangkok", value: 56 },
+  { id: "pkn", nameTh: "ประจวบฯ", nameEn: "Prachuap", value: 44 },
+  { id: "pkt", nameTh: "ภูเก็ต", nameEn: "Phuket", value: 72 },
+  { id: "sgk", nameTh: "สงขลา", nameEn: "Songkhla", value: 61 },
+];
 
 function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n));
@@ -76,40 +57,6 @@ function clamp(n, a, b) {
 function blue(v) {
   const alpha = 0.15 + (clamp(v, 0, 100) / 100) * 0.75;
   return `rgba(37,99,235,${alpha})`;
-}
-
-function formatDateLabel(iso, lang = "th") {
-  const d = new Date(iso + "T00:00:00");
-  const thMonths = [
-    "ม.ค.",
-    "ก.พ.",
-    "มี.ค.",
-    "เม.ย.",
-    "พ.ค.",
-    "มิ.ย.",
-    "ก.ค.",
-    "ส.ค.",
-    "ก.ย.",
-    "ต.ค.",
-    "พ.ย.",
-    "ธ.ค.",
-  ];
-  const enMonths = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${dd} ${lang === "en" ? enMonths[d.getMonth()] : thMonths[d.getMonth()]}`;
 }
 
 function toCSV(rows) {
@@ -145,7 +92,80 @@ function formatTick(v, sensorKey) {
   return Number.isInteger(vv) ? String(vv) : vv.toFixed(1);
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
+function formatDisplayValue(v, sensorKey) {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
+  return formatTick(Number(v), sensorKey);
+}
+
+function formatDateLabel(iso, lang = "th") {
+  if (!iso) return "-";
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+
+  const thMonths = [
+    "ม.ค.",
+    "ก.พ.",
+    "มี.ค.",
+    "เม.ย.",
+    "พ.ค.",
+    "มิ.ย.",
+    "ก.ค.",
+    "ส.ค.",
+    "ก.ย.",
+    "ต.ค.",
+    "พ.ย.",
+    "ธ.ค.",
+  ];
+  const enMonths = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${dd} ${lang === "en" ? enMonths[d.getMonth()] : thMonths[d.getMonth()]}`;
+}
+
+function getTodayInputValue() {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function shiftDateInput(isoDate, offsetDays) {
+  const d = new Date(`${isoDate}T00:00:00`);
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+
+function rangeFromQuickLabel(label, t) {
+  const todayLabel = t("today", "วันนี้");
+  const last7Label = t("last7Days", "7 วันล่าสุด");
+  const last30Label = t("last30Days", "30 วันล่าสุด");
+
+  const end = getTodayInputValue();
+
+  if (label === todayLabel) {
+    return { start: end, end };
+  }
+  if (label === last30Label) {
+    return { start: shiftDateInput(end, -29), end };
+  }
+  return { start: shiftDateInput(end, -6), end };
+}
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "";
 
 async function apiFetch(path, opts = {}) {
   const method = opts.method || "GET";
@@ -187,7 +207,153 @@ async function apiFetch(path, opts = {}) {
     err.data = data;
     throw err;
   }
+
   return data;
+}
+
+function sensorMetaToKey(meta) {
+  const st = String(meta?.sensorType || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_");
+  const name = String(meta?.name || "").toLowerCase().trim();
+  const unit = String(meta?.unit || "").toLowerCase().trim();
+
+  if (
+    st === "soil_moisture" ||
+    st === "soilmoisture" ||
+    st === "soil-moisture" ||
+    st === "soil"
+  ) {
+    return "soil";
+  }
+
+  if (
+    st === "temperature" ||
+    st === "temp" ||
+    st === "air_temp" ||
+    st === "air_temperature"
+  ) {
+    return "temp";
+  }
+
+  if (
+    st === "humidity" ||
+    st === "rh" ||
+    st === "relative_humidity" ||
+    st === "relativehumidity" ||
+    st === "air_humidity"
+  ) {
+    return "rh";
+  }
+
+  if (st === "temp_rh" || st === "temprh") {
+    if (
+      unit.includes("°") ||
+      name.includes("temp") ||
+      name.includes("อุณหภูมิ")
+    ) {
+      return "temp";
+    }
+    if (
+      unit.includes("%") ||
+      name.includes("humidity") ||
+      name.includes("ความชื้น")
+    ) {
+      return "rh";
+    }
+  }
+
+  if (
+    st === "light" ||
+    st === "ppfd" ||
+    st === "light_intensity" ||
+    st === "lightintensity"
+  ) {
+    return "light";
+  }
+
+  if (st === "rain" || st === "rainfall" || st === "rain_amount") {
+    return "rain";
+  }
+
+  if (
+    st === "wind" ||
+    st === "wind_speed" ||
+    st === "windspeed" ||
+    st === "wind_velocity"
+  ) {
+    return "wind";
+  }
+
+  if (st === "npk") {
+    return "npk";
+  }
+
+  if (
+    st === "irrigation" ||
+    st === "water" ||
+    st === "water_flow" ||
+    st === "watering"
+  ) {
+    return "water";
+  }
+
+  if (name.includes("ดิน") && name.includes("ชื้น")) return "soil";
+  if (name.includes("soil") && name.includes("moist")) return "soil";
+
+  if (name.includes("อุณหภูมิ") || name.includes("temperature") || name.includes("temp")) {
+    return "temp";
+  }
+
+  if (
+    name.includes("ความชื้นสัมพัทธ์") ||
+    name.includes("humidity") ||
+    name.includes("relative humidity")
+  ) {
+    return "rh";
+  }
+
+  if (name.includes("แสง") || name.includes("light") || name.includes("ppfd")) {
+    return "light";
+  }
+
+  if (name.includes("ฝน") || name.includes("rain")) {
+    return "rain";
+  }
+
+  if (name.includes("ลม") || name.includes("wind")) {
+    return "wind";
+  }
+
+  if (name.includes("น้ำ") || name.includes("irrigation") || name.includes("water")) {
+    return "water";
+  }
+
+  if (name.includes("npk")) {
+    return "npk";
+  }
+
+  return null;
+}
+
+function getFallbackNumeric(meta) {
+  const candidates = [
+    meta?.avg,
+    meta?.average,
+    meta?.avgValue,
+    meta?.mean,
+    meta?.last,
+    meta?.lastValue,
+    meta?.value,
+    meta?.latestValue,
+  ];
+
+  for (const v of candidates) {
+    const n = Number(v);
+    if (!Number.isNaN(n)) return n;
+  }
+  return null;
 }
 
 export default function HistoryPage() {
@@ -220,16 +386,26 @@ export default function HistoryPage() {
   );
 
   const [vw, setVw] = useState(1280);
+
   useEffect(() => {
     const onResize = () => setVw(window.innerWidth || 1280);
     onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
   const isMobile = vw < 640;
   const isTablet = vw >= 640 && vw < 1024;
 
   const [quickRange, setQuickRange] = useState(t("last7Days", "7 วันล่าสุด"));
+  const quickRangeOptions = useMemo(
+    () => [
+      t("today", "วันนี้"),
+      t("last7Days", "7 วันล่าสุด"),
+      t("last30Days", "30 วันล่าสุด"),
+    ],
+    [t]
+  );
 
   useEffect(() => {
     setQuickRange((prev) => {
@@ -246,14 +422,18 @@ export default function HistoryPage() {
     });
   }, [t]);
 
-  const quickRangeOptions = useMemo(
-    () => [
-      t("today", "วันนี้"),
-      t("last7Days", "7 วันล่าสุด"),
-      t("last30Days", "30 วันล่าสุด"),
-    ],
-    [t]
-  );
+  const initialRange = useMemo(() => {
+    return rangeFromQuickLabel(t("last7Days", "7 วันล่าสุด"), t);
+  }, [t]);
+
+  const [startDate, setStartDate] = useState(initialRange.start);
+  const [endDate, setEndDate] = useState(initialRange.end);
+
+  useEffect(() => {
+    const next = rangeFromQuickLabel(quickRange, t);
+    setStartDate(next.start);
+    setEndDate(next.end);
+  }, [quickRange, t]);
 
   const [sensorDropdownOpen, setSensorDropdownOpen] = useState(false);
   const [selectedSensors, setSelectedSensors] = useState(["soil"]);
@@ -268,91 +448,80 @@ export default function HistoryPage() {
     return plotOptions.length ? plotOptions : defaultPlotOptionsI18n;
   }, [plotOptions, defaultPlotOptionsI18n]);
 
-  const [selectedPlots, setSelectedPlots] = useState(() =>
-    PLOT_OPTIONS.map((p) => p.id)
-  );
+  const [selectedPlots, setSelectedPlots] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
       try {
         setPlotsLoading(true);
         setPlotsError("");
+
         const data = await apiFetch("/api/plots");
         const items = Array.isArray(data?.items) ? data.items : [];
+
         const mapped = items.map((p, i) => ({
-          id: String(p.id || p._id || i),
-          name: p.alias || p.plotName || p.name || `${t("plot", "แปลง")} ${i + 1}`,
+          id: String(p.id || p._id || i + 1),
+          name:
+            p.alias ||
+            p.plotName ||
+            p.name ||
+            `${t("plot", "แปลง")} ${i + 1}`,
           raw: p,
         }));
+
         if (!cancelled) {
+          const nextList = mapped.length ? mapped : defaultPlotOptionsI18n;
           setPlotOptions(mapped);
-          setSelectedPlots(
-            mapped.length ? mapped.map((x) => x.id) : defaultPlotOptionsI18n.map((p) => p.id)
-          );
+          setSelectedPlots(nextList.map((x) => x.id));
         }
       } catch (e) {
-        if (!cancelled) setPlotsError(String(e?.message || e));
+        if (!cancelled) {
+          setPlotsError(String(e?.message || e));
+          setPlotOptions([]);
+          setSelectedPlots(defaultPlotOptionsI18n.map((p) => p.id));
+        }
       } finally {
         if (!cancelled) setPlotsLoading(false);
       }
     })();
+
     return () => {
       cancelled = true;
     };
   }, [t, defaultPlotOptionsI18n]);
-
-  const [startDate, setStartDate] = useState("2025-09-01");
-  const [endDate, setEndDate] = useState("2025-09-30");
-
-  const [sensorTypeItems, setSensorTypeItems] = useState([]);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await apiFetch("/api/sensor-types");
-        const items = Array.isArray(data?.items) ? data.items : [];
-        if (!cancelled) setSensorTypeItems(items);
-      } catch {}
-    })();
-    return () => { cancelled = true; };
-  }, []);
 
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [summaryByPlot, setSummaryByPlot] = useState({});
   const [readingsByPlot, setReadingsByPlot] = useState({});
 
-  const toIsoFromDate = (d, endOfDay = false) => {
+  const hasDateError =
+    !!startDate &&
+    !!endDate &&
+    new Date(`${startDate}T00:00:00`).getTime() >
+      new Date(`${endDate}T00:00:00`).getTime();
+
+  function toIsoFromDate(d, endOfDay = false) {
     if (!d) return "";
     return endOfDay ? `${d}T23:59:59.999Z` : `${d}T00:00:00.000Z`;
-  };
-
-  const sensorMetaToKey = (meta) => {
-    const st = String(meta?.sensorType || "");
-    const name = String(meta?.name || "");
-    const unit = String(meta?.unit || "");
-    if (st === "soil_moisture") return "soil";
-    if (st === "wind") return "wind";
-    if (st === "ppfd") return "light";
-    if (st === "rain") return "rain";
-    if (st === "npk") return "npk";
-    if (st === "irrigation") return "water";
-    if (st === "temp_rh") {
-      if (unit.includes("°") || name.includes("อุณหภูมิ") || name.toLowerCase().includes("temp")) return "temp";
-      return "rh";
-    }
-    if (st === "temp") return "temp";
-    if (st === "rh") return "rh";
-    if (st === "light") return "light";
-    if (st === "water") return "water";
-    return null;
-  };
+  }
 
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
       try {
+        if (hasDateError) {
+          setHistoryError(
+            t("dateRangeInvalid", "วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด")
+          );
+          setSummaryByPlot({});
+          setReadingsByPlot({});
+          return;
+        }
+
         setHistoryLoading(true);
         setHistoryError("");
 
@@ -371,13 +540,17 @@ export default function HistoryPage() {
         const toIso = toIsoFromDate(endDate, true);
 
         const summaries = await Promise.all(
-          plots.map((pid) => apiFetch(`/api/plots/${encodeURIComponent(pid)}/summary`))
+          plots.map((pid) =>
+            apiFetch(`/api/plots/${encodeURIComponent(pid)}/summary`)
+          )
         );
 
         const readingsList = await Promise.all(
           plots.map((pid) =>
             apiFetch(
-              `/api/readings?plotId=${encodeURIComponent(pid)}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
+              `/api/readings?plotId=${encodeURIComponent(
+                pid
+              )}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
             )
           )
         );
@@ -385,25 +558,37 @@ export default function HistoryPage() {
         if (cancelled) return;
 
         const nextSummary = {};
+        const nextReadings = {};
+
         plots.forEach((pid, i) => {
-          nextSummary[pid] = Array.isArray(summaries[i]?.items) ? summaries[i].items : [];
+          nextSummary[pid] = Array.isArray(summaries[i]?.items)
+            ? summaries[i].items
+            : [];
+          nextReadings[pid] = Array.isArray(readingsList[i]?.items)
+            ? readingsList[i].items
+            : [];
         });
 
-        const nextReadings = {};
-        plots.forEach((pid, i) => {
-          nextReadings[pid] = Array.isArray(readingsList[i]?.items) ? readingsList[i].items : [];
-        });
+        console.log("[HistoryPage] summaries", nextSummary);
+        console.log("[HistoryPage] readings", nextReadings);
 
         setSummaryByPlot(nextSummary);
         setReadingsByPlot(nextReadings);
       } catch (e) {
-        if (!cancelled) setHistoryError(String(e?.message || e));
+        if (!cancelled) {
+          setHistoryError(String(e?.message || e));
+          setSummaryByPlot({});
+          setReadingsByPlot({});
+        }
       } finally {
         if (!cancelled) setHistoryLoading(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, [selectedPlots, plotList, startDate, endDate]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPlots, plotList, startDate, endDate, hasDateError, t]);
 
   const toggleSensor = (key) => {
     setSelectedSensors((prev) => {
@@ -423,21 +608,20 @@ export default function HistoryPage() {
   };
 
   const onRootClick = (e) => {
-    if (sensorDropdownOpen) {
-      if (
-        sensorDropdownRef.current &&
-        !sensorDropdownRef.current.contains(e.target)
-      ) {
-        setSensorDropdownOpen(false);
-      }
+    if (
+      sensorDropdownOpen &&
+      sensorDropdownRef.current &&
+      !sensorDropdownRef.current.contains(e.target)
+    ) {
+      setSensorDropdownOpen(false);
     }
-    if (plotDropdownOpen) {
-      if (
-        plotDropdownRef.current &&
-        !plotDropdownRef.current.contains(e.target)
-      ) {
-        setPlotDropdownOpen(false);
-      }
+
+    if (
+      plotDropdownOpen &&
+      plotDropdownRef.current &&
+      !plotDropdownRef.current.contains(e.target)
+    ) {
+      setPlotDropdownOpen(false);
     }
   };
 
@@ -448,7 +632,9 @@ export default function HistoryPage() {
   }, [selectedSensors, sensorOptionsI18n]);
 
   const sensorDropdownLabel = useMemo(() => {
-    if (selectedSensorNames.length === 0) return t("selectSensorType", "เลือกประเภทเซนเซอร์");
+    if (selectedSensorNames.length === 0) {
+      return t("selectSensorType", "เลือกประเภทเซนเซอร์");
+    }
     if (selectedSensorNames.length === 1) return selectedSensorNames[0];
     return `${selectedSensorNames[0]} +${selectedSensorNames.length - 1}`;
   }, [selectedSensorNames, t]);
@@ -468,6 +654,7 @@ export default function HistoryPage() {
 
   const cardPad = isMobile ? 14 : isTablet ? 16 : 20;
   const cardRadius = isMobile ? 18 : 24;
+
   const cardR = useMemo(() => {
     return {
       ...cardBase,
@@ -485,20 +672,22 @@ export default function HistoryPage() {
       };
 
   const summaryGrid = useMemo(() => {
-    if (isMobile)
+    if (isMobile) {
       return {
         display: "grid",
         gridTemplateColumns: "1fr",
         gap: 12,
         marginBottom: 16,
       };
-    if (isTablet)
+    }
+    if (isTablet) {
       return {
         display: "grid",
         gridTemplateColumns: "repeat(2,minmax(0,1fr))",
         gap: 12,
         marginBottom: 16,
       };
+    }
     return {
       display: "grid",
       gridTemplateColumns: "repeat(4,minmax(0,1fr))",
@@ -508,17 +697,17 @@ export default function HistoryPage() {
   }, [isMobile, isTablet]);
 
   const heatGrid = useMemo(() => {
-    if (isMobile)
-      return { display: "grid", gridTemplateColumns: "1fr", gap: 12 };
+    if (isMobile) return { display: "grid", gridTemplateColumns: "1fr", gap: 12 };
     return { display: "grid", gridTemplateColumns: "1fr 260px", gap: 12 };
   }, [isMobile]);
 
   const baseTimes = useMemo(() => {
     const start = new Date(`${startDate}T00:00:00Z`);
     const end = new Date(`${endDate}T00:00:00Z`);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      return [];
-    }
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+    if (start > end) return [];
+
     const days = Math.max(0, Math.round((end - start) / 86400000)) + 1;
     const points = [];
 
@@ -526,7 +715,11 @@ export default function HistoryPage() {
       for (let i = 0; i < days; i++) {
         const d = new Date(start.getTime() + i * 86400000);
         const ds = d.toISOString().slice(0, 10);
-        points.push({ ts: `${ds}T12:00:00Z`, label: formatDateLabel(ds, lang), day: ds });
+        points.push({
+          ts: `${ds}T12:00:00Z`,
+          label: formatDateLabel(ds, lang),
+          day: ds,
+        });
       }
       return points;
     }
@@ -536,21 +729,31 @@ export default function HistoryPage() {
       const tt = i / (N - 1);
       const d = new Date(start.getTime() + tt * (end.getTime() - start.getTime()));
       const ds = d.toISOString().slice(0, 10);
-      points.push({ ts: `${ds}T12:00:00Z`, label: formatDateLabel(ds, lang), day: ds });
+      points.push({
+        ts: `${ds}T12:00:00Z`,
+        label: formatDateLabel(ds, lang),
+        day: ds,
+      });
     }
 
     const uniq = [];
     const seen = new Set();
+
     for (const p of points) {
       if (seen.has(p.day)) continue;
       seen.add(p.day);
       uniq.push(p);
     }
+
     return uniq;
   }, [startDate, endDate, lang]);
 
+  const selectedPlotIdsResolved = useMemo(() => {
+    return selectedPlots.length ? selectedPlots : plotList.map((p) => p.id);
+  }, [selectedPlots, plotList]);
+
   const seriesByPlot = useMemo(() => {
-    const plots = selectedPlots.length ? selectedPlots : plotList.map((p) => p.id);
+    const plots = selectedPlotIdsResolved;
     const sensors = selectedSensors.length ? selectedSensors : ["soil"];
     const out = {};
 
@@ -558,15 +761,36 @@ export default function HistoryPage() {
       const metaItems = Array.isArray(summaryByPlot?.[pid]) ? summaryByPlot[pid] : [];
       const readings = Array.isArray(readingsByPlot?.[pid]) ? readingsByPlot[pid] : [];
 
-      const metaBySensorId = new Map(metaItems.map((m) => [String(m.sensorId), m]));
+      console.log(
+        "[HistoryPage] metaItems",
+        pid,
+        metaItems.map((m) => ({
+          sensorId: m?.sensorId,
+          sensorType: m?.sensorType,
+          name: m?.name,
+          unit: m?.unit,
+          avg: m?.avg,
+          average: m?.average,
+          last: m?.last,
+          lastValue: m?.lastValue,
+          value: m?.value,
+        }))
+      );
+
+      const metaBySensorId = new Map(
+        metaItems.map((m) => [String(m.sensorId), m])
+      );
 
       const bucket = new Map();
+
       for (const r of readings) {
         const sid = String(r.sensorId || "");
         if (!sid) continue;
-        const day = String(r.ts || "").slice(0, 10);
+
+        const day = String(r.ts || r.timestamp || "").slice(0, 10);
         if (!day) continue;
-        const v = Number(r.value);
+
+        const v = Number(r.value ?? r.readingValue ?? r.lastValue);
         if (Number.isNaN(v)) continue;
 
         const byDay = bucket.get(day) || new Map();
@@ -578,6 +802,7 @@ export default function HistoryPage() {
       }
 
       out[pid] = {};
+
       for (const sk of sensors) {
         const sensorIds = metaItems
           .filter((m) => sensorMetaToKey(m) === sk)
@@ -588,6 +813,7 @@ export default function HistoryPage() {
           let count = 0;
 
           const byDay = bucket.get(tt.day);
+
           if (byDay && sensorIds.length) {
             for (const sid of sensorIds) {
               const acc = byDay.get(sid);
@@ -599,66 +825,91 @@ export default function HistoryPage() {
           }
 
           let value = null;
-          if (count > 0) value = Math.round((sum / count) * 10) / 10;
-          else if (sensorIds.length) {
-            const avgs = sensorIds
+
+          if (count > 0) {
+            value = Math.round((sum / count) * 10) / 10;
+          } else if (sensorIds.length) {
+            const fallbackValues = sensorIds
               .map((sid) => metaBySensorId.get(String(sid)))
               .filter(Boolean)
-              .map((m) => Number(m.avg ?? m.last))
-              .filter((v) => !Number.isNaN(v));
-            if (avgs.length) value = Math.round((avgs.reduce((a, b) => a + b, 0) / avgs.length) * 10) / 10;
+              .map((m) => getFallbackNumeric(m))
+              .filter((v) => v !== null && !Number.isNaN(v));
+
+            if (fallbackValues.length) {
+              value =
+                Math.round(
+                  (fallbackValues.reduce((a, b) => a + b, 0) / fallbackValues.length) * 10
+                ) / 10;
+            }
           }
 
-          return { ts: tt.ts, label: tt.label, value: value ?? 0 };
+          return { ts: tt.ts, label: tt.label, day: tt.day, value };
         });
 
         out[pid][sk] = pts;
       }
     }
 
+    console.log("[HistoryPage] seriesByPlot", out);
     return out;
-  }, [selectedPlots, plotList, selectedSensors, baseTimes, summaryByPlot, readingsByPlot, startDate, endDate, quickRange]);
+  }, [selectedPlotIdsResolved, selectedSensors, baseTimes, summaryByPlot, readingsByPlot]);
 
   const activeSensorKey = selectedSensors[0] || "soil";
   const activeSensorMeta =
     sensorOptionsI18n.find((s) => s.key === activeSensorKey) || sensorOptionsI18n[0];
 
   const compareSeries = useMemo(() => {
-    const plots = selectedPlots.length
-      ? selectedPlots
-      : plotList.map((p) => p.id);
-    return plots
-      .map((pid, idx) => {
-        const pts = seriesByPlot?.[pid]?.[activeSensorKey] || [];
-        return {
-          plotId: pid,
-          plotName:
-            plotList.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${pid}`,
-          color: PLOT_COLORS[idx % PLOT_COLORS.length],
-          points: pts,
-        };
-      })
-      .filter((s) => s.points.length);
-  }, [selectedPlots, plotList, seriesByPlot, activeSensorKey, t]);
+    return selectedPlotIdsResolved.map((pid, idx) => {
+      const pts = seriesByPlot?.[pid]?.[activeSensorKey] || [];
+      return {
+        plotId: pid,
+        plotName:
+          plotList.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${pid}`,
+        color: PLOT_COLORS[idx % PLOT_COLORS.length],
+        points: pts,
+      };
+    });
+  }, [selectedPlotIdsResolved, plotList, seriesByPlot, activeSensorKey, t]);
+
+  const allValidValues = useMemo(() => {
+    return compareSeries.flatMap((s) =>
+      s.points
+        .map((p) => p.value)
+        .filter((v) => v !== null && v !== undefined && !Number.isNaN(v))
+    );
+  }, [compareSeries]);
 
   const stats = useMemo(() => {
-    const all = compareSeries.flatMap((s) => s.points.map((p) => p.value));
-    if (!all.length) {
-      return { minVal: 0, maxVal: 0, avgVal: 0, currentVal: 0, lastLabel: "-" };
+    if (!allValidValues.length) {
+      return {
+        minVal: null,
+        maxVal: null,
+        avgVal: null,
+        currentVal: null,
+        lastLabel: "-",
+      };
     }
-    const minVal = Math.min(...all);
-    const maxVal = Math.max(...all);
+
+    const minVal = Math.min(...allValidValues);
+    const maxVal = Math.max(...allValidValues);
     const avgVal =
-      Math.round((all.reduce((sum, v) => sum + v, 0) / all.length) * 10) / 10;
+      Math.round(
+        (allValidValues.reduce((sum, v) => sum + v, 0) / allValidValues.length) * 10
+      ) / 10;
 
-    const lastLabel =
-      compareSeries[0]?.points?.[compareSeries[0].points.length - 1]?.label ||
-      "-";
-    const currentVal =
-      compareSeries[0]?.points?.[compareSeries[0].points.length - 1]?.value ?? 0;
+    const firstSeries = compareSeries[0]?.points || [];
+    const lastValidPoint = [...firstSeries].reverse().find(
+      (p) => p.value !== null && p.value !== undefined && !Number.isNaN(p.value)
+    );
 
-    return { minVal, maxVal, avgVal, currentVal, lastLabel };
-  }, [compareSeries]);
+    return {
+      minVal,
+      maxVal,
+      avgVal,
+      currentVal: lastValidPoint?.value ?? null,
+      lastLabel: lastValidPoint?.label || "-",
+    };
+  }, [allValidValues, compareSeries]);
 
   const chart = useMemo(() => {
     const W = 100;
@@ -671,10 +922,15 @@ export default function HistoryPage() {
     const innerW = W - padL - padR;
     const innerH = H - padT - padB;
 
-    const allVals = compareSeries.flatMap((s) => s.points.map((p) => p.value));
+    const allVals = compareSeries.flatMap((s) =>
+      s.points
+        .map((p) => p.value)
+        .filter((v) => v !== null && v !== undefined && !Number.isNaN(v))
+    );
+
     const yMin = allVals.length ? Math.min(...allVals) : 0;
     const yMax = allVals.length ? Math.max(...allVals) : 100;
-    const span = Math.max(1e-6, yMax - yMin);
+    const span = Math.max(1e-6, yMax - yMin || 1);
 
     const xFor = (i, n) =>
       padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
@@ -683,8 +939,21 @@ export default function HistoryPage() {
     const polylines = compareSeries.map((s) => {
       const pts = s.points;
       const n = pts.length;
-      const d = pts.map((p, i) => `${xFor(i, n)},${yFor(p.value)}`).join(" ");
-      return { plotId: s.plotId, plotName: s.plotName, color: s.color, d };
+      const validPoints = pts
+        .map((p, i) =>
+          p.value === null || p.value === undefined || Number.isNaN(p.value)
+            ? null
+            : `${xFor(i, n)},${yFor(p.value)}`
+        )
+        .filter(Boolean)
+        .join(" ");
+
+      return {
+        plotId: s.plotId,
+        plotName: s.plotName,
+        color: s.color,
+        points: validPoints,
+      };
     });
 
     const ticks = 5;
@@ -695,25 +964,35 @@ export default function HistoryPage() {
       return { y, v: Math.round(v * 10) / 10 };
     });
 
-    const xLabels = (compareSeries[0]?.points || []).map((p) => p.label);
+    const xLabels = baseTimes.map((p) => p.label);
 
-    return { yMin, yMax, yTicks, polylines, xLabels, padL, padR, padT, padB };
-  }, [compareSeries]);
+    return {
+      yTicks,
+      polylines,
+      xLabels,
+      padL,
+      padR,
+      padT,
+      padB,
+      hasData: allVals.length > 0,
+    };
+  }, [compareSeries, baseTimes]);
 
   const onExportCSV = () => {
-    const plots = selectedPlots.length
-      ? selectedPlots
-      : plotList.map((p) => p.id);
+    const plots = selectedPlotIdsResolved;
     const sensors = selectedSensors.length ? selectedSensors : ["soil"];
 
     const rows = [];
+
     for (const pid of plots) {
       const plotName =
         plotList.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${pid}`;
+
       for (const sk of sensors) {
         const meta = sensorOptionsI18n.find((s) => s.key === sk);
         const unit = meta?.unit ?? "";
         const pts = seriesByPlot?.[pid]?.[sk] || [];
+
         for (const p of pts) {
           rows.push({
             date_range_start: startDate,
@@ -726,7 +1005,7 @@ export default function HistoryPage() {
             unit,
             timestamp: p.ts,
             label: p.label,
-            value: p.value,
+            value: p.value ?? "",
           });
         }
       }
@@ -747,8 +1026,6 @@ export default function HistoryPage() {
   };
 
   const tableRows = useMemo(() => {
-    const plots = selectedPlots.length ? selectedPlots : plotList.map((p) => p.id);
-
     const avgOf = (pid, sk) => {
       const metaItems = Array.isArray(summaryByPlot?.[pid]) ? summaryByPlot[pid] : [];
       const readings = Array.isArray(readingsByPlot?.[pid]) ? readingsByPlot[pid] : [];
@@ -761,33 +1038,42 @@ export default function HistoryPage() {
 
       let sum = 0;
       let count = 0;
+
       for (const r of readings) {
         const sid = String(r.sensorId || "");
         if (!sid || !sensorIds.includes(sid)) continue;
-        const v = Number(r.value);
+        const v = Number(r.value ?? r.readingValue ?? r.lastValue);
         if (Number.isNaN(v)) continue;
         sum += v;
         count += 1;
       }
 
       let v = null;
-      if (count > 0) v = sum / count;
-      else {
-        const avgs = metaItems
+
+      if (count > 0) {
+        v = sum / count;
+      } else {
+        const fallbackValues = metaItems
           .filter((m) => sensorIds.includes(String(m.sensorId)))
-          .map((m) => Number(m.avg ?? m.last))
-          .filter((x) => !Number.isNaN(x));
-        if (avgs.length) v = avgs.reduce((a, b) => a + b, 0) / avgs.length;
+          .map((m) => getFallbackNumeric(m))
+          .filter((x) => x !== null && !Number.isNaN(x));
+
+        if (fallbackValues.length) {
+          v = fallbackValues.reduce((a, b) => a + b, 0) / fallbackValues.length;
+        }
       }
 
       if (v === null) return "-";
+
       const vv = Math.round(v * 10) / 10;
       if (sk === "light") return Math.round(vv).toLocaleString("en-US");
       return vv;
     };
 
-    return plots.map((pid, i) => {
-      const plotName = plotList.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${pid}`;
+    return selectedPlotIdsResolved.map((pid, i) => {
+      const plotName =
+        plotList.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${pid}`;
+
       return {
         plotId: String(pid),
         plot: plotName,
@@ -802,7 +1088,11 @@ export default function HistoryPage() {
         bg: i % 2 === 0 ? "#f9fafb" : "#eef2ff",
       };
     });
-  }, [selectedPlots, plotList, summaryByPlot, readingsByPlot, sensorOptionsI18n, t]);
+  }, [selectedPlotIdsResolved, plotList, summaryByPlot, readingsByPlot, t]);
+
+  const statusMessage = hasDateError
+    ? t("dateRangeInvalid", "วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด")
+    : historyError || plotsError;
 
   return (
     <div style={pageStyle} onClick={onRootClick}>
@@ -846,7 +1136,10 @@ export default function HistoryPage() {
                 {t("historyFilters", "ฟิลเตอร์ข้อมูลย้อนหลัง")}
               </div>
               <span style={{ fontSize: 12, opacity: 0.9, lineHeight: 1.4 }}>
-                {t("historyFiltersDesc", "เลือกช่วงวันที่ / เซนเซอร์ / แปลง เพื่อดูข้อมูลย้อนหลังและกราฟ")}
+                {t(
+                  "historyFiltersDesc",
+                  "เลือกช่วงวันที่ / เซนเซอร์ / แปลง เพื่อดูข้อมูลย้อนหลังและกราฟ"
+                )}
               </span>
             </div>
 
@@ -865,6 +1158,7 @@ export default function HistoryPage() {
                 return (
                   <button
                     key={l}
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       setQuickRange(l);
@@ -1198,6 +1492,7 @@ export default function HistoryPage() {
                         {plotList.map((p, idx) => {
                           const checked = selectedPlots.includes(p.id);
                           const c = PLOT_COLORS[idx % PLOT_COLORS.length];
+
                           return (
                             <label
                               key={p.id}
@@ -1227,7 +1522,13 @@ export default function HistoryPage() {
                                   flex: "0 0 auto",
                                 }}
                               />
-                              <span style={{ fontSize: 12, fontWeight: 900, color: "#0f172a" }}>
+                              <span
+                                style={{
+                                  fontSize: 12,
+                                  fontWeight: 900,
+                                  color: "#0f172a",
+                                }}
+                              >
                                 {p.name}
                               </span>
                             </label>
@@ -1259,25 +1560,56 @@ export default function HistoryPage() {
 
                 <div style={{ marginTop: 6, fontSize: 11, opacity: 0.95 }}>
                   {t("selected", "เลือกแล้ว")}:{" "}
-                  {selectedPlotNames.length ? selectedPlotNames.join(", ") : t("allPlots", "ทุกแปลง")}
+                  {selectedPlotNames.length
+                    ? selectedPlotNames.join(", ")
+                    : t("allPlots", "ทุกแปลง")}
                 </div>
               </div>
             </div>
+
+            {(plotsLoading || historyLoading || statusMessage) && (
+              <div
+                style={{
+                  marginTop: 12,
+                  borderRadius: 14,
+                  padding: "10px 12px",
+                  background: statusMessage
+                    ? "rgba(255,255,255,0.95)"
+                    : "rgba(255,255,255,0.18)",
+                  color: statusMessage ? "#b91c1c" : "#fff",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {statusMessage
+                  ? `${t("status", "สถานะ")}: ${statusMessage}`
+                  : `${t("loading", "กำลังโหลดข้อมูล")}...`}
+              </div>
+            )}
           </div>
 
           <section style={summaryGrid}>
             {[
               {
                 title: t("currentValueFirstSelectedPlot", "ค่าปัจจุบัน (แปลงแรกที่เลือก)"),
-                value: `${stats.currentVal}${activeSensorMeta.unit}`,
-                sub: `${t("latestUpdate", "อัปเดตล่าสุด")} ${stats.lastLabel}`,
+                value:
+                  stats.currentVal === null
+                    ? "—"
+                    : `${formatDisplayValue(stats.currentVal, activeSensorKey)}${activeSensorMeta.unit}`,
+                sub:
+                  stats.currentVal === null
+                    ? t("noDataInSelectedRange", "ไม่มีข้อมูลในช่วงที่เลือก")
+                    : `${t("latestUpdate", "อัปเดตล่าสุด")} ${stats.lastLabel}`,
                 bg: "linear-gradient(135deg,#dbeafe 0%,#eff6ff 45%,#ffffff 100%)",
                 titleColor: "#64748b",
                 valueColor: "#1d4ed8",
               },
               {
                 title: t("averageAllSelectedPlots", "ค่าเฉลี่ย (รวมทุกแปลงที่เลือก)"),
-                value: `${stats.avgVal}${activeSensorMeta.unit}`,
+                value:
+                  stats.avgVal === null
+                    ? "—"
+                    : `${formatDisplayValue(stats.avgVal, activeSensorKey)}${activeSensorMeta.unit}`,
                 sub: `sensor: ${activeSensorMeta.label}`,
                 bg: "linear-gradient(135deg,#dcfce7 0%,#ecfdf5 45%,#ffffff 100%)",
                 titleColor: "#166534",
@@ -1285,7 +1617,10 @@ export default function HistoryPage() {
               },
               {
                 title: t("minimumValue", "ค่าต่ำสุด"),
-                value: `${stats.minVal}${activeSensorMeta.unit}`,
+                value:
+                  stats.minVal === null
+                    ? "—"
+                    : `${formatDisplayValue(stats.minVal, activeSensorKey)}${activeSensorMeta.unit}`,
                 sub: t("minimumOfAllSelectedPlots", "ต่ำสุดของทุกแปลงที่เลือก"),
                 bg: "linear-gradient(135deg,#fef9c3 0%,#fffbeb 45%,#ffffff 100%)",
                 titleColor: "#92400e",
@@ -1293,7 +1628,10 @@ export default function HistoryPage() {
               },
               {
                 title: t("maximumValue", "ค่าสูงสุด"),
-                value: `${stats.maxVal}${activeSensorMeta.unit}`,
+                value:
+                  stats.maxVal === null
+                    ? "—"
+                    : `${formatDisplayValue(stats.maxVal, activeSensorKey)}${activeSensorMeta.unit}`,
                 sub: t("maximumOfAllSelectedPlots", "สูงสุดของทุกแปลงที่เลือก"),
                 bg: "linear-gradient(135deg,#fee2e2 0%,#fef2f2 45%,#ffffff 100%)",
                 titleColor: "#b91c1c",
@@ -1370,7 +1708,10 @@ export default function HistoryPage() {
                   {t("weatherHeatMapThailand", "Weather Heat Map (Thailand)")}
                 </div>
                 <div style={{ fontSize: 12, color: "#475569", lineHeight: 1.4 }}>
-                  {t("weatherHeatMapDesc", "ตัวอย่างแผนที่ประเทศไทย + จุดข้อมูล (rain intensity)")}
+                  {t(
+                    "weatherHeatMapDesc",
+                    "ตัวอย่างแผนที่ประเทศไทย + จุดข้อมูล (rain intensity)"
+                  )}
                 </div>
               </div>
               <div style={{ fontSize: 12, color: "#475569", whiteSpace: "nowrap" }}>
@@ -1527,11 +1868,14 @@ export default function HistoryPage() {
                 </div>
                 <p style={{ fontSize: 12, marginTop: 2, color: "#4b5563" }}>
                   sensor: <b>{activeSensorMeta.label}</b> • {t("plots", "แปลง")}:{" "}
-                  {selectedPlotNames.length ? selectedPlotNames.join(", ") : t("allPlots", "ทุกแปลง")}
+                  {selectedPlotNames.length
+                    ? selectedPlotNames.join(", ")
+                    : t("allPlots", "ทุกแปลง")}
                 </p>
               </div>
 
               <button
+                type="button"
                 style={{
                   borderRadius: 999,
                   padding: "8px 12px",
@@ -1587,6 +1931,7 @@ export default function HistoryPage() {
                 border: "1px solid #e5e7eb",
                 padding: "10px 12px 6px",
                 overflow: "hidden",
+                position: "relative",
               }}
             >
               <svg viewBox="0 0 100 60" preserveAspectRatio="none" style={{ width: "100%", height: 220 }}>
@@ -1645,19 +1990,40 @@ export default function HistoryPage() {
                   {activeSensorMeta.unit || ""}
                 </text>
 
-                {chart.polylines.map((pl) => (
-                  <polyline
-                    key={pl.plotId}
-                    fill="none"
-                    stroke={pl.color}
-                    strokeWidth="1.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    points={pl.d}
-                    opacity="0.95"
-                  />
-                ))}
+                {chart.polylines.map((pl) =>
+                  pl.points ? (
+                    <polyline
+                      key={pl.plotId}
+                      fill="none"
+                      stroke={pl.color}
+                      strokeWidth="1.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      points={pl.points}
+                      opacity="0.95"
+                    />
+                  ) : null
+                )}
               </svg>
+
+              {!chart.hasData && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#64748b",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    background: "rgba(255,255,255,0.82)",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {t("noDataInSelectedRange", "ไม่มีข้อมูลในช่วงที่เลือก")}
+                </div>
+              )}
 
               <div
                 style={{
@@ -1666,6 +2032,7 @@ export default function HistoryPage() {
                   marginTop: 4,
                   padding: "0 4px",
                   gap: 6,
+                  minHeight: 22,
                 }}
               >
                 {(chart.xLabels || []).map((d) => (
@@ -1687,7 +2054,11 @@ export default function HistoryPage() {
             </div>
 
             <div style={{ marginTop: 8, fontSize: 11, color: "#64748b" }}>
-              * {t("graphCompareNote", "กราฟนี้เทียบ “แปลง” ด้วย sensor ตัวแรกที่เลือก (เพื่ออ่านง่าย) • แต่ CSV จะ export ทุก sensor ที่เลือก")}
+              *{" "}
+              {t(
+                "graphCompareNote",
+                "กราฟนี้เทียบ “แปลง” ด้วย sensor ตัวแรกที่เลือก (เพื่ออ่านง่าย) • CSV จะ export ทุก sensor ที่เลือก"
+              )}
             </div>
           </div>
 
@@ -1782,7 +2153,11 @@ export default function HistoryPage() {
             </div>
 
             <div style={{ marginTop: 8, fontSize: 11, color: "#64748b" }}>
-              * {t("summaryApiNote", "แสดงค่าจริงจาก API (ช่วงวันที่ที่เลือก ถ้าไม่มี reading จะ fallback เป็นค่า avg/last จาก summary)")}
+              *{" "}
+              {t(
+                "summaryApiNote",
+                "แสดงค่าจริงจาก API ตามช่วงวันที่ที่เลือก และจะ fallback เป็นค่า avg/last จาก summary เมื่อไม่มี reading ในช่วงนั้น"
+              )}
             </div>
           </div>
         </main>
