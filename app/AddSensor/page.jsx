@@ -291,6 +291,22 @@ function mapGroupToSensorType(groupId) {
   return m[groupId] || "soil_moisture";
 }
 
+function formatSensorDisplayValue(sensor) {
+  const rawValue =
+    sensor?.lastReading?.value !== undefined && sensor?.lastReading?.value !== null
+      ? Number(sensor.lastReading.value)
+      : null;
+
+  const unit = String(sensor?.unit || "").trim();
+
+  if (rawValue !== null && Number.isFinite(rawValue)) {
+    return `${rawValue}${unit}`;
+  }
+
+  const hint = String(sensor?.valueHint || "").trim();
+  return hint || "-";
+}
+
 export default function AddSensorPage() {
   const router = useRouter();
   const { t, lang } = useDuwimsT();
@@ -423,7 +439,9 @@ export default function AddSensorPage() {
   const plotLabel = useMemo(() => {
     if (selectedPlot === "all") return t("allPlots");
     const p = plots.find((x) => String(x.id || x._id) === String(selectedPlot));
-    return p ? p.plotName || p.alias || p.name || `${t("plot")} ${p.id || p._id}` : `${t("plot")} ${selectedPlot}`;
+    return p
+      ? p.plotName || p.alias || p.name || `${t("plot")} ${p.id || p._id}`
+      : `${t("plot")} ${selectedPlot}`;
   }, [selectedPlot, plots, t]);
 
   const nodeOptions = useMemo(
@@ -738,15 +756,25 @@ export default function AddSensorPage() {
             const st = mapGroupToSensorType(g.id);
             const groupItems = items
               .filter((s) => String(s.sensorType) === String(st))
-              .map((s) => ({
-                id: String(s.id || s._id),
-                pinId: s.pinId ? String(s.pinId) : null,
-                sensorType: String(s.sensorType || ""),
-                name: s.name || "",
-                value: s.valueHint || "",
-                lastReading: s.lastReading || null,
-                nodeId: s.nodeId ? String(s.nodeId) : null,
-              }));
+              .map((s) => {
+                const rawValue =
+                  s?.lastReading?.value !== undefined && s?.lastReading?.value !== null
+                    ? Number(s.lastReading.value)
+                    : null;
+
+                return {
+                  id: String(s.id || s._id),
+                  pinId: s.pinId ? String(s.pinId) : null,
+                  sensorType: String(s.sensorType || ""),
+                  name: s.name || "",
+                  value: formatSensorDisplayValue(s),
+                  valueHint: s.valueHint || "",
+                  unit: s.unit || "",
+                  rawValue,
+                  lastReading: s.lastReading || null,
+                  nodeId: s.nodeId ? String(s.nodeId) : null,
+                };
+              });
             return { ...g, items: groupItems };
           })
         );
@@ -828,7 +856,15 @@ export default function AddSensorPage() {
     const tempId = `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     setPins((prev) => [
       ...(Array.isArray(prev) ? prev : []),
-      { id: tempId, _tmp: true, number: nextNumber, lat: null, lng: null, nodeId, plotId: targetPlotId },
+      {
+        id: tempId,
+        _tmp: true,
+        number: nextNumber,
+        lat: null,
+        lng: null,
+        nodeId,
+        plotId: targetPlotId,
+      },
     ]);
     setActivePinId(tempId);
   };
@@ -971,11 +1007,21 @@ export default function AddSensorPage() {
     if (!name || !value) return;
 
     if (!activePinId) {
-      return alert(lang === "en" ? "Please select a pin before adding a sensor" : "กรุณาเลือก Pin ก่อนเพิ่ม Sensor");
+      return alert(
+        lang === "en"
+          ? "Please select a pin before adding a sensor"
+          : "กรุณาเลือก Pin ก่อนเพิ่ม Sensor"
+      );
     }
 
     const tempId = uid();
     const sensorType = mapGroupToSensorType(selectedGroupId);
+    const parsedValue = Number.isFinite(pickNumberFromText(value))
+      ? pickNumberFromText(value)
+      : null;
+
+    const unitFromType =
+      sensorTypes.find((x) => String(x.key) === String(sensorType))?.unit || "";
 
     setSensorGroups((prev) =>
       prev.map((g) =>
@@ -991,7 +1037,14 @@ export default function AddSensorPage() {
                   nodeId: String(activePin?.nodeId || ""),
                   sensorType,
                   name,
-                  value,
+                  value: parsedValue !== null ? `${parsedValue}${unitFromType}` : value,
+                  valueHint: value,
+                  unit: unitFromType,
+                  rawValue: parsedValue,
+                  lastReading:
+                    parsedValue !== null
+                      ? { value: parsedValue, ts: new Date().toISOString() }
+                      : null,
                 },
               ],
             }
@@ -1013,14 +1066,15 @@ export default function AddSensorPage() {
           valueHint: value,
           status: "OK",
           lastReading: {
-            value: Number.isFinite(pickNumberFromText(value)) ? pickNumberFromText(value) : null,
-            ts: Number.isFinite(pickNumberFromText(value)) ? new Date().toISOString() : null,
+            value: parsedValue,
+            ts: parsedValue !== null ? new Date().toISOString() : null,
           },
         },
       });
 
       const created = r?.item || r;
       const createdId = created?.id || created?._id;
+
       if (createdId) {
         setSensorGroups((prev) =>
           prev.map((g) =>
@@ -1029,7 +1083,21 @@ export default function AddSensorPage() {
               : {
                   ...g,
                   items: g.items.map((it) =>
-                    it.id === tempId ? { ...it, id: String(createdId) } : it
+                    it.id === tempId
+                      ? {
+                          ...it,
+                          id: String(createdId),
+                          value: formatSensorDisplayValue(created),
+                          valueHint: created?.valueHint || value,
+                          unit: created?.unit || unitFromType,
+                          rawValue:
+                            created?.lastReading?.value !== undefined &&
+                            created?.lastReading?.value !== null
+                              ? Number(created.lastReading.value)
+                              : parsedValue,
+                          lastReading: created?.lastReading || it.lastReading,
+                        }
+                      : it
                   ),
                 }
           )
@@ -1046,7 +1114,11 @@ export default function AddSensorPage() {
     if (!it) return;
     setEditingItem({ groupId, itemId });
     setEditName(it.name);
-    setEditValue(it.value);
+    setEditValue(
+      it.rawValue !== null && it.rawValue !== undefined
+        ? String(it.rawValue)
+        : it.valueHint || it.value || ""
+    );
   };
 
   const onCancelInlineEdit = () => {
@@ -1062,14 +1134,39 @@ export default function AddSensorPage() {
     if (!name || !value) return;
 
     const { groupId, itemId } = editingItem;
+    const g = sensorGroups.find((x) => x.id === groupId);
+    const oldItem = g?.items.find((x) => String(x.id) === String(itemId));
+
+    const parsedValue = Number.isFinite(pickNumberFromText(value))
+      ? pickNumberFromText(value)
+      : null;
+
+    const unit = oldItem?.unit || "";
 
     setSensorGroups((prev) =>
-      prev.map((g) =>
-        g.id !== groupId
-          ? g
+      prev.map((group) =>
+        group.id !== groupId
+          ? group
           : {
-              ...g,
-              items: g.items.map((it) => (it.id === itemId ? { ...it, name, value } : it)),
+              ...group,
+              items: group.items.map((it) =>
+                it.id === itemId
+                  ? {
+                      ...it,
+                      name,
+                      value: parsedValue !== null ? `${parsedValue}${unit}` : value,
+                      valueHint: value,
+                      rawValue: parsedValue,
+                      lastReading:
+                        parsedValue !== null
+                          ? {
+                              value: parsedValue,
+                              ts: it?.lastReading?.ts || new Date().toISOString(),
+                            }
+                          : it.lastReading,
+                    }
+                  : it
+              ),
             }
       )
     );
@@ -1080,7 +1177,17 @@ export default function AddSensorPage() {
       await apiFetch(`/api/sensors/${encodeURIComponent(String(itemId))}`, {
         method: "PATCH",
         token,
-        body: { name, valueHint: value },
+        body: {
+          name,
+          valueHint: value,
+          lastReading:
+            parsedValue !== null
+              ? {
+                  value: parsedValue,
+                  ts: oldItem?.lastReading?.ts || new Date().toISOString(),
+                }
+              : oldItem?.lastReading || null,
+        },
       });
     } catch (e) {
       console.warn("[AddSensor] patch sensor failed:", e?.message || e);
@@ -1179,7 +1286,8 @@ export default function AddSensorPage() {
       },
       filterCard: {
         borderRadius: 16,
-        background: "linear-gradient(135deg,rgba(255,255,255,0.95),rgba(224,242,254,0.95))",
+        background:
+          "linear-gradient(135deg,rgba(255,255,255,0.95),rgba(224,242,254,0.95))",
         padding: "8px 10px 6px",
         fontSize: 12,
         color: "#0f172a",
@@ -1607,10 +1715,16 @@ export default function AddSensorPage() {
                 : "เลือก Pin จากรายการด้านล่างก่อน แล้วค่อยคลิกบนแผนที่เพื่อย้ายหมุด"}
             </div>
 
-            <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "8px 0 10px" }}>
+            <div
+              style={{ display: "flex", gap: 8, alignItems: "center", margin: "8px 0 10px" }}
+            >
               <button
                 type="button"
-                title={lang === "en" ? "Get current location and zoom to it" : "ขอตำแหน่งปัจจุบันและซูมไปยังจุดนั้น"}
+                title={
+                  lang === "en"
+                    ? "Get current location and zoom to it"
+                    : "ขอตำแหน่งปัจจุบันและซูมไปยังจุดนั้น"
+                }
                 onClick={() => setLocateTick((t) => t + 1)}
                 disabled={!mounted}
                 style={{
@@ -1773,7 +1887,12 @@ export default function AddSensorPage() {
         <section style={styles.pinPanel}>
           <div style={styles.pinHeaderRow}>
             <div style={styles.pinTitle}>
-              Pin: {activePin ? `#${activePin.number}` : lang === "en" ? "No pin selected" : "ยังไม่เลือก Pin"}
+              Pin:{" "}
+              {activePin
+                ? `#${activePin.number}`
+                : lang === "en"
+                ? "No pin selected"
+                : "ยังไม่เลือก Pin"}
             </div>
           </div>
 
@@ -1809,11 +1928,13 @@ export default function AddSensorPage() {
               <span>
                 {lang === "en" ? (
                   <>
-                    ✅ Now editing: <b>Pin #{activePin?.number ?? "-"}</b> — click on the map to move this pin
+                    ✅ Now editing: <b>Pin #{activePin?.number ?? "-"}</b> — click on the map to
+                    move this pin
                   </>
                 ) : (
                   <>
-                    ✅ ตอนนี้กำลังแก้ไข: <b>Pin #{activePin?.number ?? "-"}</b> — คลิกบนแผนที่เพื่อย้ายหมุดของ Pin นี้
+                    ✅ ตอนนี้กำลังแก้ไข: <b>Pin #{activePin?.number ?? "-"}</b> —
+                    คลิกบนแผนที่เพื่อย้ายหมุดของ Pin นี้
                   </>
                 )}
               </span>
@@ -1917,13 +2038,19 @@ export default function AddSensorPage() {
                                   style={styles.inputField}
                                   value={editName}
                                   onChange={(e) => setEditName(e.target.value)}
-                                  placeholder={lang === "en" ? "Edit sensor name" : "แก้ชื่อเซนเซอร์"}
+                                  placeholder={
+                                    lang === "en" ? "Edit sensor name" : "แก้ชื่อเซนเซอร์"
+                                  }
                                 />
                                 <input
                                   style={styles.inputField}
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  placeholder={lang === "en" ? "Edit value / description" : "แก้ค่า/คำอธิบาย"}
+                                  placeholder={
+                                    lang === "en"
+                                      ? "Edit value / description"
+                                      : "แก้ค่า/คำอธิบาย"
+                                  }
                                 />
                               </div>
                             </div>
