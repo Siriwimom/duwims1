@@ -18,10 +18,12 @@ const LeafletMap = dynamic(
     const anyL = L;
     if (anyL?.Icon?.Default) {
       anyL.Icon.Default.mergeOptions({
-        iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+        iconUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
         iconRetinaUrl:
           "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
-        shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+        shadowUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
       });
     }
 
@@ -40,7 +42,9 @@ const LeafletMap = dynamic(
       useEffect(() => {
         if (!polygons || !polygons.length) return;
 
-        const allPts = polygons.flat().filter((p) => Array.isArray(p) && p.length === 2);
+        const allPts = polygons
+          .flat()
+          .filter((p) => Array.isArray(p) && p.length === 2);
         if (!allPts.length) return;
 
         const bounds = L.latLngBounds(allPts.map((p) => L.latLng(p[0], p[1])));
@@ -136,7 +140,10 @@ const LeafletMap = dynamic(
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
-          <CurrentLocationLayerInner locateTick={locateTick} onStatus={onLocateStatus} />
+          <CurrentLocationLayerInner
+            locateTick={locateTick}
+            onStatus={onLocateStatus}
+          />
           <MapFitBoundsInner polygons={polygons} />
 
           {(polygons || []).map((poly, idx) => (
@@ -155,12 +162,19 @@ const LeafletMap = dynamic(
 
           {pinIcon &&
             (pins || [])
-              .filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
+              .filter(
+                (p) =>
+                  Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng))
+              )
               .map((p) => (
                 <RL.Marker
                   key={p.id}
                   position={[Number(p.lat), Number(p.lng)]}
-                  icon={String(p.id) === String(activePinId) ? activePinIcon || pinIcon : pinIcon}
+                  icon={
+                    String(p.id) === String(activePinId)
+                      ? activePinIcon || pinIcon
+                      : pinIcon
+                  }
                 >
                   <RL.Popup>
                     {popupPinPrefix} #{p.number}
@@ -181,7 +195,13 @@ const API_BASE =
   (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE_URL) ||
   "http://localhost:3001";
 
-const TOKEN_KEYS = ["AUTH_TOKEN_V1", "token", "authToken", "pmtool_token", "duwims_token"];
+const TOKEN_KEYS = [
+  "AUTH_TOKEN_V1",
+  "token",
+  "authToken",
+  "pmtool_token",
+  "duwims_token",
+];
 
 function getToken() {
   if (typeof window === "undefined") return null;
@@ -264,7 +284,8 @@ function normalizeLatLngPoint(p) {
 
 function normalizePolygonCoords(coords) {
   if (!Array.isArray(coords)) return [];
-  const ring = Array.isArray(coords[0]) && Array.isArray(coords[0][0]) ? coords[0] : coords;
+  const ring =
+    Array.isArray(coords[0]) && Array.isArray(coords[0][0]) ? coords[0] : coords;
 
   const out = [];
   for (const p of ring) {
@@ -300,11 +321,26 @@ function formatSensorDisplayValue(sensor) {
   const unit = String(sensor?.unit || "").trim();
 
   if (rawValue !== null && Number.isFinite(rawValue)) {
-    return `${rawValue}${unit}`;
+    return `${rawValue}${unit ? ` ${unit}` : ""}`;
   }
 
   const hint = String(sensor?.valueHint || "").trim();
   return hint || "-";
+}
+
+function buildFallbackSensorName(sensorType, index, lang, t) {
+  const i = Number(index) + 1;
+  const labelMap = {
+    soil_moisture: t("soilMoisture"),
+    temp_rh: t("airTempHumidity"),
+    irrigation: t("irrigationReady"),
+    npk: t("npkConcentration"),
+    wind: t("windMeasure"),
+    ppfd: t("lightIntensity"),
+    rain: t("rainAmount"),
+  };
+  const label = labelMap[sensorType] || sensorType;
+  return lang === "en" ? `${label} #${i}` : `เซนเซอร์${label} #${i}`;
 }
 
 export default function AddSensorPage() {
@@ -349,7 +385,8 @@ export default function AddSensorPage() {
       if (!alive) return;
       setPinIcon(
         new L.Icon({
-          iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+          iconUrl:
+            "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
           iconSize: [25, 41],
           iconAnchor: [12, 41],
           popupAnchor: [1, -34],
@@ -387,7 +424,10 @@ export default function AddSensorPage() {
     setMapReady(false);
   }, [selectedPlot, selectedNode]);
 
-  const mapKey = useMemo(() => `${selectedPlot}__${selectedNode}`, [selectedPlot, selectedNode]);
+  const mapKey = useMemo(
+    () => `${selectedPlot}__${selectedNode}`,
+    [selectedPlot, selectedNode]
+  );
   const readOnlyAllPlots = false;
 
   const [plots, setPlots] = useState([]);
@@ -461,7 +501,9 @@ export default function AddSensorPage() {
   const filteredPins = useMemo(() => {
     const list = Array.isArray(pins) ? pins : [];
     const byPlot =
-      selectedPlot === "all" ? list : list.filter((p) => String(p.plotId) === String(selectedPlot));
+      selectedPlot === "all"
+        ? list
+        : list.filter((p) => String(p.plotId) === String(selectedPlot));
     if (selectedNodeCategory === "all") return byPlot;
 
     const byId = new Map((nodes || []).map((n) => [String(n.id || n._id), n]));
@@ -620,7 +662,10 @@ export default function AddSensorPage() {
         };
 
         if (selectedPlot === "all") {
-          const pr = await apiFetch("/api/plots", { token, signal: controller.signal });
+          const pr = await apiFetch("/api/plots", {
+            token,
+            signal: controller.signal,
+          });
           const plotItems = Array.isArray(pr?.items) ? pr.items : [];
 
           const allPolys = [];
@@ -675,10 +720,13 @@ export default function AddSensorPage() {
           return;
         }
 
-        const r = await apiFetch(`/api/plots/${encodeURIComponent(String(selectedPlot))}`, {
-          token,
-          signal: controller.signal,
-        });
+        const r = await apiFetch(
+          `/api/plots/${encodeURIComponent(String(selectedPlot))}`,
+          {
+            token,
+            signal: controller.signal,
+          }
+        );
         const item = r?.item || null;
         setPlotMeta(item);
 
@@ -729,13 +777,15 @@ export default function AddSensorPage() {
     return () => controller.abort();
   }, [selectedPlot, selectedNodeCategory]);
 
+  // ✅ Load sensors for ACTIVE PIN only
   useEffect(() => {
     const controller = new AbortController();
+
     const run = async () => {
       try {
         const token = getToken();
 
-        if (selectedPlot === "all") {
+        if (selectedPlot === "all" || !activePinId) {
           setSensorGroups((prev) => prev.map((g) => ({ ...g, items: [] })));
           return;
         }
@@ -749,24 +799,34 @@ export default function AddSensorPage() {
           token,
           signal: controller.signal,
         });
-        const items = Array.isArray(r?.items) ? r.items : [];
+
+        const rawItems = Array.isArray(r?.items) ? r.items : [];
+
+        // ✅ filter only sensors of active pin
+        const pinItems = rawItems.filter(
+          (s) => String(s?.pinId || "") === String(activePinId)
+        );
 
         setSensorGroups((prev) =>
           prev.map((g) => {
             const st = mapGroupToSensorType(g.id);
-            const groupItems = items
+
+            const groupItems = pinItems
               .filter((s) => String(s.sensorType) === String(st))
-              .map((s) => {
+              .map((s, idx) => {
                 const rawValue =
                   s?.lastReading?.value !== undefined && s?.lastReading?.value !== null
                     ? Number(s.lastReading.value)
                     : null;
 
+                const backendName = String(s?.name || "").trim();
+                const fallbackName = buildFallbackSensorName(st, idx, lang, t);
+
                 return {
                   id: String(s.id || s._id),
                   pinId: s.pinId ? String(s.pinId) : null,
                   sensorType: String(s.sensorType || ""),
-                  name: s.name || "",
+                  name: backendName || fallbackName,
                   value: formatSensorDisplayValue(s),
                   valueHint: s.valueHint || "",
                   unit: s.unit || "",
@@ -775,6 +835,7 @@ export default function AddSensorPage() {
                   nodeId: s.nodeId ? String(s.nodeId) : null,
                 };
               });
+
             return { ...g, items: groupItems };
           })
         );
@@ -782,9 +843,10 @@ export default function AddSensorPage() {
         console.warn("[AddSensor] load sensors failed:", e?.message || e);
       }
     };
+
     run();
     return () => controller.abort();
-  }, [selectedPlot, selectedNodeCategory, selectedSensorType]);
+  }, [selectedPlot, selectedNodeCategory, selectedSensorType, activePinId, lang, t]);
 
   const ensureNodeId = async (plotId, category) => {
     const cat = category === "air" ? "air" : "soil";
@@ -801,7 +863,9 @@ export default function AddSensorPage() {
       items = Array.isArray(nodes) ? nodes : [];
     }
 
-    const found = items.find((n) => String((n.category || "")).toLowerCase() === cat);
+    const found = items.find(
+      (n) => String((n.category || "")).toLowerCase() === cat
+    );
     if (found) return String(found.id || found._id);
 
     const token = getToken();
@@ -811,7 +875,7 @@ export default function AddSensorPage() {
       body: {
         plotId: String(plotId),
         category: cat,
-        name: cat === "air" ? t("airNode") + " 1" : t("soilNode") + " 1",
+        name: cat === "air" ? `${t("airNode")} 1` : `${t("soilNode")} 1`,
       },
     });
 
@@ -823,7 +887,11 @@ export default function AddSensorPage() {
 
   const addPin = async () => {
     if (selectedPlot === "all") {
-      alert(lang === "en" ? "Please select a plot before adding a pin" : "กรุณาเลือกแปลงก่อนเพิ่ม Pin");
+      alert(
+        lang === "en"
+          ? "Please select a plot before adding a pin"
+          : "กรุณาเลือกแปลงก่อนเพิ่ม Pin"
+      );
       return;
     }
 
@@ -907,7 +975,11 @@ export default function AddSensorPage() {
     if (pin._tmp || !isLikelyObjectId(String(pin.id))) {
       const targetPlotId = String(pin.plotId || selectedPlot);
       if (!targetPlotId || targetPlotId === "all") {
-        return alert(lang === "en" ? "Please select a plot before placing a pin" : "กรุณาเลือกแปลงก่อนปักหมุด");
+        return alert(
+          lang === "en"
+            ? "Please select a plot before placing a pin"
+            : "กรุณาเลือกแปลงก่อนปักหมุด"
+        );
       }
 
       const token = getToken();
@@ -944,7 +1016,11 @@ export default function AddSensorPage() {
         setActivePinId(String(createdId));
       } catch (e) {
         console.warn("[AddSensor] create pin failed:", e?.message || e);
-        alert(`${lang === "en" ? "Pin placement failed" : "ปักหมุดไม่สำเร็จ"}: ${e?.message || e}`);
+        alert(
+          `${lang === "en" ? "Pin placement failed" : "ปักหมุดไม่สำเร็จ"}: ${
+            e?.message || e
+          }`
+        );
       }
       return;
     }
@@ -1037,7 +1113,7 @@ export default function AddSensorPage() {
                   nodeId: String(activePin?.nodeId || ""),
                   sensorType,
                   name,
-                  value: parsedValue !== null ? `${parsedValue}${unitFromType}` : value,
+                  value: parsedValue !== null ? `${parsedValue}${unitFromType ? ` ${unitFromType}` : ""}` : value,
                   valueHint: value,
                   unit: unitFromType,
                   rawValue: parsedValue,
@@ -1154,7 +1230,10 @@ export default function AddSensorPage() {
                   ? {
                       ...it,
                       name,
-                      value: parsedValue !== null ? `${parsedValue}${unit}` : value,
+                      value:
+                        parsedValue !== null
+                          ? `${parsedValue}${unit ? ` ${unit}` : ""}`
+                          : value,
                       valueHint: value,
                       rawValue: parsedValue,
                       lastReading:
@@ -1597,7 +1676,7 @@ export default function AddSensorPage() {
         width: isMobile ? "100%" : "auto",
       },
     }),
-    [editOpen, isMobile, isTablet]
+    [editOpen, isMobile, isTablet, lang, t]
   );
 
   const caretakerText = plotMeta?.caretaker || plotMeta?.ownerName || "-";
@@ -1716,7 +1795,12 @@ export default function AddSensorPage() {
             </div>
 
             <div
-              style={{ display: "flex", gap: 8, alignItems: "center", margin: "8px 0 10px" }}
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                margin: "8px 0 10px",
+              }}
             >
               <button
                 type="button"
@@ -1818,8 +1902,12 @@ export default function AddSensorPage() {
             </button>
             <div style={{ fontSize: 12, color: "#0f172a", fontWeight: 700 }}>
               {lang === "en"
-                ? `Total ${filteredPins.length} ${t("points")} (selected: #${activePin?.number ?? "-"})`
-                : `รวม ${filteredPins.length} จุด (กำลังเลือก: #${activePin?.number ?? "-"})`}
+                ? `Total ${filteredPins.length} ${t("points")} (selected: #${
+                    activePin?.number ?? "-"
+                  })`
+                : `รวม ${filteredPins.length} จุด (กำลังเลือก: #${
+                    activePin?.number ?? "-"
+                  })`}
             </div>
           </div>
 
