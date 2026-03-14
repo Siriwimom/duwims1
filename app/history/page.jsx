@@ -103,32 +103,12 @@ function formatDateLabel(iso, lang = "th") {
   if (Number.isNaN(d.getTime())) return iso;
 
   const thMonths = [
-    "ม.ค.",
-    "ก.พ.",
-    "มี.ค.",
-    "เม.ย.",
-    "พ.ค.",
-    "มิ.ย.",
-    "ก.ค.",
-    "ส.ค.",
-    "ก.ย.",
-    "ต.ค.",
-    "พ.ย.",
-    "ธ.ค.",
+    "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+    "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
   ];
   const enMonths = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
   ];
   const dd = String(d.getDate()).padStart(2, "0");
   return `${dd} ${lang === "en" ? enMonths[d.getMonth()] : thMonths[d.getMonth()]}`;
@@ -153,12 +133,8 @@ function rangeFromQuickLabel(label, t) {
 
   const end = getTodayInputValue();
 
-  if (label === todayLabel) {
-    return { start: end, end };
-  }
-  if (label === last30Label) {
-    return { start: shiftDateInput(end, -29), end };
-  }
+  if (label === todayLabel) return { start: end, end };
+  if (label === last30Label) return { start: shiftDateInput(end, -29), end };
   return { start: shiftDateInput(end, -6), end };
 }
 
@@ -181,7 +157,7 @@ async function apiFetch(path, opts = {}) {
         localStorage.getItem("duwims_token"))) ||
     null;
 
-  const res = await fetch(API_BASE + path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -211,65 +187,46 @@ async function apiFetch(path, opts = {}) {
   return data;
 }
 
-function sensorMetaToKey(meta) {
-  const st = String(meta?.sensorType || "")
+function normalizeSensorType(v) {
+  return String(v || "")
     .toLowerCase()
     .trim()
-    .replace(/\s+/g, "_");
-  const name = String(meta?.name || "").toLowerCase().trim();
-  const unit = String(meta?.unit || "").toLowerCase().trim();
+    .replace(/\s+/g, "_")
+    .replace(/-+/g, "_");
+}
 
-  if (
-    st === "soil_moisture" ||
-    st === "soilmoisture" ||
-    st === "soil-moisture" ||
-    st === "soil"
-  ) {
+function normalizeText(v) {
+  return String(v || "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+function sensorMetaToKey(meta) {
+  const st = normalizeSensorType(meta?.sensorType);
+  const name = normalizeText(meta?.name);
+  const unit = normalizeText(meta?.unit);
+
+  if (st === "soil_moisture" || st === "soilmoisture" || st === "soil") {
     return "soil";
   }
 
-  if (
-    st === "temperature" ||
-    st === "temp" ||
-    st === "air_temp" ||
-    st === "air_temperature"
-  ) {
+  if (st === "temperature" || st === "temp" || st === "air_temp" || st === "air_temperature") {
     return "temp";
   }
 
-  if (
-    st === "humidity" ||
-    st === "rh" ||
-    st === "relative_humidity" ||
-    st === "relativehumidity" ||
-    st === "air_humidity"
-  ) {
+  if (st === "humidity" || st === "rh" || st === "relative_humidity" || st === "air_humidity") {
     return "rh";
   }
 
   if (st === "temp_rh" || st === "temprh") {
-    if (
-      unit.includes("°") ||
-      name.includes("temp") ||
-      name.includes("อุณหภูมิ")
-    ) {
+    if (name.includes("temp") || name.includes("temperature") || name.includes("อุณหภูมิ") || unit.includes("°c")) {
       return "temp";
     }
-    if (
-      unit.includes("%") ||
-      name.includes("humidity") ||
-      name.includes("ความชื้น")
-    ) {
+    if (name.includes("humidity") || name.includes("rh") || name.includes("ความชื้น") || unit.includes("%")) {
       return "rh";
     }
+    return null;
   }
 
-  if (
-    st === "light" ||
-    st === "ppfd" ||
-    st === "light_intensity" ||
-    st === "lightintensity"
-  ) {
+  if (st === "light" || st === "ppfd" || st === "light_intensity" || st === "lightintensity") {
     return "light";
   }
 
@@ -277,62 +234,28 @@ function sensorMetaToKey(meta) {
     return "rain";
   }
 
-  if (
-    st === "wind" ||
-    st === "wind_speed" ||
-    st === "windspeed" ||
-    st === "wind_velocity"
-  ) {
+  if (st === "wind" || st === "wind_speed" || st === "windspeed" || st === "wind_velocity") {
     return "wind";
+  }
+
+  if (st === "irrigation" || st === "water" || st === "water_flow" || st === "watering") {
+    return "water";
   }
 
   if (st === "npk") {
     return "npk";
   }
 
-  if (
-    st === "irrigation" ||
-    st === "water" ||
-    st === "water_flow" ||
-    st === "watering"
-  ) {
-    return "water";
-  }
-
-  if (name.includes("ดิน") && name.includes("ชื้น")) return "soil";
   if (name.includes("soil") && name.includes("moist")) return "soil";
+  if (name.includes("ดิน") && name.includes("ชื้น")) return "soil";
 
-  if (name.includes("อุณหภูมิ") || name.includes("temperature") || name.includes("temp")) {
-    return "temp";
-  }
-
-  if (
-    name.includes("ความชื้นสัมพัทธ์") ||
-    name.includes("humidity") ||
-    name.includes("relative humidity")
-  ) {
-    return "rh";
-  }
-
-  if (name.includes("แสง") || name.includes("light") || name.includes("ppfd")) {
-    return "light";
-  }
-
-  if (name.includes("ฝน") || name.includes("rain")) {
-    return "rain";
-  }
-
-  if (name.includes("ลม") || name.includes("wind")) {
-    return "wind";
-  }
-
-  if (name.includes("น้ำ") || name.includes("irrigation") || name.includes("water")) {
-    return "water";
-  }
-
-  if (name.includes("npk")) {
-    return "npk";
-  }
+  if (name.includes("temperature") || name.includes("temp") || name.includes("อุณหภูมิ")) return "temp";
+  if (name.includes("humidity") || name.includes("relative humidity") || name.includes("ความชื้น")) return "rh";
+  if (name.includes("light") || name.includes("ppfd") || name.includes("แสง")) return "light";
+  if (name.includes("rain") || name.includes("ฝน")) return "rain";
+  if (name.includes("wind") || name.includes("ลม")) return "wind";
+  if (name.includes("water") || name.includes("irrigation") || name.includes("น้ำ")) return "water";
+  if (name.includes("npk")) return "npk";
 
   return null;
 }
@@ -347,6 +270,7 @@ function getFallbackNumeric(meta) {
     meta?.lastValue,
     meta?.value,
     meta?.latestValue,
+    meta?.lastReading?.value,
   ];
 
   for (const v of candidates) {
@@ -354,6 +278,15 @@ function getFallbackNumeric(meta) {
     if (!Number.isNaN(n)) return n;
   }
   return null;
+}
+
+function getPlotDisplayName(plot, idx, t) {
+  return (
+    plot?.alias ||
+    plot?.plotName ||
+    plot?.name ||
+    `${t("plot", "แปลง")} ${idx + 1}`
+  );
 }
 
 export default function HistoryPage() {
@@ -463,11 +396,7 @@ export default function HistoryPage() {
 
         const mapped = items.map((p, i) => ({
           id: String(p.id || p._id || i + 1),
-          name:
-            p.alias ||
-            p.plotName ||
-            p.name ||
-            `${t("plot", "แปลง")} ${i + 1}`,
+          name: getPlotDisplayName(p, i, t),
           raw: p,
         }));
 
@@ -496,6 +425,7 @@ export default function HistoryPage() {
   const [historyError, setHistoryError] = useState("");
   const [summaryByPlot, setSummaryByPlot] = useState({});
   const [readingsByPlot, setReadingsByPlot] = useState({});
+  const [sensorsByPlot, setSensorsByPlot] = useState({});
 
   const hasDateError =
     !!startDate &&
@@ -519,6 +449,7 @@ export default function HistoryPage() {
           );
           setSummaryByPlot({});
           setReadingsByPlot({});
+          setSensorsByPlot({});
           return;
         }
 
@@ -532,6 +463,7 @@ export default function HistoryPage() {
           if (!cancelled) {
             setSummaryByPlot({});
             setReadingsByPlot({});
+            setSensorsByPlot({});
           }
           return;
         }
@@ -539,26 +471,33 @@ export default function HistoryPage() {
         const fromIso = toIsoFromDate(startDate, false);
         const toIso = toIsoFromDate(endDate, true);
 
-        const summaries = await Promise.all(
-          plots.map((pid) =>
-            apiFetch(`/api/plots/${encodeURIComponent(pid)}/summary`)
-          )
-        );
-
-        const readingsList = await Promise.all(
-          plots.map((pid) =>
-            apiFetch(
-              `/api/readings?plotId=${encodeURIComponent(
-                pid
-              )}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
+        const [summaries, readingsList, sensorsList] = await Promise.all([
+          Promise.all(
+            plots.map((pid) =>
+              apiFetch(`/api/plots/${encodeURIComponent(pid)}/summary`)
             )
-          )
-        );
+          ),
+          Promise.all(
+            plots.map((pid) =>
+              apiFetch(
+                `/api/readings?plotId=${encodeURIComponent(
+                  pid
+                )}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
+              )
+            )
+          ),
+          Promise.all(
+            plots.map((pid) =>
+              apiFetch(`/api/sensors?plotId=${encodeURIComponent(pid)}&sensorType=all`)
+            )
+          ),
+        ]);
 
         if (cancelled) return;
 
         const nextSummary = {};
         const nextReadings = {};
+        const nextSensors = {};
 
         plots.forEach((pid, i) => {
           nextSummary[pid] = Array.isArray(summaries[i]?.items)
@@ -567,18 +506,20 @@ export default function HistoryPage() {
           nextReadings[pid] = Array.isArray(readingsList[i]?.items)
             ? readingsList[i].items
             : [];
+          nextSensors[pid] = Array.isArray(sensorsList[i]?.items)
+            ? sensorsList[i].items
+            : [];
         });
-
-        console.log("[HistoryPage] summaries", nextSummary);
-        console.log("[HistoryPage] readings", nextReadings);
 
         setSummaryByPlot(nextSummary);
         setReadingsByPlot(nextReadings);
+        setSensorsByPlot(nextSensors);
       } catch (e) {
         if (!cancelled) {
           setHistoryError(String(e?.message || e));
           setSummaryByPlot({});
           setReadingsByPlot({});
+          setSensorsByPlot({});
         }
       } finally {
         if (!cancelled) setHistoryLoading(false);
@@ -758,28 +699,31 @@ export default function HistoryPage() {
     const out = {};
 
     for (const pid of plots) {
-      const metaItems = Array.isArray(summaryByPlot?.[pid]) ? summaryByPlot[pid] : [];
+      const summaryItems = Array.isArray(summaryByPlot?.[pid]) ? summaryByPlot[pid] : [];
       const readings = Array.isArray(readingsByPlot?.[pid]) ? readingsByPlot[pid] : [];
+      const sensorMetaItems = Array.isArray(sensorsByPlot?.[pid]) ? sensorsByPlot[pid] : [];
 
-      console.log(
-        "[HistoryPage] metaItems",
-        pid,
-        metaItems.map((m) => ({
-          sensorId: m?.sensorId,
-          sensorType: m?.sensorType,
-          name: m?.name,
-          unit: m?.unit,
-          avg: m?.avg,
-          average: m?.average,
-          last: m?.last,
-          lastValue: m?.lastValue,
-          value: m?.value,
-        }))
-      );
+      const metaBySensorId = new Map();
 
-      const metaBySensorId = new Map(
-        metaItems.map((m) => [String(m.sensorId), m])
-      );
+      for (const s of sensorMetaItems) {
+        metaBySensorId.set(String(s._id || s.id), s);
+      }
+
+      for (const s of summaryItems) {
+        const sid = String(s.sensorId || "");
+        if (!sid) continue;
+        if (!metaBySensorId.has(sid)) {
+          metaBySensorId.set(sid, {
+            _id: sid,
+            sensorType: s.sensorType,
+            name: s.name || "",
+            unit: s.unit || "",
+            avg: s.avg,
+            last: s.last,
+            lastAt: s.lastAt,
+          });
+        }
+      }
 
       const bucket = new Map();
 
@@ -804,9 +748,9 @@ export default function HistoryPage() {
       out[pid] = {};
 
       for (const sk of sensors) {
-        const sensorIds = metaItems
-          .filter((m) => sensorMetaToKey(m) === sk)
-          .map((m) => String(m.sensorId));
+        const sensorIds = [...metaBySensorId.entries()]
+          .filter(([, m]) => sensorMetaToKey(m) === sk)
+          .map(([sid]) => sid);
 
         const pts = baseTimes.map((tt) => {
           let sum = 0;
@@ -850,9 +794,8 @@ export default function HistoryPage() {
       }
     }
 
-    console.log("[HistoryPage] seriesByPlot", out);
     return out;
-  }, [selectedPlotIdsResolved, selectedSensors, baseTimes, summaryByPlot, readingsByPlot]);
+  }, [selectedPlotIdsResolved, selectedSensors, baseTimes, summaryByPlot, readingsByPlot, sensorsByPlot]);
 
   const activeSensorKey = selectedSensors[0] || "soil";
   const activeSensorMeta =
@@ -1027,21 +970,28 @@ export default function HistoryPage() {
 
   const tableRows = useMemo(() => {
     const avgOf = (pid, sk) => {
-      const metaItems = Array.isArray(summaryByPlot?.[pid]) ? summaryByPlot[pid] : [];
       const readings = Array.isArray(readingsByPlot?.[pid]) ? readingsByPlot[pid] : [];
+      const sensorMetaItems = Array.isArray(sensorsByPlot?.[pid]) ? sensorsByPlot[pid] : [];
+      const summaryItems = Array.isArray(summaryByPlot?.[pid]) ? summaryByPlot[pid] : [];
 
-      const sensorIds = metaItems
-        .filter((m) => sensorMetaToKey(m) === sk)
-        .map((m) => String(m.sensorId));
+      const sensorIds = [
+        ...sensorMetaItems
+          .filter((m) => sensorMetaToKey(m) === sk)
+          .map((m) => String(m._id || m.id)),
+        ...summaryItems
+          .filter((m) => sensorMetaToKey(m) === sk)
+          .map((m) => String(m.sensorId)),
+      ];
 
-      if (!sensorIds.length) return "-";
+      const uniqSensorIds = [...new Set(sensorIds)].filter(Boolean);
+      if (!uniqSensorIds.length) return "-";
 
       let sum = 0;
       let count = 0;
 
       for (const r of readings) {
         const sid = String(r.sensorId || "");
-        if (!sid || !sensorIds.includes(sid)) continue;
+        if (!sid || !uniqSensorIds.includes(sid)) continue;
         const v = Number(r.value ?? r.readingValue ?? r.lastValue);
         if (Number.isNaN(v)) continue;
         sum += v;
@@ -1053,8 +1003,8 @@ export default function HistoryPage() {
       if (count > 0) {
         v = sum / count;
       } else {
-        const fallbackValues = metaItems
-          .filter((m) => sensorIds.includes(String(m.sensorId)))
+        const fallbackValues = summaryItems
+          .filter((m) => uniqSensorIds.includes(String(m.sensorId)))
           .map((m) => getFallbackNumeric(m))
           .filter((x) => x !== null && !Number.isNaN(x));
 
@@ -1088,7 +1038,7 @@ export default function HistoryPage() {
         bg: i % 2 === 0 ? "#f9fafb" : "#eef2ff",
       };
     });
-  }, [selectedPlotIdsResolved, plotList, summaryByPlot, readingsByPlot, t]);
+  }, [selectedPlotIdsResolved, plotList, summaryByPlot, readingsByPlot, sensorsByPlot, t]);
 
   const statusMessage = hasDateError
     ? t("dateRangeInvalid", "วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด")
@@ -1317,9 +1267,7 @@ export default function HistoryPage() {
                       <div
                         style={{
                           display: "grid",
-                          gridTemplateColumns: isMobile
-                            ? "1fr"
-                            : "repeat(2,minmax(0,1fr))",
+                          gridTemplateColumns: isMobile ? "1fr" : "repeat(2,minmax(0,1fr))",
                           gap: 8,
                         }}
                       >

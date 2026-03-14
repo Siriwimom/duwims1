@@ -297,6 +297,39 @@ function isLikelyObjectId(v) {
   return typeof v === "string" && /^[a-f\d]{24}$/i.test(v);
 }
 
+function formatCoordinate(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(6) : "-";
+}
+
+function getNextAvailablePinNumber(items = []) {
+  const used = new Set(
+    items
+      .map((p) => Number(p?.number))
+      .filter((n) => Number.isInteger(n) && n > 0)
+  );
+
+  let next = 1;
+  while (used.has(next)) next += 1;
+  return next;
+}
+
+function ensureUniquePinNumbers(items = []) {
+  const used = new Set();
+
+  return items.map((p) => {
+    let num = Number(p?.number);
+
+    if (!Number.isInteger(num) || num <= 0 || used.has(num)) {
+      num = 1;
+      while (used.has(num)) num += 1;
+    }
+
+    used.add(num);
+    return { ...p, number: num };
+  });
+}
+
 function sensorTypeLabel(sensorType, t) {
   const key = String(sensorType || "");
   if (key === "soil_moisture") return t("soilMoisture");
@@ -366,17 +399,11 @@ function toNodeSensorGroups(nodeDoc, t, selectedNode) {
   const onlyAir = selectedNode === "air";
 
   if (!onlyAir) {
-    pushGroup(
-      t("soilNode"),
-      mapItems(soilSensors, "soil")
-    );
+    pushGroup(t("soilNode"), mapItems(soilSensors, "soil"));
   }
 
   if (!onlySoil) {
-    pushGroup(
-      t("airNode"),
-      mapItems(airSensors, "air")
-    );
+    pushGroup(t("airNode"), mapItems(airSensors, "air"));
   }
 
   return groups;
@@ -507,8 +534,12 @@ export default function AddSensorPage() {
 
   const filteredPins = useMemo(() => {
     const list = Array.isArray(pins) ? pins : [];
-    if (selectedPlot === "all") return list;
-    return list.filter((p) => String(p.plotId) === String(selectedPlot));
+    const scoped =
+      selectedPlot === "all"
+        ? list
+        : list.filter((p) => String(p.plotId) === String(selectedPlot));
+
+    return [...scoped].sort((a, b) => Number(a?.number || 0) - Number(b?.number || 0));
   }, [pins, selectedPlot]);
 
   const sensorDisplayGroups = useMemo(
@@ -568,13 +599,15 @@ export default function AddSensorPage() {
       return {
         meta,
         polygons: polys,
-        pins: pinsItems.map((p) => ({
-          ...p,
-          id: String(p.id || p._id),
-          plotId: String(plotId),
-          nodeId: p?.nodeId ? String(p.nodeId) : "",
-          nodeName: p?.nodeName || "",
-        })),
+        pins: ensureUniquePinNumbers(
+          pinsItems.map((p) => ({
+            ...p,
+            id: String(p.id || p._id),
+            plotId: String(plotId),
+            nodeId: p?.nodeId ? String(p.nodeId) : "",
+            nodeName: p?.nodeName || "",
+          }))
+        ),
       };
     };
 
@@ -610,7 +643,7 @@ export default function AddSensorPage() {
           }
 
           setPlotPolygons(allPolygons);
-          setPins(allPins);
+          setPins(ensureUniquePinNumbers(allPins));
           setActivePinId(allPins[0]?.id ? String(allPins[0].id) : null);
           return;
         }
@@ -640,10 +673,13 @@ export default function AddSensorPage() {
         }
 
         const token = getToken();
-        const res = await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}/node`, {
-          token,
-          signal: controller.signal,
-        });
+        const res = await apiFetch(
+          `/api/pins/${encodeURIComponent(String(activePinId))}/node`,
+          {
+            token,
+            signal: controller.signal,
+          }
+        );
 
         setActivePinNode(res?.item || null);
       } catch (e) {
@@ -666,31 +702,31 @@ export default function AddSensorPage() {
       return;
     }
 
-    let nextNumber = 1;
-    try {
-      const items = Array.isArray(pins) ? pins : [];
-      const maxNum = items.reduce((mx, p) => {
-        const n = Number(p?.number);
-        return Number.isFinite(n) ? Math.max(mx, n) : mx;
-      }, 0);
-      nextNumber = maxNum + 1;
-    } catch {}
+    const scopedPins = (Array.isArray(pins) ? pins : []).filter(
+      (p) => String(p.plotId) === String(selectedPlot)
+    );
 
+    const nextNumber = getNextAvailablePinNumber(scopedPins);
     const tempId = `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-    setPins((prev) => [
-      ...(Array.isArray(prev) ? prev : []),
-      {
-        id: tempId,
-        _tmp: true,
-        number: nextNumber,
-        lat: null,
-        lng: null,
-        nodeId: "",
-        nodeName: "",
-        plotId: String(selectedPlot),
-      },
-    ]);
+    setPins((prev) => {
+      const next = [
+        ...(Array.isArray(prev) ? prev : []),
+        {
+          id: tempId,
+          _tmp: true,
+          number: nextNumber,
+          lat: null,
+          lng: null,
+          nodeId: "",
+          nodeName: "",
+          plotId: String(selectedPlot),
+        },
+      ];
+
+      return Array.isArray(next) ? next : [];
+    });
+
     setActivePinId(tempId);
   };
 
@@ -760,8 +796,8 @@ export default function AddSensorPage() {
         const createdId = created?.id || created?._id;
         if (!createdId) throw new Error("ไม่ได้รับ id จาก API");
 
-        setPins((prev) =>
-          prev.map((p) =>
+        setPins((prev) => {
+          const replaced = prev.map((p) =>
             String(p.id) === String(activePinId)
               ? {
                   ...p,
@@ -775,8 +811,17 @@ export default function AddSensorPage() {
                   plotId: targetPlotId,
                 }
               : p
-          )
-        );
+          );
+
+          const samePlot = replaced.filter(
+            (p) => String(p.plotId) === String(targetPlotId)
+          );
+          const otherPlots = replaced.filter(
+            (p) => String(p.plotId) !== String(targetPlotId)
+          );
+
+          return [...otherPlots, ...ensureUniquePinNumbers(samePlot)];
+        });
 
         setActivePinId(String(createdId));
       } catch (e) {
@@ -849,9 +894,7 @@ export default function AddSensorPage() {
   const onChangeNodeTemplate = async (nodeId) => {
     if (!activePinId) {
       alert(
-        lang === "en"
-          ? "Please select a pin first"
-          : "กรุณาเลือก Pin ก่อน"
+        lang === "en" ? "Please select a pin first" : "กรุณาเลือก Pin ก่อน"
       );
       return;
     }
@@ -1052,7 +1095,13 @@ export default function AddSensorPage() {
         background: "#f8fafc",
       },
 
-      pinActionsRow: { marginTop: 8, display: "flex", gap: 8, alignItems: "center" },
+      pinActionsRow: {
+        marginTop: 8,
+        display: "flex",
+        gap: 8,
+        alignItems: "center",
+        flexWrap: "wrap",
+      },
       pinMetaBtn: {
         borderRadius: 999,
         width: 34,
@@ -1078,14 +1127,19 @@ export default function AddSensorPage() {
       }),
       pinCardGrid: {
         display: "grid",
-        gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr 1fr",
-        gap: 10,
+        gridTemplateColumns: isMobile
+          ? "1fr"
+          : isTablet
+          ? "repeat(2,minmax(0,1fr))"
+          : "repeat(4,minmax(0,1fr))",
+        gap: 12,
       },
       pinMetaBox: {
         borderRadius: 14,
-        background: "rgba(255,255,255,0.78)",
+        background: "rgba(255,255,255,0.82)",
         border: "1px solid rgba(15,23,42,0.10)",
-        padding: "10px 10px",
+        padding: "12px 12px",
+        minWidth: 0,
       },
       pinMetaLabel: {
         fontSize: 10,
@@ -1098,46 +1152,65 @@ export default function AddSensorPage() {
         fontWeight: 800,
         color: "#0f172a",
         wordBreak: "break-word",
+        lineHeight: 1.45,
       },
 
       pinPanel: {
         borderRadius: 26,
         background: "#ffd9f1",
-        padding: isMobile ? "16px 12px 18px" : "18px 16px 20px",
+        padding: isMobile ? "18px 14px 22px" : "22px 20px 24px",
         boxShadow: "0 14px 32px rgba(244,114,182,0.25)",
         marginBottom: 16,
       },
       pinHeaderRow: {
         display: "flex",
         justifyContent: "space-between",
-        alignItems: "center",
+        alignItems: isMobile ? "flex-start" : "center",
         gap: 10,
-        marginBottom: 12,
+        marginBottom: 16,
+        flexWrap: "wrap",
       },
-      pinTitle: { fontSize: 14, fontWeight: 900 },
-      pinStack: { display: "grid", rowGap: 12 },
+      pinTitle: {
+        fontSize: isMobile ? 16 : 18,
+        fontWeight: 900,
+        color: "#111827",
+        lineHeight: 1.4,
+      },
+      pinStack: {
+        display: "grid",
+        rowGap: 16,
+      },
 
       pinFormGrid: {
         display: "grid",
-        gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
-        gap: 12,
+        gridTemplateColumns: isMobile ? "1fr" : "repeat(2,minmax(0,1fr))",
+        gap: 14,
         alignItems: "start",
       },
-      pinField: { display: "grid", gap: 6 },
-      pinFieldLabel: { fontSize: 11, fontWeight: 900, color: "#475569" },
+      pinField: {
+        display: "grid",
+        gap: 7,
+        minWidth: 0,
+      },
+      pinFieldLabel: {
+        fontSize: 12,
+        fontWeight: 900,
+        color: "#475569",
+        lineHeight: 1.35,
+      },
 
       pinHint: {
         borderRadius: 14,
         background: "rgba(255,255,255,0.72)",
         border: "1px solid rgba(15,23,42,0.10)",
-        padding: "10px 12px",
+        padding: "12px 14px",
         fontSize: 12,
         fontWeight: 900,
         color: "#ef4444",
-        lineHeight: 1.35,
+        lineHeight: 1.5,
         display: "flex",
-        alignItems: "center",
-        gap: 8,
+        alignItems: "flex-start",
+        gap: 10,
       },
       hintDot: {
         width: 10,
@@ -1150,22 +1223,24 @@ export default function AddSensorPage() {
 
       groupPick: {
         width: "100%",
-        height: 44,
+        minHeight: 46,
         borderRadius: 14,
         border: "1px solid rgba(15,23,42,0.12)",
-        background: "#dbeafe",
-        padding: "0 12px",
-        fontSize: 12,
+        background: "#ffffff",
+        padding: "11px 14px",
+        fontSize: 13,
         outline: "none",
-        fontWeight: 900,
+        fontWeight: 800,
         color: "#0f172a",
+        lineHeight: 1.4,
+        boxSizing: "border-box",
       },
 
       sectionLabel: {
         fontSize: 12,
         fontWeight: 900,
         color: "#475569",
-        marginBottom: 6,
+        marginBottom: 8,
       },
 
       infoNotice: {
@@ -1347,6 +1422,7 @@ export default function AddSensorPage() {
                 gap: 8,
                 alignItems: "center",
                 margin: "8px 0 10px",
+                flexWrap: "wrap",
               }}
             >
               <button
@@ -1507,14 +1583,14 @@ export default function AddSensorPage() {
                       <div style={styles.pinMetaLabel}>
                         {lang === "en" ? "Latitude" : "ละติจูด"}
                       </div>
-                      <div style={styles.pinMetaValue}>{p.lat ?? "-"}</div>
+                      <div style={styles.pinMetaValue}>{formatCoordinate(p.lat)}</div>
                     </div>
 
                     <div style={styles.pinMetaBox}>
                       <div style={styles.pinMetaLabel}>
                         {lang === "en" ? "Longitude" : "ลองจิจูด"}
                       </div>
-                      <div style={styles.pinMetaValue}>{p.lng ?? "-"}</div>
+                      <div style={styles.pinMetaValue}>{formatCoordinate(p.lng)}</div>
                     </div>
 
                     <div style={styles.pinMetaBox}>
@@ -1533,12 +1609,11 @@ export default function AddSensorPage() {
         <section style={styles.pinPanel}>
           <div style={styles.pinHeaderRow}>
             <div style={styles.pinTitle}>
-              Pin:{" "}
               {activePin
-                ? `#${activePin.number}`
+                ? `Pin: #${activePin.number}`
                 : lang === "en"
-                ? "No pin selected"
-                : "ยังไม่เลือก Pin"}
+                ? "Pin: No pin selected"
+                : "Pin: ยังไม่เลือก"}
             </div>
           </div>
 
@@ -1550,7 +1625,11 @@ export default function AddSensorPage() {
                   style={styles.groupPick}
                   type="number"
                   step="0.000001"
-                  value={Number.isFinite(activePin?.lat) ? activePin.lat : ""}
+                  value={
+                    Number.isFinite(activePin?.lat)
+                      ? Number(activePin.lat).toFixed(6)
+                      : ""
+                  }
                   onChange={(e) => setActiveLat(Number(e.target.value))}
                   disabled={!activePinId}
                 />
@@ -1562,7 +1641,11 @@ export default function AddSensorPage() {
                   style={styles.groupPick}
                   type="number"
                   step="0.000001"
-                  value={Number.isFinite(activePin?.lng) ? activePin.lng : ""}
+                  value={
+                    Number.isFinite(activePin?.lng)
+                      ? Number(activePin.lng).toFixed(6)
+                      : ""
+                  }
                   onChange={(e) => setActiveLng(Number(e.target.value))}
                   disabled={!activePinId}
                 />
@@ -1574,8 +1657,8 @@ export default function AddSensorPage() {
               <span>
                 {lang === "en" ? (
                   <>
-                    ✅ Now editing: <b>Pin #{activePin?.number ?? "-"}</b> — click on the map to
-                    move this pin
+                    ✅ Now editing: <b>Pin #{activePin?.number ?? "-"}</b> — click on
+                    the map to move this pin
                   </>
                 ) : (
                   <>

@@ -471,30 +471,51 @@ function extractSensorUnit(sensor = {}, sensorTypeMeta = {}) {
 // ============================
 const SENSOR_TYPE_INFO = {
   soil_moisture: {
+    key: "soil_moisture",
+    label: "soil_moisture",
+    unit: "%",
     labelTh: "เซนเซอร์ ความชื้นในดิน",
     labelEn: "Sensor Soil Moisture",
   },
   temp_rh: {
+    key: "temp_rh",
+    label: "temp_rh",
+    unit: "",
     labelTh: "เซนเซอร์ อุณหภูมิและความชื้น",
     labelEn: "Sensor Temperature & Humidity",
   },
   wind: {
+    key: "wind",
+    label: "wind",
+    unit: "",
     labelTh: "เซนเซอร์ ความเร็วลม",
     labelEn: "Sensor Wind Speed",
   },
   ppfd: {
+    key: "ppfd",
+    label: "ppfd",
+    unit: "Lux",
     labelTh: "เซนเซอร์ ความเข้มแสง",
     labelEn: "Sensor Light Intensity",
   },
   rain: {
+    key: "rain",
+    label: "rain",
+    unit: "mm",
     labelTh: "เซนเซอร์ ปริมาณน้ำฝน",
     labelEn: "Sensor Rainfall",
   },
   npk: {
+    key: "npk",
+    label: "npk",
+    unit: "mg/kg",
     labelTh: "เซนเซอร์ NPK",
     labelEn: "Sensor NPK",
   },
   irrigation: {
+    key: "irrigation",
+    label: "irrigation",
+    unit: "",
     labelTh: "เซนเซอร์ การให้น้ำ / ความพร้อมใช้น้ำ",
     labelEn: "Sensor Irrigation / Available Water",
   },
@@ -510,6 +531,10 @@ const GROUP_ORDER = [
   "irrigation",
 ];
 
+function getDefaultSensorTypes() {
+  return GROUP_ORDER.map((key) => SENSOR_TYPE_INFO[key]).filter(Boolean);
+}
+
 function getGroupLabel(sensorType, lang = "th") {
   const info = SENSOR_TYPE_INFO[sensorType];
   if (!info) return sensorType || "-";
@@ -518,11 +543,6 @@ function getGroupLabel(sensorType, lang = "th") {
 
 // ============================
 // ✅ Thresholds aligned to backend payload
-// NOTE:
-// - backend stores only 1 numeric value per sensor
-// - temp_rh / npk / irrigation need sensor.name to distinguish sub-value
-// - soil_moisture from backend is "%" so kPa thresholds are NOT applied
-// - rain threshold is applied only when name/unit suggests monthly total
 // ============================
 function detectBackendMetric(sensor = {}) {
   const sensorType = String(sensor?.sensorType || "").trim();
@@ -548,11 +568,24 @@ function detectBackendMetric(sensor = {}) {
   }
 
   if (sensorType === "npk") {
-    if (name === "n" || name.includes("ไนโตรเจน") || name.includes("nitrogen"))
+    if (
+      name === "n" ||
+      name.includes("ไนโตรเจน") ||
+      name.includes("nitrogen")
+    )
       return "nitrogen";
-    if (name === "p" || name.includes("ฟอสฟอรัส") || name.includes("phosphorus") || name.includes("phosphate"))
+    if (
+      name === "p" ||
+      name.includes("ฟอสฟอรัส") ||
+      name.includes("phosphorus") ||
+      name.includes("phosphate")
+    )
       return "phosphorus";
-    if (name === "k" || name.includes("โพแทสเซียม") || name.includes("potassium"))
+    if (
+      name === "k" ||
+      name.includes("โพแทสเซียม") ||
+      name.includes("potassium")
+    )
       return "potassium";
     return "npk_unknown";
   }
@@ -590,7 +623,11 @@ function detectBackendMetric(sensor = {}) {
   }
 
   if (sensorType === "soil_moisture") {
-    if (unit.includes("kpa") || name.includes("tension") || name.includes("tensiometer")) {
+    if (
+      unit.includes("kpa") ||
+      name.includes("tension") ||
+      name.includes("tensiometer")
+    ) {
       return "soilTension";
     }
     return "soilMoisturePercent";
@@ -710,7 +747,8 @@ function formatThresholdHint(rule, lang = "th") {
 
   if (lang === "en") {
     const parts = [];
-    if (hasIdeal) parts.push(`Normal ${rule.idealMin} - ${rule.idealMax}${unit}`);
+    if (hasIdeal)
+      parts.push(`Normal ${rule.idealMin} - ${rule.idealMax}${unit}`);
     if (hasMin) parts.push(`Min ${rule.min}${unit}`);
     if (hasMax) parts.push(`Max ${rule.max}${unit}`);
     return parts.join(" • ");
@@ -773,7 +811,11 @@ function getSensorAlertSummary(sensor = {}, sensorTypeMeta = {}, lang = "th") {
   const result = evaluateSensorThreshold(sensor, sensorTypeMeta, lang);
   if (!result.metric || !result.abnormal) return null;
 
-  const label = getMetricLabel(result.metric, lang, sensor?.name || sensor?.sensorType || "-");
+  const label = getMetricLabel(
+    result.metric,
+    lang,
+    sensor?.name || sensor?.sensorType || "-"
+  );
 
   return {
     metric: result.metric,
@@ -1411,7 +1453,7 @@ export default function DashboardAllPlotsPage() {
   const [cacheTs, setCacheTs] = useState(null);
   const [forecastDays, setForecastDays] = useState([]);
   const [plots, setPlots] = useState([]);
-  const [sensorTypes, setSensorTypes] = useState([]);
+  const [sensorTypes, setSensorTypes] = useState(getDefaultSensorTypes());
   const [polygonsAll, setPolygonsAll] = useState([]);
   const [pinsAll, setPinsAll] = useState([]);
   const [sensorsByPinId, setSensorsByPinId] = useState({});
@@ -1442,10 +1484,13 @@ export default function DashboardAllPlotsPage() {
       setLoadError("");
 
       try {
-        const st = await apiFetch("/api/sensor-types", { token });
+        // ✅ backend ไม่มี /api/sensor-types
+        // ใช้ map ใน frontend แทน
+        const sensorTypesLocal = getDefaultSensorTypes();
         if (cancelled) return;
-        setSensorTypes(st?.items || []);
+        setSensorTypes(sensorTypesLocal);
 
+        // ✅ โหลด plots
         const pl = await apiFetch("/api/plots", { token });
         if (cancelled) return;
 
@@ -1462,24 +1507,25 @@ export default function DashboardAllPlotsPage() {
 
         setPlots(plotItems);
 
-        const polyPromises = plotItems.map((p) =>
-          apiFetch(`/api/plots/${p.id}/polygons`, { token }).then((res) => ({
+        // ✅ backend มี /api/plots/:plotId/polygon
+        const polygonPromises = plotItems.map((p) =>
+          apiFetch(`/api/plots/${p.id}/polygon`, { token }).then((res) => ({
             plotId: p.id,
             plotName: p.plotName,
-            items: res?.items || [],
+            item: res?.item || null,
           }))
         );
 
+        // ✅ backend มี /api/plots/:plotId/pins
         const pinPromises = plotItems.map((p) =>
-          apiFetch(`/api/dashboard/pins?plotId=${encodeURIComponent(p.id)}`, {
-            token,
-          }).then((res) => ({
+          apiFetch(`/api/plots/${p.id}/pins`, { token }).then((res) => ({
             plotId: p.id,
             plotName: p.plotName,
             items: res?.items || [],
           }))
         );
 
+        // ✅ backend มี /api/sensors?plotId=...&sensorType=all
         const sensorPromises = plotItems.map((p) =>
           apiFetch(
             `/api/sensors?plotId=${encodeURIComponent(p.id)}&sensorType=all`,
@@ -1491,17 +1537,21 @@ export default function DashboardAllPlotsPage() {
           }))
         );
 
-        const [polysByPlot, pinsByPlot, sensorsByPlotArr] = await Promise.all([
-          Promise.all(polyPromises),
+        const [polygonByPlot, pinsByPlot, sensorsByPlotArr] = await Promise.all([
+          Promise.all(polygonPromises),
           Promise.all(pinPromises),
           Promise.all(sensorPromises),
         ]);
         if (cancelled) return;
 
+        // ✅ polygon
         const allPolys = [];
-        for (const pp of polysByPlot) {
+        for (const pp of polygonByPlot) {
+          const polyItem = pp?.item;
+          if (!polyItem) continue;
+
           const normalized = normalizePolygons(
-            pp.items,
+            [polyItem],
             pp.plotId,
             pp.plotName
           );
@@ -1509,6 +1559,7 @@ export default function DashboardAllPlotsPage() {
         }
         setPolygonsAll(allPolys);
 
+        // ✅ pins
         const allPins = [];
         for (const pr of pinsByPlot) {
           const plotMeta =
@@ -1538,6 +1589,7 @@ export default function DashboardAllPlotsPage() {
                   merged.nodeId,
                   null
                 ),
+                nodeName: firstNonEmpty(x.nodeName, ""),
                 status: firstNonEmpty(
                   x.status,
                   x.deviceStatus,
@@ -1556,12 +1608,18 @@ export default function DashboardAllPlotsPage() {
         }
         setPinsAll(allPins);
 
+        // ✅ sensorsByPinId
         const pinMap = {};
         for (const sr of sensorsByPlotArr) {
           const sensors = (sr.items || []).map((x, idx) => ({
             ...x,
             id: String(firstNonEmpty(x._id, x.id, `sensor-${idx}`)),
             pinId: x.pinId ? String(x.pinId) : null,
+            plotId: x.plotId ? String(x.plotId) : sr.plotId,
+            nodeId: x.nodeId ? String(x.nodeId) : null,
+            nodeName: firstNonEmpty(x.nodeName, ""),
+            nodeType: firstNonEmpty(x.nodeType, ""),
+            sensorType: firstNonEmpty(x.sensorType, ""),
             name: firstNonEmpty(
               x.name,
               x.sensorName,
@@ -1796,7 +1854,12 @@ export default function DashboardAllPlotsPage() {
                 {t("weather7days", "พยากรณ์อากาศ 7 วันข้างหน้า")}
               </div>
 
-              <div style={{ marginTop: 8, overflowX: isMobile ? "auto" : "visible" }}>
+              <div
+                style={{
+                  marginTop: 8,
+                  overflowX: isMobile ? "auto" : "visible",
+                }}
+              >
                 <div style={gridWeather}>
                   {daysUI.map((d, idx) => (
                     <div
@@ -2016,14 +2079,28 @@ export default function DashboardAllPlotsPage() {
                 {lang === "en" ? "Device Status" : "สถานะการทำงาน"}
               </div>
 
-              <div style={{ fontSize: 12, opacity: 0.95, marginBottom: 10, lineHeight: 1.5 }}>
+              <div
+                style={{
+                  fontSize: 12,
+                  opacity: 0.95,
+                  marginBottom: 10,
+                  lineHeight: 1.5,
+                }}
+              >
                 {statusText}
               </div>
 
               <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.1 }}>
                 ON {onlinePinsCount} {lang === "en" ? "device(s)" : "เครื่อง"}
               </div>
-              <div style={{ marginTop: 6, fontSize: 18, fontWeight: 600, lineHeight: 1.2 }}>
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 18,
+                  fontWeight: 600,
+                  lineHeight: 1.2,
+                }}
+              >
                 OFF {offlinePinsCount} {lang === "en" ? "device(s)" : "เครื่อง"}
               </div>
             </div>
@@ -2039,7 +2116,14 @@ export default function DashboardAllPlotsPage() {
                 {lang === "en" ? "Field Issues" : "ปัญหาที่พบ"}
               </div>
 
-              <div style={{ fontSize: 13, marginBottom: 8, lineHeight: 1.6, fontWeight: 400 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  marginBottom: 8,
+                  lineHeight: 1.6,
+                  fontWeight: 400,
+                }}
+              >
                 {issueCount > 0 ? (
                   <>
                     <div style={{ marginBottom: 6, fontWeight: 600 }}>
@@ -2048,7 +2132,13 @@ export default function DashboardAllPlotsPage() {
                         : `ตรวจพบความผิดปกติ ${issueCount} กลุ่ม`}
                     </div>
 
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                      }}
+                    >
                       {issueSummaryList.map((msg, idx) => (
                         <div
                           key={`${msg}-${idx}`}
@@ -2070,6 +2160,58 @@ export default function DashboardAllPlotsPage() {
                 ) : (
                   t("noIssueFound", "ยังไม่พบปัญหา (ทุกเซนเซอร์ปกติ)")
                 )}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ ...cardBaseR, marginBottom: 16 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+                gap: 10,
+              }}
+            >
+              <div
+                style={{
+                  background: "#eff6ff",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: 12,
+                  padding: "10px 12px",
+                }}
+              >
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  {lang === "en" ? "Plots" : "จำนวนแปลง"}
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{plotCount}</div>
+              </div>
+
+              <div
+                style={{
+                  background: "#ecfdf5",
+                  border: "1px solid #bbf7d0",
+                  borderRadius: 12,
+                  padding: "10px 12px",
+                }}
+              >
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  {lang === "en" ? "Polygons" : "จำนวน Polygon"}
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{polyCount}</div>
+              </div>
+
+              <div
+                style={{
+                  background: "#fefce8",
+                  border: "1px solid #fde68a",
+                  borderRadius: 12,
+                  padding: "10px 12px",
+                }}
+              >
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  {lang === "en" ? "Pins" : "จำนวน Pin"}
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{pinCount}</div>
               </div>
             </div>
           </div>
@@ -2097,7 +2239,9 @@ export default function DashboardAllPlotsPage() {
                 : "#cfe9e2";
 
               const sensorGroupCount = new Set(
-                sensors.map((s) => String(s.sensorType || "").trim()).filter(Boolean)
+                sensors
+                  .map((s) => String(s.sensorType || "").trim())
+                  .filter(Boolean)
               ).size;
 
               const plotMeta = mergePlotMeta(
@@ -2175,7 +2319,9 @@ export default function DashboardAllPlotsPage() {
 
                   <div style={pinPillRow}>
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>{lang === "en" ? "Location" : "พิกัด"}</div>
+                      <div style={pinInfoLabel}>
+                        {lang === "en" ? "Location" : "พิกัด"}
+                      </div>
                       <div style={pinInfoValue}>
                         {Number.isFinite(Number(pin.lat))
                           ? Number(pin.lat).toFixed(5)
@@ -2188,19 +2334,25 @@ export default function DashboardAllPlotsPage() {
                     </div>
 
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>{lang === "en" ? "Plant Type" : "ประเภทพืช"}</div>
+                      <div style={pinInfoLabel}>
+                        {lang === "en" ? "Plant Type" : "ประเภทพืช"}
+                      </div>
                       <div style={pinInfoValue}>{plotMeta.plantType || "—"}</div>
                     </div>
 
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>{lang === "en" ? "Planting Date" : "วันที่เริ่มปลูก"}</div>
+                      <div style={pinInfoLabel}>
+                        {lang === "en" ? "Planting Date" : "วันที่เริ่มปลูก"}
+                      </div>
                       <div style={pinInfoValue}>
                         {formatDateByLang(plotMeta.plantedAt, lang)}
                       </div>
                     </div>
 
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>{lang === "en" ? "Sensor Types" : "จำนวนเซนเซอร์"}</div>
+                      <div style={pinInfoLabel}>
+                        {lang === "en" ? "Sensor Types" : "จำนวนเซนเซอร์"}
+                      </div>
                       <div style={pinInfoValue}>
                         {lang === "en"
                           ? `${sensorGroupCount || 0} groups`
@@ -2209,8 +2361,12 @@ export default function DashboardAllPlotsPage() {
                     </div>
 
                     <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>{lang === "en" ? "Caretaker" : "ผู้ดูแล"}</div>
-                      <div style={pinInfoValue}>{plotMeta.caretakerName || "—"}</div>
+                      <div style={pinInfoLabel}>
+                        {lang === "en" ? "Caretaker" : "ผู้ดูแล"}
+                      </div>
+                      <div style={pinInfoValue}>
+                        {plotMeta.caretakerName || "—"}
+                      </div>
                     </div>
                   </div>
 
