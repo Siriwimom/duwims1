@@ -110,7 +110,6 @@ const LeafletMap = dynamic(
     }
 
     return function LeafletMapInner({
-      mapKey,
       center,
       zoom,
       polygons,
@@ -128,7 +127,6 @@ const LeafletMap = dynamic(
     }) {
       return (
         <RL.MapContainer
-          key={mapKey}
           center={center}
           zoom={zoom}
           whenReady={() => onReady?.()}
@@ -420,17 +418,6 @@ export default function AddSensorPage() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  useEffect(() => {
-    return () => {
-      try {
-        if (mapRef.current?.remove) {
-          mapRef.current.remove();
-          mapRef.current = null;
-        }
-      } catch {}
-    };
-  }, []);
-
   const [mapReady, setMapReady] = useState(false);
   const [locateTick, setLocateTick] = useState(0);
   const [locateStatus, setLocateStatus] = useState("");
@@ -484,15 +471,15 @@ export default function AddSensorPage() {
 
   const [selectedPlot, setSelectedPlot] = useState("all");
   const [selectedNode, setSelectedNode] = useState("all");
+  const [showNodePicker, setShowNodePicker] = useState(false);
 
   useEffect(() => {
     setMapReady(false);
   }, [selectedPlot, selectedNode]);
 
-  const mapKey = useMemo(
-    () => `${selectedPlot}__${selectedNode}`,
-    [selectedPlot, selectedNode]
-  );
+  useEffect(() => {
+    setShowNodePicker(false);
+  }, [selectedPlot]);
 
   const readOnlyAllPlots = false;
 
@@ -510,10 +497,23 @@ export default function AddSensorPage() {
     [pins, activePinId]
   );
 
+  useEffect(() => {
+    setShowNodePicker(false);
+  }, [activePinId]);
+
   const selectedNodeTemplateId = useMemo(
     () => String(activePin?.nodeId || ""),
     [activePin]
   );
+
+  const activeNodeName = useMemo(() => {
+    if (activePin?.nodeName) return activePin.nodeName;
+    if (activePinNode?.nodeName) return activePinNode.nodeName;
+    const found = nodeTemplates.find(
+      (n) => String(n.id || n._id) === String(selectedNodeTemplateId)
+    );
+    return found?.nodeName || "";
+  }, [activePin, activePinNode, nodeTemplates, selectedNodeTemplateId]);
 
   const plotLabel = useMemo(() => {
     if (selectedPlot === "all") return t("allPlots");
@@ -728,6 +728,8 @@ export default function AddSensorPage() {
     });
 
     setActivePinId(tempId);
+    setActivePinNode(null);
+    setShowNodePicker(true);
   };
 
   const removePinById = async (pinId) => {
@@ -787,7 +789,7 @@ export default function AddSensorPage() {
               number: pin.number,
               lat,
               lng,
-              nodeId: selectedNodeTemplateId || null,
+              nodeId: pin.nodeId || null,
             },
           }
         );
@@ -806,8 +808,10 @@ export default function AddSensorPage() {
                   number: created.number ?? pin.number,
                   lat: created.lat ?? lat,
                   lng: created.lng ?? lng,
-                  nodeId: created?.nodeId ? String(created.nodeId) : "",
-                  nodeName: created?.nodeName || "",
+                  nodeId: created?.nodeId
+                    ? String(created.nodeId)
+                    : pin.nodeId || "",
+                  nodeName: created?.nodeName || pin.nodeName || "",
                   plotId: targetPlotId,
                 }
               : p
@@ -899,18 +903,35 @@ export default function AddSensorPage() {
       return;
     }
 
-    if (!isLikelyObjectId(String(activePinId))) {
+    const chosen = nodeTemplates.find(
+      (n) => String(n.id || n._id) === String(nodeId)
+    );
+
+    if (!chosen) {
       alert(
         lang === "en"
-          ? "Please place the pin on the map first"
-          : "กรุณาปัก Pin ลงบนแผนที่ก่อน"
+          ? "Please select a valid NodeTemplate"
+          : "กรุณาเลือก NodeTemplate ที่ถูกต้อง"
       );
       return;
     }
 
-    const chosen = nodeTemplates.find(
-      (n) => String(n.id || n._id) === String(nodeId)
-    );
+    if (!isLikelyObjectId(String(activePinId))) {
+      setPins((prev) =>
+        prev.map((p) =>
+          String(p.id) === String(activePinId)
+            ? {
+                ...p,
+                nodeId: String(nodeId),
+                nodeName: chosen?.nodeName || "",
+              }
+            : p
+        )
+      );
+      setActivePinNode(chosen || null);
+      setShowNodePicker(false);
+      return;
+    }
 
     try {
       const token = getToken();
@@ -933,6 +954,7 @@ export default function AddSensorPage() {
       );
 
       setActivePinNode(chosen || null);
+      setShowNodePicker(false);
     } catch (e) {
       console.warn("[AddSensor] assign node template failed:", e?.message || e);
       alert(
@@ -1252,6 +1274,63 @@ export default function AddSensorPage() {
         color: "#334155",
       },
 
+      nodeInfoCard: {
+        borderRadius: 16,
+        background: "#ffffff",
+        border: "1px solid rgba(15,23,42,0.08)",
+        boxShadow: "0 10px 18px rgba(15,23,42,0.08)",
+        padding: "12px 14px",
+      },
+      nodeInfoTop: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: isMobile ? "stretch" : "center",
+        flexDirection: isMobile ? "column" : "row",
+        gap: 10,
+      },
+      nodeInfoName: {
+        fontSize: 14,
+        fontWeight: 900,
+        color: "#111827",
+        lineHeight: 1.4,
+      },
+      nodeInfoSub: {
+        fontSize: 11,
+        color: "#64748b",
+        marginTop: 4,
+      },
+      nodeActionBtn: {
+        borderRadius: 999,
+        border: "none",
+        padding: "10px 16px",
+        fontSize: 12,
+        fontWeight: 800,
+        background: "linear-gradient(135deg,#6366f1,#a855f7)",
+        color: "#fff",
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+      },
+      secondaryBtn: {
+        borderRadius: 999,
+        border: "1px solid rgba(15,23,42,0.12)",
+        padding: "10px 16px",
+        fontSize: 12,
+        fontWeight: 800,
+        background: "#ffffff",
+        color: "#111827",
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+      },
+      nodePickerWrap: {
+        display: "grid",
+        gap: 10,
+      },
+      nodePickerActions: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+      },
+
       groupList: { display: "grid", gap: 12 },
       groupCard: {
         borderRadius: 16,
@@ -1473,7 +1552,6 @@ export default function AddSensorPage() {
             ) : (
               <div style={{ height: 230, width: "100%" }}>
                 <LeafletMap
-                  mapKey={mapKey}
                   center={[13.7563, 100.5018]}
                   zoom={11}
                   polygons={polygonsToRender}
@@ -1671,23 +1749,69 @@ export default function AddSensorPage() {
 
             <div>
               <div style={styles.sectionLabel}>
-                {lang === "en" ? "Select NodeTemplate" : "เลือก NodeTemplate"}
+                {lang === "en" ? "NodeTemplate of this pin" : "NodeTemplate ของ Pin นี้"}
               </div>
-              <select
-                style={styles.groupPick}
-                value={selectedNodeTemplateId}
-                onChange={(e) => onChangeNodeTemplate(e.target.value)}
-                disabled={!activePinId}
-              >
-                <option value="">
-                  {lang === "en" ? "Select node name" : "เลือกชื่อ node"}
-                </option>
-                {nodeTemplates.map((n) => (
-                  <option key={n.id || n._id} value={n.id || n._id}>
-                    {n.nodeName || n.id || n._id}
-                  </option>
-                ))}
-              </select>
+
+              {!activePinId ? (
+                <div style={styles.infoNotice}>
+                  {lang === "en"
+                    ? "Please select a pin first."
+                    : "กรุณาเลือก Pin ก่อน"}
+                </div>
+              ) : selectedNodeTemplateId && !showNodePicker ? (
+                <div style={styles.nodeInfoCard}>
+                  <div style={styles.nodeInfoTop}>
+                    <div>
+                      <div style={styles.nodeInfoName}>{activeNodeName || "-"}</div>
+                      <div style={styles.nodeInfoSub}>
+                        {lang === "en"
+                          ? "This pin is already linked to a NodeTemplate."
+                          : "Pin นี้ถูกผูกกับ NodeTemplate แล้ว"}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      style={styles.nodeActionBtn}
+                      onClick={() => setShowNodePicker(true)}
+                    >
+                      {lang === "en" ? "Change NodeTemplate" : "เปลี่ยน NodeTemplate"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={styles.nodePickerWrap}>
+                  <select
+                    style={styles.groupPick}
+                    value={selectedNodeTemplateId}
+                    onChange={(e) => onChangeNodeTemplate(e.target.value)}
+                    disabled={!activePinId}
+                  >
+                    <option value="">
+                      {lang === "en"
+                        ? "Select node template"
+                        : "เลือก NodeTemplate"}
+                    </option>
+                    {nodeTemplates.map((n) => (
+                      <option key={n.id || n._id} value={n.id || n._id}>
+                        {n.nodeName || n.id || n._id}
+                      </option>
+                    ))}
+                  </select>
+
+                  {selectedNodeTemplateId ? (
+                    <div style={styles.nodePickerActions}>
+                      <button
+                        type="button"
+                        style={styles.secondaryBtn}
+                        onClick={() => setShowNodePicker(false)}
+                      >
+                        {lang === "en" ? "Cancel" : "ยกเลิก"}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
 
             {!activePinId ? (
@@ -1699,8 +1823,8 @@ export default function AddSensorPage() {
             ) : !selectedNodeTemplateId ? (
               <div style={styles.infoNotice}>
                 {lang === "en"
-                  ? "This pin has not been assigned to a NodeTemplate yet."
-                  : "Pin นี้ยังไม่ได้ผูกกับ NodeTemplate"}
+                  ? "This pin has not been assigned to a NodeTemplate yet. Please select one if needed."
+                  : "Pin นี้ยังไม่ได้ผูกกับ NodeTemplate หากต้องการใช้งานให้เลือกก่อน"}
               </div>
             ) : sensorDisplayGroups.length === 0 ? (
               <div style={styles.infoNotice}>
