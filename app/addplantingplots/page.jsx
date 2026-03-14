@@ -7,7 +7,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDuwimsT } from "@/app/TopBar";
 
-// --- ✅ Load react-leaflet + react-leaflet-draw in ONE client-side bundle ---
+// --- ✅ Load react-leaflet first, set window.L, then load leaflet-draw ---
 function useLeafletBundle() {
   const [bundle, setBundle] = useState(null);
 
@@ -15,16 +15,17 @@ function useLeafletBundle() {
     let alive = true;
 
     (async () => {
-      const [RL, Draw, L] = await Promise.all([
-        import("react-leaflet"),
-        import("react-leaflet-draw"),
-        import("leaflet"),
-      ]);
+      const RL = await import("react-leaflet");
+      const LModule = await import("leaflet");
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const anyL = L;
-      if (anyL?.Icon?.Default) {
-        anyL.Icon.Default.mergeOptions({
+      const L = LModule?.default || LModule;
+
+      if (typeof window !== "undefined") {
+        window.L = L;
+      }
+
+      if (L?.Icon?.Default) {
+        L.Icon.Default.mergeOptions({
           iconUrl:
             "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
           iconRetinaUrl:
@@ -34,7 +35,10 @@ function useLeafletBundle() {
         });
       }
 
-      if (alive) setBundle({ RL, Draw });
+      await import("leaflet-draw");
+      const Draw = await import("react-leaflet-draw");
+
+      if (alive) setBundle({ RL, Draw, L });
     })();
 
     return () => {
@@ -99,13 +103,20 @@ function normalizeCaretaker(v) {
   return s;
 }
 
+function normalizeTopicItem(item = {}, index = 0) {
+  return {
+    id: String(item._id || item.id || `topic_${index}`),
+    topic: String(item.topic || "").trim(),
+    content: String(item.description || item.content || "").trim(),
+  };
+}
+
 function PolyLayer({ leaflet, poly, onReady }) {
   const ref = useRef(null);
 
   useEffect(() => {
-    if (ref.current && onReady) onReady(ref.current, poly.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [poly?.id]);
+    if (ref.current && onReady) onReady(ref.current);
+  }, [onReady]);
 
   if (!leaflet?.RL) return null;
 
@@ -160,8 +171,7 @@ function CurrentLocationLayer({ leaflet, locateTick, onStatus, lang }) {
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locateTick]);
+  }, [locateTick, map, onStatus, lang]);
 
   if (!pos) return null;
 
@@ -192,7 +202,6 @@ export default function AddPlantingPlotsPage() {
   const [locateStatus, setLocateStatus] = useState("");
 
   const fgRef = useRef(null);
-  const layerIdToPolyIdRef = useRef(new Map());
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -276,20 +285,20 @@ export default function AddPlantingPlotsPage() {
     contentPlaceholder: lang === "en" ? "Type details..." : "พิมพ์รายละเอียด...",
     allCount:
       lang === "en"
-        ? `Plot Polygons (Total: ${plotPolygons.length})`
-        : `Polygons ของแปลง (ทั้งหมด: ${plotPolygons.length})`,
+        ? `Plot Polygon ${plotPolygons.length ? "(1)" : "(0)"}`
+        : `Polygon ของแปลง ${plotPolygons.length ? "(1)" : "(0)"}`,
     confirmDeletePlot:
       lang === "en"
-        ? "Do you want to delete this plot completely? (including related polygons)"
-        : "ต้องการลบแปลงนี้ทั้งหมดใช่ไหม? (รวม polygons ที่เกี่ยวข้อง)",
+        ? "Do you want to delete this plot completely?"
+        : "ต้องการลบแปลงนี้ทั้งหมดใช่ไหม?",
     confirmDeletePolygon: lang === "en" ? "Delete this polygon?" : "ลบ polygon นี้?",
     confirmDeleteAllPolygons:
       lang === "en"
-        ? "Delete all polygons of this plot?"
-        : "ลบ polygons ทั้งหมดของแปลงนี้?",
+        ? "Delete the polygon of this plot?"
+        : "ลบ polygon ของแปลงนี้?",
     lockDraw:
       lang === "en"
-        ? '* Click "Edit / Delete" first to draw/edit/delete polygons'
+        ? '* Click "Edit / Delete" first to draw/edit/delete polygon'
         : '* ต้องกด “ลบ / แก้ไข” ก่อนถึงจะวาด/แก้/ลบ polygon ได้',
     deletePlotTitle:
       !editMode
@@ -305,8 +314,8 @@ export default function AddPlantingPlotsPage() {
           ? 'Click "Edit / Delete" first'
           : "กด “ลบ / แก้ไข” ก่อน"
         : lang === "en"
-        ? "Delete all polygons in this plot"
-        : "ลบ polygons ทั้งหมดของแปลงนี้",
+        ? "Delete polygon in this plot"
+        : "ลบ polygon ของแปลงนี้",
     deleteOneTitle:
       !editMode
         ? lang === "en"
@@ -353,7 +362,7 @@ export default function AddPlantingPlotsPage() {
       const token = getToken();
       if (!token) return "";
 
-      const data = await apiFetch("/me");
+      const data = await apiFetch("/auth/me");
       const u = data?.user || {};
       const nick = normalizeCaretaker(u?.nickname || "");
       if (nick) {
@@ -375,17 +384,32 @@ export default function AddPlantingPlotsPage() {
     return firstId || selectedPlotId || "";
   }
 
-  async function loadPolygons(plotId) {
-    const r = await apiFetch(`/api/plots/${plotId}/polygons`);
-    const items = (r?.items || []).map((x) => ({
-      id: String(x.id || x._id),
-      polygonId: x.polygonId,
-      color: x.color || "#2563eb",
-      coords: x.coords || x.coordinates || [],
-      createdAt: x.createdAt,
-      updatedAt: x.updatedAt,
-    }));
+  async function loadPolygon(plotId) {
+    if (!plotId) return;
+
+    const r = await apiFetch(`/api/plots/${plotId}/polygon`);
+    const poly = r?.item || null;
+
+    const items =
+      poly && Array.isArray(poly.coords) && poly.coords.length
+        ? [
+            {
+              id: String(poly._id || plotId),
+              color: poly.color || "#2563eb",
+              coords: poly.coords || [],
+            },
+          ]
+        : [];
+
     setPolygonsByPlot((prev) => ({ ...prev, [plotId]: items }));
+  }
+
+  async function loadTopics(plotId) {
+    if (!plotId) return;
+
+    const r = await apiFetch(`/api/plots/${plotId}/topics`);
+    const items = (r?.items || []).map((x, i) => normalizeTopicItem(x, i));
+    setExtraItemsByPlot((prev) => ({ ...prev, [plotId]: items }));
   }
 
   async function loadAll() {
@@ -395,7 +419,9 @@ export default function AddPlantingPlotsPage() {
       await loadCurrentUserNickname();
       const first = await loadPlots();
       const pid = first || selectedPlotId;
-      if (pid) await loadPolygons(pid);
+      if (pid) {
+        await Promise.all([loadPolygon(pid), loadTopics(pid)]);
+      }
     } catch (e) {
       setErr(e.message || String(e));
     } finally {
@@ -406,7 +432,6 @@ export default function AddPlantingPlotsPage() {
   useEffect(() => {
     if (!mounted) return;
     loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
 
   useEffect(() => {
@@ -414,13 +439,7 @@ export default function AddPlantingPlotsPage() {
     setEditMode(false);
     setNewTopic("");
     setNewContent("");
-    layerIdToPolyIdRef.current = new Map();
-    setExtraItemsByPlot((prev) => ({
-      ...prev,
-      [selectedPlotId]: prev[selectedPlotId] || [],
-    }));
-    loadPolygons(selectedPlotId).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    Promise.all([loadPolygon(selectedPlotId), loadTopics(selectedPlotId)]).catch(() => {});
   }, [selectedPlotId]);
 
   useEffect(() => {
@@ -500,6 +519,8 @@ export default function AddPlantingPlotsPage() {
           ownerName: nicknameToUse,
           plantType: "",
           plantedAt: "",
+          topics: [],
+          polygon: { color: "#2563eb", coords: [], pins: [] },
         },
       });
 
@@ -537,6 +558,10 @@ export default function AddPlantingPlotsPage() {
       const safePlotName = String(plotName || "").trim();
       const safeCaretaker = String(caretaker || "").trim();
       const safePlantType = String(plantType || "").trim();
+      const safeTopics = extraItems.map((x) => ({
+        topic: String(x.topic || "").trim(),
+        description: String(x.content || "").trim(),
+      }));
 
       const r = await apiFetch(`/api/plots/${selectedPlotId}`, {
         method: "PATCH",
@@ -548,6 +573,13 @@ export default function AddPlantingPlotsPage() {
           ownerName: safeCaretaker,
           plantType: safePlantType,
           plantedAt,
+        },
+      });
+
+      await apiFetch(`/api/plots/${selectedPlotId}/topics`, {
+        method: "PUT",
+        body: {
+          topics: safeTopics,
         },
       });
 
@@ -582,6 +614,7 @@ export default function AddPlantingPlotsPage() {
         );
       }
 
+      await loadTopics(selectedPlotId);
       setEditMode(false);
     } catch (e) {
       setErr(e.message || String(e));
@@ -609,24 +642,22 @@ export default function AddPlantingPlotsPage() {
     try {
       await apiFetch(`/api/plots/${pid}`, { method: "DELETE" });
 
-      setPlots((prev) => prev.filter((p) => String(p.id) !== pid));
+      const nextPlots = plots.filter((p) => String(p.id) !== pid);
+      setPlots(nextPlots);
+
       setPolygonsByPlot((prev) => {
         const next = { ...prev };
         delete next[pid];
         return next;
       });
+
       setExtraItemsByPlot((prev) => {
         const next = { ...prev };
         delete next[pid];
         return next;
       });
 
-      setSelectedPlotId((cur) => {
-        const remaining = plots.filter((p) => String(p.id) !== pid);
-        const nextId = remaining?.[0]?.id || "";
-        return cur === pid ? nextId : cur;
-      });
-
+      setSelectedPlotId(nextPlots?.[0]?.id || "");
       setEditMode(false);
     } catch (e) {
       setErr(e.message || String(e));
@@ -635,7 +666,7 @@ export default function AddPlantingPlotsPage() {
     }
   }
 
-  async function createPolygon(coords, color = "#2563eb") {
+  async function putPolygon(coords, color = "#2563eb") {
     if (
       !requireEditMode(
         lang === "en"
@@ -655,12 +686,12 @@ export default function AddPlantingPlotsPage() {
           ? [...coords, coords[0]]
           : coords;
 
-      await apiFetch(`/api/plots/${selectedPlotId}/polygons`, {
-        method: "POST",
-        body: { coords: ring, coordinates: ring, color },
+      await apiFetch(`/api/plots/${selectedPlotId}/polygon`, {
+        method: "PUT",
+        body: { color, coords: ring, pins: [] },
       });
 
-      await loadPolygons(selectedPlotId);
+      await loadPolygon(selectedPlotId);
     } catch (e) {
       setErr(e.message || String(e));
     } finally {
@@ -668,30 +699,26 @@ export default function AddPlantingPlotsPage() {
     }
   }
 
-  async function updatePolygon(polygonDbId, coords, color) {
+  async function clearPolygon() {
     if (
       !requireEditMode(
         lang === "en"
-          ? 'Please click "Edit / Delete" first before editing a polygon'
-          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะแก้ไข Polygon ได้"
+          ? 'Please click "Edit / Delete" first before deleting a polygon'
+          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบ Polygon ได้"
       )
     )
       return;
+    if (!selectedPlotId) return;
 
     setErr("");
     setBusy(true);
     try {
-      const ring =
-        coords.length >= 3 &&
-        (coords[0][0] !== coords.at(-1)[0] || coords[0][1] !== coords.at(-1)[1])
-          ? [...coords, coords[0]]
-          : coords;
-
-      await apiFetch(`/api/polygons/${polygonDbId}`, {
-        method: "PATCH",
-        body: { coords: ring, coordinates: ring, ...(color ? { color } : {}) },
+      await apiFetch(`/api/plots/${selectedPlotId}/polygon`, {
+        method: "PUT",
+        body: { color: "#2563eb", coords: [], pins: [] },
       });
-      await loadPolygons(selectedPlotId);
+
+      await loadPolygon(selectedPlotId);
     } catch (e) {
       setErr(e.message || String(e));
     } finally {
@@ -699,7 +726,7 @@ export default function AddPlantingPlotsPage() {
     }
   }
 
-  async function deletePolygon(polygonDbId) {
+  async function deletePolygon() {
     if (
       !requireEditMode(
         lang === "en"
@@ -710,16 +737,7 @@ export default function AddPlantingPlotsPage() {
       return;
     if (!confirm(txt.confirmDeletePolygon)) return;
 
-    setErr("");
-    setBusy(true);
-    try {
-      await apiFetch(`/api/polygons/${polygonDbId}`, { method: "DELETE" });
-      await loadPolygons(selectedPlotId);
-    } catch (e) {
-      setErr(e.message || String(e));
-    } finally {
-      setBusy(false);
-    }
+    await clearPolygon();
   }
 
   async function deleteAllPolygonsOfPlot() {
@@ -734,16 +752,7 @@ export default function AddPlantingPlotsPage() {
     if (!selectedPlotId) return;
     if (!confirm(txt.confirmDeleteAllPolygons)) return;
 
-    setErr("");
-    setBusy(true);
-    try {
-      await apiFetch(`/api/plots/${selectedPlotId}/polygons`, { method: "DELETE" });
-      await loadPolygons(selectedPlotId);
-    } catch (e) {
-      setErr(e.message || String(e));
-    } finally {
-      setBusy(false);
-    }
+    await clearPolygon();
   }
 
   const onCreated = async (e) => {
@@ -762,7 +771,7 @@ export default function AddPlantingPlotsPage() {
     const pts = Array.isArray(latlngs) ? latlngs[0] : [];
     const coords = (pts || []).map((p) => [Number(p.lat), Number(p.lng)]);
     if (coords.length >= 3) {
-      await createPolygon(coords, "#2563eb");
+      await putPolygon(coords, "#2563eb");
     }
   };
 
@@ -776,24 +785,23 @@ export default function AddPlantingPlotsPage() {
       return;
     }
     const layers = e?.layers;
-    if (!layers) return;
+    if (!layers || !selectedPlotId) return;
 
-    const jobs = [];
+    let updatedCoords = null;
+
     layers.eachLayer((layer) => {
-      const lid = layer?._leaflet_id;
-      const polyDbId = layerIdToPolyIdRef.current.get(lid);
-      if (!polyDbId) return;
-
       const latlngs = layer.getLatLngs?.();
       const pts = Array.isArray(latlngs) ? latlngs[0] : [];
       const coords = (pts || []).map((p) => [Number(p.lat), Number(p.lng)]);
-      if (coords.length >= 3) jobs.push(updatePolygon(polyDbId, coords));
+      if (coords.length >= 3) updatedCoords = coords;
     });
 
-    if (jobs.length) await Promise.all(jobs);
+    if (updatedCoords) {
+      await putPolygon(updatedCoords, "#2563eb");
+    }
   };
 
-  const onDeleted = async (e) => {
+  const onDeleted = async () => {
     if (!editMode) {
       setErr(
         lang === "en"
@@ -802,34 +810,12 @@ export default function AddPlantingPlotsPage() {
       );
       return;
     }
-    const layers = e?.layers;
-    if (!layers) return;
 
-    const jobs = [];
-    layers.eachLayer((layer) => {
-      const lid = layer?._leaflet_id;
-      const polyDbId = layerIdToPolyIdRef.current.get(lid);
-      if (polyDbId) jobs.push(apiFetch(`/api/polygons/${polyDbId}`, { method: "DELETE" }));
-    });
-
-    if (!jobs.length) return;
-
-    setErr("");
-    setBusy(true);
-    try {
-      await Promise.all(jobs);
-      await loadPolygons(selectedPlotId);
-    } catch (e2) {
-      setErr(e2.message || String(e2));
-    } finally {
-      setBusy(false);
-    }
+    await clearPolygon();
   };
 
-  const handlePolyLayerReady = (layer, polygonDbId) => {
-    const lid = layer?._leaflet_id;
-    if (!lid) return;
-    layerIdToPolyIdRef.current.set(lid, polygonDbId);
+  const handlePolyLayerReady = () => {
+    // backend.txt uses one embedded polygon per plot
   };
 
   const getPlotDisplayName = (p) => {
@@ -1002,11 +988,11 @@ export default function AddPlantingPlotsPage() {
                           circlemarker: false,
                           marker: false,
                           polyline: false,
-                          polygon: !isReadOnly,
+                          polygon: !isReadOnly && plotPolygons.length === 0,
                         }}
                         edit={{
-                          edit: !isReadOnly,
-                          remove: !isReadOnly,
+                          edit: !isReadOnly && plotPolygons.length > 0,
+                          remove: !isReadOnly && plotPolygons.length > 0,
                         }}
                       />
                     </leaflet.RL.FeatureGroup>
@@ -1028,7 +1014,7 @@ export default function AddPlantingPlotsPage() {
                   className="pui-danger small"
                   type="button"
                   onClick={deleteAllPolygonsOfPlot}
-                  disabled={busy || !selectedPlotId || !editMode}
+                  disabled={busy || !selectedPlotId || !editMode || !plotPolygons.length}
                   title={txt.deleteAllTitle}
                 >
                   {txt.deleteAll}
@@ -1041,7 +1027,7 @@ export default function AddPlantingPlotsPage() {
                 <div className="pui-polylist">
                   {plotPolygons.map((p) => (
                     <div className="pui-polyrow" key={p.id}>
-                      <span className="pui-polynum"># {p.id.slice(-6)}</span>
+                      <span className="pui-polynum"># polygon</span>
                       <span
                         className="pui-polychip"
                         style={{ background: p.color || "#2563eb" }}
@@ -1049,7 +1035,7 @@ export default function AddPlantingPlotsPage() {
                       <button
                         className="pui-danger small"
                         type="button"
-                        onClick={() => deletePolygon(p.id)}
+                        onClick={() => deletePolygon()}
                         disabled={busy || !editMode}
                         title={txt.deleteOneTitle}
                       >

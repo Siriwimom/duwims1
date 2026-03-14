@@ -7,7 +7,7 @@ import "leaflet/dist/leaflet.css";
 import { useDuwimsT } from "@/app/TopBar";
 
 /* =========================
-   ✅ CONFIG
+   CONFIG
 ========================= */
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 const TOKEN_KEYS = ["token", "AUTH_TOKEN_V1", "duwims_token"];
@@ -20,6 +20,7 @@ function getToken() {
   }
   return "";
 }
+
 function clearToken() {
   if (typeof window === "undefined") return;
   for (const k of TOKEN_KEYS) localStorage.removeItem(k);
@@ -27,6 +28,7 @@ function clearToken() {
 
 async function apiFetchJson(path, { method = "GET", body, auth = true } = {}) {
   const token = getToken();
+
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
@@ -53,6 +55,7 @@ async function apiFetchJson(path, { method = "GET", body, auth = true } = {}) {
     err.payload = json;
     throw err;
   }
+
   return json ?? {};
 }
 
@@ -68,8 +71,27 @@ function safeNum(x, fb = 0) {
   return Number.isFinite(n) ? n : fb;
 }
 
+function isObjectId(v) {
+  return typeof v === "string" && /^[a-f\d]{24}$/i.test(v);
+}
+
+function hasSensorInNode(pin, nodeCategory, sensorType) {
+  const soilSensors = Array.isArray(pin?.node_soil?.sensors) ? pin.node_soil.sensors : [];
+  const airSensors = Array.isArray(pin?.node_air?.sensors) ? pin.node_air.sensors : [];
+
+  const hasByType = (arr) => {
+    if (sensorType === "all") return arr.length > 0;
+    return arr.some((s) => String(s?.sensorType || "") === String(sensorType));
+  };
+
+  if (nodeCategory === "soil") return hasByType(soilSensors);
+  if (nodeCategory === "air") return hasByType(airSensors);
+
+  return hasByType(soilSensors) || hasByType(airSensors);
+}
+
 /* =========================
-   ✅ Leaflet (one bundle)
+   Leaflet
 ========================= */
 const LeafletClient = dynamic(
   async () => {
@@ -80,9 +102,12 @@ const LeafletClient = dynamic(
     const anyL = L;
     if (anyL?.Icon?.Default) {
       anyL.Icon.Default.mergeOptions({
-        iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-        iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-        shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+        iconUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+        iconRetinaUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
+        shadowUrl:
+          "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
       });
     }
 
@@ -109,6 +134,7 @@ const LeafletClient = dynamic(
           return [lat, lng];
         }
       }
+
       if (Array.isArray(polygons) && polygons.length) {
         const pts = [];
         for (const poly of polygons) {
@@ -122,6 +148,7 @@ const LeafletClient = dynamic(
           return [lat, lng];
         }
       }
+
       return [13.7563, 100.5018];
     }
 
@@ -145,7 +172,7 @@ const LeafletClient = dynamic(
             number: p.number,
             latLng,
             plotLabel: p.plotLabel || "",
-            sensorType: p.sensorType || "",
+            nodeName: p.nodeName || "",
           };
         })
         .filter(Boolean);
@@ -165,7 +192,12 @@ const LeafletClient = dynamic(
                 <Polygon
                   key={poly.key}
                   positions={poly.coords}
-                  pathOptions={{ color: "#16a34a", fillColor: "#86efac", fillOpacity: 0.4, weight: 2 }}
+                  pathOptions={{
+                    color: "#16a34a",
+                    fillColor: "#86efac",
+                    fillOpacity: 0.4,
+                    weight: 2,
+                  }}
                 />
               ))}
             </MapContainer>
@@ -182,14 +214,19 @@ const LeafletClient = dynamic(
                 <Polygon
                   key={`pins-${poly.key}`}
                   positions={poly.coords}
-                  pathOptions={{ color: "#16a34a", fillColor: "#86efac", fillOpacity: 0.35, weight: 2 }}
+                  pathOptions={{
+                    color: "#16a34a",
+                    fillColor: "#86efac",
+                    fillOpacity: 0.35,
+                    weight: 2,
+                  }}
                 />
               ))}
               {safePins.map((p) => (
                 <Marker key={p.id} position={p.latLng}>
                   <Popup>
                     {p.plotLabel ? `${p.plotLabel} — PIN #${p.number}` : `PIN #${p.number}`}
-                    {p.sensorType ? ` (${p.sensorType})` : ""}
+                    {p.nodeName ? ` (${p.nodeName})` : ""}
                   </Popup>
                 </Marker>
               ))}
@@ -205,16 +242,23 @@ const LeafletClient = dynamic(
 );
 
 /* =========================
-   ✅ STYLES
+   STYLES
 ========================= */
 const pageStyle = {
-  fontFamily: '"Prompt", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  fontFamily:
+    '"Prompt", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   background: "#e5edf8",
   minHeight: "100vh",
   color: "#000",
   padding: "22px 0 30px",
 };
-const bodyStyle = { maxWidth: 1120, margin: "0 auto", padding: "0 16px", color: "#000" };
+
+const bodyStyle = {
+  maxWidth: 1120,
+  margin: "0 auto",
+  padding: "0 16px",
+  color: "#000",
+};
 
 const styles = {
   headerPanel: {
@@ -240,7 +284,14 @@ const styles = {
     placeItems: "center",
     fontWeight: 900,
   },
-  headerTitle: { fontSize: 16, fontWeight: 800, color: "#000", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: 800,
+    color: "#000",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
 
   topGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 10 },
 
@@ -271,7 +322,13 @@ const styles = {
     boxShadow: "0 14px 32px rgba(15,23,42,0.12)",
     color: "#000",
   },
-  bottomHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 6 },
+  bottomHeaderRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 6,
+  },
   bottomTitle: { fontSize: 14, fontWeight: 700, color: "#000" },
   deleteAllBtn: {
     borderRadius: 999,
@@ -284,16 +341,62 @@ const styles = {
   },
   bottomSub: { fontSize: 11, color: "#000", marginBottom: 10 },
 
-  infoGrid: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 10, marginBottom: 14 },
+  infoGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4,minmax(0,1fr))",
+    gap: 10,
+    marginBottom: 14,
+  },
   infoLabel: { fontSize: 11, color: "#000", fontWeight: 700 },
-  infoBox: { borderRadius: 12, background: "#ffffff", border: "1px solid #c7f0df", padding: "6px 10px", fontSize: 12, color: "#000" },
+  infoBox: {
+    borderRadius: 12,
+    background: "#ffffff",
+    border: "1px solid #c7f0df",
+    padding: "6px 10px",
+    fontSize: 12,
+    color: "#000",
+  },
 
-  mapCard: { borderRadius: 22, overflow: "hidden", background: "#ffffff", boxShadow: "0 10px 24px rgba(15,23,42,0.15)", marginBottom: 14, color: "#000" },
+  mapCard: {
+    borderRadius: 22,
+    overflow: "hidden",
+    background: "#ffffff",
+    boxShadow: "0 10px 24px rgba(15,23,42,0.15)",
+    marginBottom: 14,
+    color: "#000",
+  },
   mapTitle: { fontSize: 13, fontWeight: 700, padding: "10px 14px 4px", color: "#000" },
-  mapLoading: { height: 230, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#000", background: "#f8fafc" },
+  mapLoading: {
+    height: 230,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 12,
+    color: "#000",
+    background: "#f8fafc",
+  },
 
-  pinRow: { display: "grid", gridTemplateColumns: "140px 1fr 1fr 60px", gap: 8, alignItems: "center", padding: "8px 10px", background: "#e5f5ff", borderRadius: 18, marginBottom: 6, fontSize: 13, color: "#000" },
-  deleteBtn: { borderRadius: 999, border: "none", width: 34, height: 34, background: "#111827", color: "#ffffff", cursor: "pointer" },
+  pinRow: {
+    display: "grid",
+    gridTemplateColumns: "140px 1fr 1fr 1fr 60px",
+    gap: 8,
+    alignItems: "center",
+    padding: "8px 10px",
+    background: "#e5f5ff",
+    borderRadius: 18,
+    marginBottom: 6,
+    fontSize: 13,
+    color: "#000",
+  },
+  deleteBtn: {
+    borderRadius: 999,
+    border: "none",
+    width: 34,
+    height: 34,
+    background: "#111827",
+    color: "#ffffff",
+    cursor: "pointer",
+  },
 
   saveBtn: {
     marginTop: 12,
@@ -311,12 +414,21 @@ const styles = {
   },
 
   pinNumberBox: { display: "flex", alignItems: "center", gap: 8, color: "#000" },
-  pinIconCircle: { width: 28, height: 28, borderRadius: 999, background: "#ffffff", display: "grid", placeItems: "center", border: "1px solid rgba(15,23,42,0.08)" },
+  pinIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    background: "#ffffff",
+    display: "grid",
+    placeItems: "center",
+    border: "1px solid rgba(15,23,42,0.08)",
+  },
   pinLabel: { fontWeight: 800, fontSize: 12, color: "#000" },
   pinCoord: { fontSize: 12, color: "#000" },
 };
 
 const SENSOR_ALL = [
+  { value: "all", labelKey: "allSensorTypes", fallback: "ทุกประเภทเซนเซอร์" },
   { value: "temp_rh", labelKey: "airTempHumidity", fallback: "อุณหภูมิและความชื้น" },
   { value: "wind", labelKey: "windMeasure", fallback: "วัดความเร็วลม" },
   { value: "ppfd", labelKey: "lightIntensity", fallback: "ความเข้มแสง" },
@@ -328,8 +440,8 @@ const SENSOR_ALL = [
 
 const SENSOR_BY_NODE = {
   all: SENSOR_ALL,
-  air: SENSOR_ALL.filter((s) => ["temp_rh", "wind", "ppfd", "rain"].includes(s.value)),
-  soil: SENSOR_ALL.filter((s) => ["npk", "irrigation", "soil_moisture"].includes(s.value)),
+  air: SENSOR_ALL.filter((s) => ["all", "temp_rh", "wind", "ppfd", "rain"].includes(s.value)),
+  soil: SENSOR_ALL.filter((s) => ["all", "npk", "irrigation", "soil_moisture"].includes(s.value)),
 };
 
 export default function EditAndDeletePage() {
@@ -354,24 +466,35 @@ export default function EditAndDeletePage() {
   const topGridStyle = useMemo(() => {
     return {
       ...styles.topGrid,
-      gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,minmax(0,1fr))" : "repeat(3,minmax(0,1fr))",
+      gridTemplateColumns: isMobile
+        ? "1fr"
+        : isTablet
+        ? "repeat(2,minmax(0,1fr))"
+        : "repeat(3,minmax(0,1fr))",
     };
   }, [isMobile, isTablet]);
 
   const infoGridStyle = useMemo(() => {
     return {
       ...styles.infoGrid,
-      gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2,minmax(0,1fr))" : "repeat(4,minmax(0,1fr))",
+      gridTemplateColumns: isMobile
+        ? "1fr"
+        : isTablet
+        ? "repeat(2,minmax(0,1fr))"
+        : "repeat(4,minmax(0,1fr))",
     };
   }, [isMobile, isTablet]);
 
   const pinRowStyle = useMemo(() => {
-    return { ...styles.pinRow, gridTemplateColumns: isMobile ? "1fr" : "140px 1fr 1fr 60px" };
+    return {
+      ...styles.pinRow,
+      gridTemplateColumns: isMobile ? "1fr" : "140px 1fr 1fr 1fr 60px",
+    };
   }, [isMobile]);
 
   const [selectedPlot, setSelectedPlot] = useState("all");
   const [nodeCategory, setNodeCategory] = useState("all");
-  const [selectedSensorType, setSelectedSensorType] = useState("soil_moisture");
+  const [selectedSensorType, setSelectedSensorType] = useState("all");
 
   const nodeOptions = useMemo(
     () => [
@@ -391,7 +514,7 @@ export default function EditAndDeletePage() {
 
   useEffect(() => {
     const ok = sensorOptions.some((s) => s.value === selectedSensorType);
-    if (!ok) setSelectedSensorType(sensorOptions[0]?.value || "soil_moisture");
+    if (!ok) setSelectedSensorType(sensorOptions[0]?.value || "all");
   }, [sensorOptions, selectedSensorType]);
 
   const [plots, setPlots] = useState([]);
@@ -404,7 +527,11 @@ export default function EditAndDeletePage() {
     const base = [{ value: "all", label: t("allPlots", "ทุกแปลง") }];
     const dyn = (plots || []).map((p) => ({
       value: String(p.id || p._id || ""),
-      label: p.plotName || p.name || p.alias || `${t("plot", "แปลง")} ${String(p.id || p._id || "").slice(-4)}`,
+      label:
+        p.plotName ||
+        p.name ||
+        p.alias ||
+        `${t("plot", "แปลง")} ${String(p.id || p._id || "").slice(-4)}`,
     }));
     return [...base, ...dyn].filter((x) => x.value);
   }, [plots, t]);
@@ -427,15 +554,23 @@ export default function EditAndDeletePage() {
 
   const makePlotLabel = (p) => {
     const id = String(p?.id || p?._id || "");
-    const name = p?.plotName || p?.name || p?.alias || (id ? id.slice(-4) : "");
-    return name ? `${t("plot", "แปลง")} ${name}` : t("plot", "แปลง");
+    return p?.plotName || p?.name || p?.alias || (id ? `${t("plot", "แปลง")} ${id.slice(-4)}` : t("plot", "แปลง"));
   };
 
-  const polyToUi = (polyDoc, plotLabel, plotId) => {
-    const coords = Array.isArray(polyDoc?.coords) ? polyDoc.coords : null;
+  const polyToUi = (polygonDoc, plotLabel, plotId) => {
+    const coords = Array.isArray(polygonDoc?.coords) ? polygonDoc.coords : null;
     if (!coords || coords.length < 3) return null;
-    const pid = String(polyDoc?.id || polyDoc?._id || "").trim() || `${plotId}-poly-${Math.random()}`;
-    return { key: `${plotId}:${pid}`, plotId: String(plotId), plotLabel, coords };
+
+    const pid =
+      String(polygonDoc?._id || polygonDoc?.id || "").trim() ||
+      `${plotId}-poly-${Math.random()}`;
+
+    return {
+      key: `${plotId}:${pid}`,
+      plotId: String(plotId),
+      plotLabel,
+      coords,
+    };
   };
 
   const pinToUi = (pinDoc, plotLabel, plotId) => {
@@ -447,8 +582,6 @@ export default function EditAndDeletePage() {
       String(pinDoc?.id || pinDoc?._id || "").trim() ||
       `${plotId}-pin-${pinDoc?.number ?? ""}-${lat}-${lng}`;
 
-    const st = String(pinDoc?.sensorType || pinDoc?.type || pinDoc?.sensor_type || "").trim();
-
     return {
       id,
       number: pinDoc?.number ?? "-",
@@ -457,7 +590,10 @@ export default function EditAndDeletePage() {
       latLng: [lat, lng],
       plotLabel,
       plotId: String(plotId),
-      sensorType: st,
+      nodeId: pinDoc?.nodeId ? String(pinDoc.nodeId) : "",
+      nodeName: pinDoc?.nodeName || "",
+      node_soil: pinDoc?.node_soil || { sensors: [] },
+      node_air: pinDoc?.node_air || { sensors: [] },
     };
   };
 
@@ -509,22 +645,34 @@ export default function EditAndDeletePage() {
           const plotId = String(plot.id);
           const plotLabel = makePlotLabel(plot);
 
-          const [polyRes, pinRes] = await Promise.all([
-            apiFetchJson(`/api/plots/${encodeURIComponent(plotId)}/polygons`),
-            apiFetchJson(
-              `/api/pins?plotId=${encodeURIComponent(plotId)}&nodeCategory=${encodeURIComponent(nodeCategory)}&sensorType=all`
-            ),
+          const [polygonRes, fullRes] = await Promise.all([
+            apiFetchJson(`/api/plots/${encodeURIComponent(plotId)}/polygon`),
+            apiFetchJson(`/api/plots/${encodeURIComponent(plotId)}/full`),
           ]);
 
-          const polys = normalizeList(polyRes).map((x) => polyToUi(x, plotLabel, plotId)).filter(Boolean);
-          const pinItems = normalizeList(pinRes).map((x) => pinToUi(x, plotLabel, plotId)).filter(Boolean);
+          const polyItem = polygonRes?.item || null;
+          const fullItem = fullRes?.item || null;
+          const fullPins = Array.isArray(fullItem?.polygon?.pins) ? fullItem.polygon.pins : [];
+
+          const polys = [];
+          const mappedPoly = polyToUi(polyItem, plotLabel, plotId);
+          if (mappedPoly) polys.push(mappedPoly);
+
+          const pinItems = fullPins
+            .filter((pin) => hasSensorInNode(pin, nodeCategory, selectedSensorType))
+            .map((pin) => pinToUi(pin, plotLabel, plotId))
+            .filter(Boolean);
 
           return { polys, pinItems };
         })
       );
 
       setPolygons(results.flatMap((r) => r.polys));
-      setPins(results.flatMap((r) => r.pinItems).sort((a, b) => safeNum(a.number, 0) - safeNum(b.number, 0)));
+      setPins(
+        results
+          .flatMap((r) => r.pinItems)
+          .sort((a, b) => safeNum(a.number, 0) - safeNum(b.number, 0))
+      );
     } catch (e) {
       setErrMsg(String(e.message || e));
       // @ts-ignore
@@ -535,7 +683,7 @@ export default function EditAndDeletePage() {
     } finally {
       setLoading(false);
     }
-  }, [plots, selectedPlot, nodeCategory, router]);
+  }, [plots, selectedPlot, nodeCategory, selectedSensorType, router]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -548,6 +696,8 @@ export default function EditAndDeletePage() {
   }, [hydrated, selectedPlot, nodeCategory, selectedSensorType, loadMapData]);
 
   const handleDeletePin = async (pinId) => {
+    if (!pinId || !isObjectId(String(pinId))) return;
+
     setErrMsg("");
     try {
       setPins((prev) => prev.filter((p) => p.id !== pinId));
@@ -559,25 +709,28 @@ export default function EditAndDeletePage() {
     }
   };
 
+  const clearOnePlotPolygonAndPins = async (plotId) => {
+    await apiFetchJson(`/api/plots/${encodeURIComponent(plotId)}/polygon`, {
+      method: "PUT",
+      body: {
+        color: "#2563eb",
+        coords: [],
+        pins: [],
+      },
+    });
+  };
+
   const handleDeleteAll = async () => {
     setErrMsg("");
     setLoading(true);
+
     try {
       if (selectedPlot === "all") {
-        await Promise.all(
-          (plots || []).map((p) =>
-            Promise.all([
-              apiFetchJson(`/api/plots/${encodeURIComponent(String(p.id))}/pins`, { method: "DELETE" }),
-              apiFetchJson(`/api/plots/${encodeURIComponent(String(p.id))}/polygons`, { method: "DELETE" }),
-            ])
-          )
-        );
+        await Promise.all((plots || []).map((p) => clearOnePlotPolygonAndPins(String(p.id))));
       } else {
-        await Promise.all([
-          apiFetchJson(`/api/plots/${encodeURIComponent(selectedPlot)}/pins`, { method: "DELETE" }),
-          apiFetchJson(`/api/plots/${encodeURIComponent(selectedPlot)}/polygons`, { method: "DELETE" }),
-        ]);
+        await clearOnePlotPolygonAndPins(String(selectedPlot));
       }
+
       setPins([]);
       setPolygons([]);
       await loadMapData();
@@ -664,7 +817,12 @@ export default function EditAndDeletePage() {
         <section style={styles.bottomPanel}>
           <div style={styles.bottomHeaderRow}>
             <div style={styles.bottomTitle}>{t("plotInformation", "ข้อมูลแปลง")}</div>
-            <button style={styles.deleteAllBtn} type="button" onClick={handleDeleteAll} disabled={loading}>
+            <button
+              style={styles.deleteAllBtn}
+              type="button"
+              onClick={handleDeleteAll}
+              disabled={loading}
+            >
               {t("deleteAll", "ลบทั้งหมด")}
             </button>
           </div>
@@ -676,7 +834,9 @@ export default function EditAndDeletePage() {
           <div style={infoGridStyle}>
             <div>
               <div style={styles.infoLabel}>{t("plot", "แปลง")}</div>
-              <div style={styles.infoBox}>{selectedPlot === "all" ? t("allPlots", "ทุกแปลง") : currentPlotInfo.name || "-"}</div>
+              <div style={styles.infoBox}>
+                {selectedPlot === "all" ? t("allPlots", "ทุกแปลง") : currentPlotInfo.name || "-"}
+              </div>
             </div>
             <div>
               <div style={styles.infoLabel}>{t("caretaker", "ชื่อผู้ดูแล")}</div>
@@ -724,13 +884,23 @@ export default function EditAndDeletePage() {
                 <div style={styles.pinIconCircle}>📍</div>
                 <div>
                   <div style={styles.pinLabel}>
-                    {t("numberLabel", "number")} #{p.number} {selectedPlot === "all" ? `(${p.plotLabel || "-"})` : ""}
+                    {t("numberLabel", "number")} #{p.number}{" "}
+                    {selectedPlot === "all" ? `(${p.plotLabel || "-"})` : ""}
                   </div>
                 </div>
               </div>
+
               <div style={styles.pinCoord}>{t("latitude", "ละติจูด")} {p.lat}</div>
               <div style={styles.pinCoord}>{t("longitude", "ลองจิจูด")} {p.lon}</div>
-              <button style={styles.deleteBtn} type="button" onClick={() => handleDeletePin(p.id)} title={t("delete", "ลบ")}>
+              <div style={styles.pinCoord}>{t("selectNode", "Node")} {p.nodeName || "-"}</div>
+
+              <button
+                style={styles.deleteBtn}
+                type="button"
+                onClick={() => handleDeletePin(p.id)}
+                title={t("delete", "ลบ")}
+                disabled={!isObjectId(String(p.id))}
+              >
                 🗑️
               </button>
             </div>
@@ -742,7 +912,12 @@ export default function EditAndDeletePage() {
             </div>
           ) : null}
 
-          <button style={styles.saveBtn} type="button" onClick={() => loadMapData()} disabled={loading}>
+          <button
+            style={styles.saveBtn}
+            type="button"
+            onClick={() => loadMapData()}
+            disabled={loading}
+          >
             {t("save", "บันทึก")}
           </button>
         </section>
