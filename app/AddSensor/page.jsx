@@ -204,6 +204,21 @@ const TOKEN_KEYS = [
   "duwims_token",
 ];
 
+const SENSOR_TYPE_GROUPS = {
+  air: [
+    { value: "temp", label: "อุณหภูมิ" },
+    { value: "rh", label: "ความชื้นสัมพัทธ์" },
+    { value: "wind", label: "วัดความเร็วลม" },
+    { value: "ppfd", label: "ความเข้มแสง" },
+    { value: "rain", label: "ปริมาณน้ำฝน" },
+  ],
+  soil: [
+    { value: "soil_moisture", label: "ความชื้นในดิน" },
+    { value: "npk", label: "ความเข้มข้นธาตุอาหาร (N,P,K)" },
+    { value: "irrigation", label: "การให้น้ำ / ความพร้อมใช้น้ำ" },
+  ],
+};
+
 function getToken() {
   if (typeof window === "undefined") return null;
   for (const k of TOKEN_KEYS) {
@@ -330,13 +345,21 @@ function ensureUniquePinNumbers(items = []) {
 
 function sensorTypeLabel(sensorType, t) {
   const key = String(sensorType || "");
-  if (key === "soil_moisture") return t("soilMoisture");
-  if (key === "temp_rh") return t("airTempHumidity");
-  if (key === "irrigation") return t("irrigationReady");
-  if (key === "npk") return t("npkConcentration");
-  if (key === "wind") return t("windMeasure");
-  if (key === "ppfd") return t("lightIntensity");
-  if (key === "rain") return t("rainAmount");
+
+  if (key === "temp") return "อุณหภูมิ";
+  if (key === "rh") return "ความชื้นสัมพัทธ์";
+  if (key === "temp_rh") return "อุณหภูมิ / ความชื้นสัมพัทธ์";
+  if (key === "soil_moisture") return "ความชื้นในดิน";
+  if (key === "irrigation") return "การให้น้ำ / ความพร้อมใช้น้ำ";
+  if (key === "npk") return "ความเข้มข้นธาตุอาหาร (N,P,K)";
+  if (key === "wind") return "วัดความเร็วลม";
+  if (key === "wind_speed") return "วัดความเร็วลม";
+  if (key === "ppfd") return "ความเข้มแสง";
+  if (key === "light") return "ความเข้มแสง";
+  if (key === "rain") return "ปริมาณน้ำฝน";
+  if (key === "rainfall") return "ปริมาณน้ำฝน";
+  if (key === "temperature_humidity") return "อุณหภูมิ / ความชื้นสัมพัทธ์";
+
   return key || "-";
 }
 
@@ -364,14 +387,101 @@ function formatSensorDisplayValue(sensor) {
   return "-";
 }
 
-function toNodeSensorGroups(nodeDoc, t, selectedNode) {
-  const groups = [];
+function getTempRhParts(sensor) {
+  const reading = sensor?.lastReading ?? {};
+  const value = reading?.value ?? sensor?.value ?? {};
 
-  const pushGroup = (title, items) => {
-    if (!items.length) return;
-    groups.push({ title, items });
+  const temp =
+    value?.temp ??
+    value?.temperature ??
+    reading?.temp ??
+    reading?.temperature ??
+    sensor?.temp ??
+    sensor?.temperature ??
+    null;
+
+  const rh =
+    value?.rh ??
+    value?.humidity ??
+    value?.relativeHumidity ??
+    reading?.rh ??
+    reading?.humidity ??
+    reading?.relativeHumidity ??
+    sensor?.rh ??
+    sensor?.humidity ??
+    sensor?.relativeHumidity ??
+    null;
+
+  const tempUnit =
+    sensor?.tempUnit ||
+    sensor?.temperatureUnit ||
+    (String(sensor?.unit || "").includes("°") ? sensor.unit : "°C");
+
+  const rhUnit =
+    sensor?.rhUnit ||
+    sensor?.humidityUnit ||
+    (String(sensor?.unit || "").includes("%") ? sensor.unit : "%");
+
+  const formatPart = (v, unit) => {
+    const n = Number(v);
+    if (Number.isFinite(n)) return `${n}${unit ? ` ${unit}` : ""}`;
+    if (v !== undefined && v !== null && v !== "") return String(v);
+    return "-";
   };
 
+  return {
+    tempValue: formatPart(temp, tempUnit),
+    rhValue: formatPart(rh, rhUnit),
+  };
+}
+
+function normalizeSensorType(sensorType) {
+  const key = String(sensorType || "");
+
+  if (key === "temperature_humidity") return "temp_rh";
+  if (key === "wind_speed") return "wind";
+  if (key === "light") return "ppfd";
+  if (key === "rainfall") return "rain";
+
+  return key;
+}
+
+function matchesSensorTypeFilter(sensorType, selectedSensorType) {
+  if (!selectedSensorType || selectedSensorType === "all") return true;
+
+  const current = normalizeSensorType(sensorType);
+  const selected = String(selectedSensorType || "");
+
+  if (selected === "temp") {
+    return current === "temp" || current === "temp_rh";
+  }
+
+  if (selected === "rh") {
+    return current === "rh" || current === "temp_rh";
+  }
+
+  return current === selected;
+}
+
+function isNpkSensor(sensor) {
+  return normalizeSensorType(sensor?.sensorType) === "npk";
+}
+
+function getNpkValues(sensor) {
+  const src =
+    sensor?.lastReading?.value ??
+    sensor?.value ??
+    sensor?.lastReading ??
+    {};
+
+  const n = src?.n ?? src?.N ?? sensor?.n ?? sensor?.N ?? "-";
+  const p = src?.p ?? src?.P ?? sensor?.p ?? sensor?.P ?? "-";
+  const k = src?.k ?? src?.K ?? sensor?.k ?? sensor?.K ?? "-";
+
+  return { n, p, k };
+}
+
+function toFlatSensorItems(nodeDoc, t, selectedNode, selectedSensorType) {
   const soilSensors = Array.isArray(nodeDoc?.node_soil?.sensors)
     ? nodeDoc.node_soil.sensors
     : [];
@@ -380,31 +490,77 @@ function toNodeSensorGroups(nodeDoc, t, selectedNode) {
     : [];
 
   const mapItems = (arr, nodeType) =>
-    arr.map((s, idx) => ({
-      id: String(s?._id || `${nodeType}-${idx}`),
-      nodeType,
-      sensorType: String(s?.sensorType || ""),
-      name:
-        String(s?.name || "").trim() ||
-        `${sensorTypeLabel(s?.sensorType, t)} #${idx + 1}`,
-      value: formatSensorDisplayValue(s),
-      status: s?.status || "-",
-      lastReadingAt: s?.lastReadingAt || s?.lastReading?.ts || "-",
-      unit: s?.unit || "",
-    }));
+    arr.flatMap((s, idx) => {
+      if (!matchesSensorTypeFilter(s?.sensorType, selectedSensorType)) {
+        return [];
+      }
+
+      const normalizedType = normalizeSensorType(s?.sensorType);
+
+      if (normalizedType === "temp_rh") {
+        const parts = getTempRhParts(s);
+        const baseId = String(s?._id || `${nodeType}-${idx}`);
+
+        return [
+          {
+            id: `${baseId}-temp`,
+            nodeType,
+            sensorType: "temp",
+            sourceSensorType: normalizedType,
+            name: "Temp",
+            value: parts.tempValue,
+            status: s?.status || "OK",
+            lastReadingAt: s?.lastReadingAt || s?.lastReading?.ts || "-",
+            unit: s?.tempUnit || s?.temperatureUnit || "°C",
+            rawSensor: s,
+          },
+          {
+            id: `${baseId}-rh`,
+            nodeType,
+            sensorType: "rh",
+            sourceSensorType: normalizedType,
+            name: "Humidity",
+            value: parts.rhValue,
+            status: s?.status || "OK",
+            lastReadingAt: s?.lastReadingAt || s?.lastReading?.ts || "-",
+            unit: s?.rhUnit || s?.humidityUnit || "%",
+            rawSensor: s,
+          },
+        ];
+      }
+
+      return [
+        {
+          id: String(s?._id || `${nodeType}-${idx}`),
+          nodeType,
+          sensorType: String(s?.sensorType || ""),
+          sourceSensorType: normalizedType,
+          name:
+            String(s?.name || "").trim() ||
+            `${sensorTypeLabel(s?.sensorType, t)} #${idx + 1}`,
+          value: formatSensorDisplayValue(s),
+          status: s?.status || "OK",
+          lastReadingAt: s?.lastReadingAt || s?.lastReading?.ts || "-",
+          unit: s?.unit || "",
+          rawSensor: s,
+        },
+      ];
+    });
 
   const onlySoil = selectedNode === "soil";
   const onlyAir = selectedNode === "air";
 
+  let items = [];
+
   if (!onlyAir) {
-    pushGroup(t("soilNode"), mapItems(soilSensors, "soil"));
+    items = [...items, ...mapItems(soilSensors, "soil")];
   }
 
   if (!onlySoil) {
-    pushGroup(t("airNode"), mapItems(airSensors, "air"));
+    items = [...items, ...mapItems(airSensors, "air")];
   }
 
-  return groups;
+  return items;
 }
 
 export default function AddSensorPage() {
@@ -471,6 +627,7 @@ export default function AddSensorPage() {
 
   const [selectedPlot, setSelectedPlot] = useState("all");
   const [selectedNode, setSelectedNode] = useState("all");
+  const [selectedSensorType, setSelectedSensorType] = useState("all");
   const [showNodePicker, setShowNodePicker] = useState(false);
 
   useEffect(() => {
@@ -480,6 +637,23 @@ export default function AddSensorPage() {
   useEffect(() => {
     setShowNodePicker(false);
   }, [selectedPlot]);
+
+  useEffect(() => {
+    const allowedTypes =
+      selectedNode === "soil"
+        ? SENSOR_TYPE_GROUPS.soil
+        : selectedNode === "air"
+        ? SENSOR_TYPE_GROUPS.air
+        : [...SENSOR_TYPE_GROUPS.air, ...SENSOR_TYPE_GROUPS.soil];
+
+    const hasCurrent = allowedTypes.some(
+      (item) => String(item.value) === String(selectedSensorType)
+    );
+
+    if (selectedSensorType !== "all" && !hasCurrent) {
+      setSelectedSensorType("all");
+    }
+  }, [selectedNode, selectedSensorType]);
 
   const readOnlyAllPlots = false;
 
@@ -516,21 +690,31 @@ export default function AddSensorPage() {
   }, [activePin, activePinNode, nodeTemplates, selectedNodeTemplateId]);
 
   const plotLabel = useMemo(() => {
-    if (selectedPlot === "all") return t("allPlots");
+    if (selectedPlot === "all") return "ทุกแปลง";
     const p = plots.find((x) => String(x.id || x._id) === String(selectedPlot));
     return p
-      ? p.plotName || p.alias || p.name || `${t("plot")} ${p.id || p._id}`
-      : `${t("plot")} ${selectedPlot}`;
-  }, [selectedPlot, plots, t]);
+      ? p.plotName || p.alias || p.name || `แปลง ${p.id || p._id}`
+      : `แปลง ${selectedPlot}`;
+  }, [selectedPlot, plots]);
 
   const nodeOptions = useMemo(
     () => [
-      { value: "all", label: t("allNodes") },
-      { value: "soil", label: t("soilNode") },
-      { value: "air", label: t("airNode") },
+      { value: "all", label: "ทุก Node" },
+      { value: "soil", label: "Node ดิน" },
+      { value: "air", label: "Node อากาศ" },
     ],
-    [t]
+    []
   );
+
+  const sensorTypeOptions = useMemo(() => {
+    if (selectedNode === "soil") {
+      return SENSOR_TYPE_GROUPS.soil;
+    }
+    if (selectedNode === "air") {
+      return SENSOR_TYPE_GROUPS.air;
+    }
+    return [...SENSOR_TYPE_GROUPS.air, ...SENSOR_TYPE_GROUPS.soil];
+  }, [selectedNode]);
 
   const filteredPins = useMemo(() => {
     const list = Array.isArray(pins) ? pins : [];
@@ -542,9 +726,9 @@ export default function AddSensorPage() {
     return [...scoped].sort((a, b) => Number(a?.number || 0) - Number(b?.number || 0));
   }, [pins, selectedPlot]);
 
-  const sensorDisplayGroups = useMemo(
-    () => toNodeSensorGroups(activePinNode, t, selectedNode),
-    [activePinNode, selectedNode, t]
+  const sensorDisplayItems = useMemo(
+    () => toFlatSensorItems(activePinNode, t, selectedNode, selectedSensorType),
+    [activePinNode, selectedNode, selectedSensorType, t]
   );
 
   useEffect(() => {
@@ -1021,7 +1205,7 @@ export default function AddSensorPage() {
           ? "1fr"
           : isTablet
           ? "repeat(2,minmax(0,1fr))"
-          : "repeat(2,minmax(0,1fr))",
+          : "repeat(3,minmax(0,1fr))",
         gap: 10,
         marginTop: 4,
       },
@@ -1348,7 +1532,7 @@ export default function AddSensorPage() {
 
       itemsGrid: {
         display: "grid",
-        gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+        gridTemplateColumns: "1fr",
         gap: 10,
       },
       itemCard: {
@@ -1362,9 +1546,6 @@ export default function AddSensorPage() {
         fontWeight: 900,
         color: "#111827",
         marginBottom: 6,
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
       },
       itemSub: {
         fontSize: 11,
@@ -1421,13 +1602,13 @@ export default function AddSensorPage() {
 
           <div style={styles.filterGrid}>
             <div style={styles.filterCard}>
-              <div style={styles.filterLabel}>{t("plot")}</div>
+              <div style={styles.filterLabel}>แปลง</div>
               <select
                 style={styles.filterSelect}
                 value={selectedPlot}
                 onChange={(e) => setSelectedPlot(e.target.value)}
               >
-                <option value="all">{t("allPlots")}</option>
+                <option value="all">ทุกแปลง</option>
                 {plots.map((p) => (
                   <option key={p.id || p._id} value={p.id || p._id}>
                     {p.plotName || p.alias || p.name || p.id || p._id}
@@ -1437,7 +1618,7 @@ export default function AddSensorPage() {
             </div>
 
             <div style={styles.filterCard}>
-              <div style={styles.filterLabel}>{t("selectNode")}</div>
+              <div style={styles.filterLabel}>เลือก Node</div>
               <select
                 style={styles.filterSelect}
                 value={selectedNode}
@@ -1446,6 +1627,22 @@ export default function AddSensorPage() {
                 {nodeOptions.map((n) => (
                   <option key={n.value} value={n.value}>
                     {n.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={styles.filterCard}>
+              <div style={styles.filterLabel}>ประเภทเซนเซอร์</div>
+              <select
+                style={styles.filterSelect}
+                value={selectedSensorType}
+                onChange={(e) => setSelectedSensorType(e.target.value)}
+              >
+                <option value="all">ทุกชนิดเซนเซอร์</option>
+                {sensorTypeOptions.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
                   </option>
                 ))}
               </select>
@@ -1492,7 +1689,7 @@ export default function AddSensorPage() {
             <div style={styles.mapHelp}>
               {lang === "en"
                 ? "Select a pin from the list below first, then click the map to move that pin."
-                : "เลือก Pin จากรายการด้านล่างก่อน แล้วค่อยคลิกบนแผนที่เพื่อย้ายหมุด"}
+                : "เลือก Pin จากรายการด้านล่างก่อน แล้วค่อยคลิกแผนที่เพื่อย้ายหมุด"}
             </div>
 
             <div
@@ -1826,7 +2023,7 @@ export default function AddSensorPage() {
                   ? "This pin has not been assigned to a NodeTemplate yet. Please select one if needed."
                   : "Pin นี้ยังไม่ได้ผูกกับ NodeTemplate หากต้องการใช้งานให้เลือกก่อน"}
               </div>
-            ) : sensorDisplayGroups.length === 0 ? (
+            ) : sensorDisplayItems.length === 0 ? (
               <div style={styles.infoNotice}>
                 {lang === "en"
                   ? "No sensors found inside this NodeTemplate."
@@ -1834,20 +2031,41 @@ export default function AddSensorPage() {
               </div>
             ) : (
               <div style={styles.groupList}>
-                {sensorDisplayGroups.map((g) => (
-                  <div key={g.title} style={styles.groupCard}>
-                    <div style={styles.groupTitle}>{g.title}</div>
+                <div style={styles.groupCard}>
+                  <div style={styles.itemsGrid}>
+                    {sensorDisplayItems.map((it) => {
+                      const npk = isNpkSensor(it.rawSensor)
+                        ? getNpkValues(it.rawSensor)
+                        : null;
 
-                    <div style={styles.itemsGrid}>
-                      {g.items.map((it) => (
+                      return (
                         <div key={it.id} style={styles.itemCard}>
                           <div style={styles.itemTitle}>{it.name}</div>
+
                           <div style={styles.itemSub}>
-                            {sensorTypeLabel(it.sensorType, t)}
+                            {it.sourceSensorType === "temp_rh"
+                              ? "อุณหภูมิ / ความชื้นสัมพัทธ์"
+                              : sensorTypeLabel(it.sensorType, t)}
                           </div>
-                          <div style={styles.itemMeta}>
-                            <b>{lang === "en" ? "Value" : "ค่า"}:</b> {it.value}
-                          </div>
+
+                          {npk ? (
+                            <>
+                              <div style={styles.itemMeta}>
+                                <b>N:</b> {npk.n}
+                              </div>
+                              <div style={styles.itemMeta}>
+                                <b>P:</b> {npk.p}
+                              </div>
+                              <div style={styles.itemMeta}>
+                                <b>K:</b> {npk.k}
+                              </div>
+                            </>
+                          ) : (
+                            <div style={styles.itemMeta}>
+                              <b>{lang === "en" ? "Value" : "ค่า"}:</b> {it.value}
+                            </div>
+                          )}
+
                           <div style={styles.itemMeta}>
                             <b>Status:</b> {it.status}
                           </div>
@@ -1856,10 +2074,10 @@ export default function AddSensorPage() {
                             {it.lastReadingAt || "-"}
                           </div>
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })}
                   </div>
-                ))}
+                </div>
               </div>
             )}
 

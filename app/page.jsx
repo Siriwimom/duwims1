@@ -125,7 +125,7 @@ const outerWrap = {
 
 const bodyStyle = {
   width: "100%",
-  maxWidth: 1180,
+  maxWidth: 1440,
   margin: "0 auto",
   boxSizing: "border-box",
   paddingTop: 0,
@@ -442,30 +442,6 @@ function normalizeText(v) {
     .replace(/[_-]+/g, " ");
 }
 
-function extractLastReadingValue(sensor = {}) {
-  const candidates = [
-    sensor?.lastReading?.value,
-    sensor?.lastValue,
-    sensor?.value,
-    sensor?.reading,
-    sensor?.currentValue,
-  ];
-  for (const c of candidates) {
-    const n = Number(c);
-    if (Number.isFinite(n)) return n;
-  }
-  return null;
-}
-
-function extractSensorUnit(sensor = {}, sensorTypeMeta = {}) {
-  return firstNonEmpty(
-    sensor?.lastReading?.unit,
-    sensor?.unit,
-    sensorTypeMeta?.unit,
-    ""
-  );
-}
-
 // ============================
 // ✅ Backend-aligned group definitions
 // ============================
@@ -508,7 +484,7 @@ const SENSOR_TYPE_INFO = {
   npk: {
     key: "npk",
     label: "npk",
-    unit: "mg/kg",
+    unit: "",
     labelTh: "เซนเซอร์ NPK",
     labelEn: "Sensor NPK",
   },
@@ -542,12 +518,11 @@ function getGroupLabel(sensorType, lang = "th") {
 }
 
 // ============================
-// ✅ Thresholds aligned to backend payload
+// ✅ Thresholds มาตรฐานทุเรียน
 // ============================
 function detectBackendMetric(sensor = {}) {
   const sensorType = String(sensor?.sensorType || "").trim();
   const name = normalizeText(sensor?.name);
-  const unit = normalizeText(sensor?.unit);
 
   if (sensorType === "temp_rh") {
     if (
@@ -572,21 +547,24 @@ function detectBackendMetric(sensor = {}) {
       name === "n" ||
       name.includes("ไนโตรเจน") ||
       name.includes("nitrogen")
-    )
+    ) {
       return "nitrogen";
+    }
     if (
       name === "p" ||
       name.includes("ฟอสฟอรัส") ||
       name.includes("phosphorus") ||
       name.includes("phosphate")
-    )
+    ) {
       return "phosphorus";
+    }
     if (
       name === "k" ||
       name.includes("โพแทสเซียม") ||
       name.includes("potassium")
-    )
+    ) {
       return "potassium";
+    }
     return "npk_unknown";
   }
 
@@ -608,125 +586,91 @@ function detectBackendMetric(sensor = {}) {
     return "irrigation_unknown";
   }
 
-  if (sensorType === "wind") return unit.includes("m/s") ? "wind_mps" : "wind";
+  if (sensorType === "wind") return "wind";
   if (sensorType === "ppfd") return "lightIntensity";
-
-  if (sensorType === "rain") {
-    if (
-      name.includes("month") ||
-      name.includes("monthly") ||
-      name.includes("เดือน")
-    ) {
-      return "rainfall_monthly";
-    }
-    return "rainfall_unknown";
-  }
-
-  if (sensorType === "soil_moisture") {
-    if (
-      unit.includes("kpa") ||
-      name.includes("tension") ||
-      name.includes("tensiometer")
-    ) {
-      return "soilTension";
-    }
-    return "soilMoisturePercent";
-  }
+  if (sensorType === "rain") return "rainfall_daily";
+  if (sensorType === "soil_moisture") return "soilMoisturePercent";
 
   return null;
 }
 
 const METRIC_RULES = {
   temperature: {
-    min: 15,
-    max: 40,
+    idealMin: 20,
+    idealMax: 35,
     unit: "°C",
-    labelTh: "อุณหภูมิ",
-    labelEn: "Temperature",
+    labelTh: "Temp",
+    labelEn: "Temp",
   },
   humidity: {
-    min: 40,
-    max: 90,
+    idealMin: 75,
+    idealMax: 85,
     unit: "%",
-    labelTh: "ความชื้น",
+    labelTh: "Humidity",
     labelEn: "Humidity",
   },
-  wind_mps: {
-    max: 20 / 3.6,
-    unit: "m/s",
-    labelTh: "ความเร็วลม",
-    labelEn: "Wind Speed",
-  },
   wind: {
-    max: 20,
+    idealMin: 2,
+    idealMax: 5,
     unit: "กม./ชม.",
-    labelTh: "ความเร็วลม",
-    labelEn: "Wind Speed",
+    labelTh: "Wind",
+    labelEn: "Wind",
   },
   lightIntensity: {
-    min: 10000,
-    max: 80000,
     idealMin: 40000,
     idealMax: 60000,
     unit: "Lux",
-    labelTh: "ความเข้มแสง",
-    labelEn: "Light Intensity",
+    labelTh: "Light",
+    labelEn: "Light",
   },
-  rainfall_monthly: {
-    idealMin: 100,
-    idealMax: 200,
-    max: 300,
-    unit: "mm/month",
-    labelTh: "ปริมาณน้ำฝน",
-    labelEn: "Rainfall",
+  rainfall_daily: {
+    idealMin: 4,
+    idealMax: 8,
+    unit: "มม./วัน",
+    labelTh: "Rain",
+    labelEn: "Rain",
   },
-  soilTension: {
-    min: -70,
-    max: -10,
-    unit: "kPa",
-    labelTh: "ความชื้นในดิน",
+  soilMoisturePercent: {
+    idealMin: 65,
+    idealMax: 80,
+    unit: "%",
+    labelTh: "Soil Moisture",
     labelEn: "Soil Moisture",
   },
-  irrigation: {
-    min: 50,
-    max: 200,
-    unit: "L/day",
-    labelTh: "การให้น้ำ",
-    labelEn: "Irrigation",
-  },
-  availableWater: {
-    min: 60,
-    max: 80,
-    unit: "%",
-    labelTh: "ความพร้อมใช้น้ำ",
-    labelEn: "Available Water",
-  },
   nitrogen: {
-    min: 30,
-    max: 200,
-    idealMin: 50,
-    idealMax: 100,
-    unit: "mg/kg",
+    idealMin: 0.1,
+    idealMax: 1.0,
+    unit: "%",
     labelTh: "N",
     labelEn: "N",
   },
   phosphorus: {
-    min: 15,
-    max: 100,
     idealMin: 25,
-    idealMax: 50,
-    unit: "mg/kg",
+    idealMax: 45,
+    unit: "ppm",
     labelTh: "P",
     labelEn: "P",
   },
   potassium: {
-    min: 80,
-    max: 300,
-    idealMin: 100,
-    idealMax: 200,
-    unit: "mg/kg",
+    idealMin: 0.8,
+    idealMax: 1.4,
+    unit: "cmol/kg",
     labelTh: "K",
     labelEn: "K",
+  },
+  irrigation: {
+    idealMin: 80,
+    idealMax: 150,
+    unit: "ลิตร/วัน/ต้น",
+    labelTh: "Irrigation",
+    labelEn: "Irrigation",
+  },
+  availableWater: {
+    idealMin: 80,
+    idealMax: 150,
+    unit: "ลิตร/วัน/ต้น",
+    labelTh: "Available Water",
+    labelEn: "Available Water",
   },
 };
 
@@ -738,78 +682,262 @@ function getMetricLabel(metric, lang = "th", fallback = "-") {
 
 function formatThresholdHint(rule, lang = "th") {
   if (!rule) return "";
-
   const unit = rule.unit ? ` ${rule.unit}` : "";
-  const hasMin = rule.min !== undefined;
-  const hasMax = rule.max !== undefined;
-  const hasIdeal =
-    rule.idealMin !== undefined && rule.idealMax !== undefined;
 
   if (lang === "en") {
-    const parts = [];
-    if (hasIdeal)
-      parts.push(`Normal ${rule.idealMin} - ${rule.idealMax}${unit}`);
-    if (hasMin) parts.push(`Min ${rule.min}${unit}`);
-    if (hasMax) parts.push(`Max ${rule.max}${unit}`);
-    return parts.join(" • ");
+    if (rule.idealMin !== undefined && rule.idealMax !== undefined) {
+      return `Normal ${rule.idealMin} - ${rule.idealMax}${unit}`;
+    }
+    return "";
   }
 
-  const parts = [];
-  if (hasIdeal) parts.push(`ช่วงปกติ ${rule.idealMin} - ${rule.idealMax}${unit}`);
-  if (hasMin) parts.push(`ห้ามต่ำกว่า ${rule.min}${unit}`);
-  if (hasMax) parts.push(`ห้ามสูงกว่า ${rule.max}${unit}`);
-  return parts.join(" • ");
+  if (rule.idealMin !== undefined && rule.idealMax !== undefined) {
+    return `ช่วงเหมาะสม ${rule.idealMin} - ${rule.idealMax}${unit}`;
+  }
+
+  return "";
+}
+
+// ============================
+// ✅ ดึงค่าจริงจากระบบเท่านั้น
+// ============================
+function extractActualReading(sensor = {}) {
+  const lr = sensor?.lastReading;
+
+  if (!lr || typeof lr !== "object") return null;
+
+  const sensorType = String(sensor?.sensorType || "").trim();
+  const metric = detectBackendMetric(sensor);
+
+  if (sensorType === "temp_rh") {
+    if (metric === "temperature") {
+      const raw = firstNonEmpty(
+        lr.temperature,
+        lr.temp,
+        lr.tempC,
+        lr.temperatureC,
+        null
+      );
+      if (raw === null || raw === undefined || raw === "") return null;
+      const v = Number(raw);
+      return Number.isFinite(v)
+        ? { value: v, unit: firstNonEmpty(lr.unit, "°C") }
+        : null;
+    }
+
+    if (metric === "humidity") {
+      const raw = firstNonEmpty(
+        lr.humidity,
+        lr.rh,
+        lr.relativeHumidity,
+        null
+      );
+      if (raw === null || raw === undefined || raw === "") return null;
+      const v = Number(raw);
+      return Number.isFinite(v)
+        ? { value: v, unit: firstNonEmpty(lr.unit, "%") }
+        : null;
+    }
+
+    return null;
+  }
+
+  if (sensorType === "npk") {
+    if (metric === "nitrogen") {
+      const raw = firstNonEmpty(lr.n, lr.nitrogen, null);
+      if (raw === null || raw === undefined || raw === "") return null;
+      const v = Number(raw);
+      return Number.isFinite(v)
+        ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "%") }
+        : null;
+    }
+
+    if (metric === "phosphorus") {
+      const raw = firstNonEmpty(lr.p, lr.phosphorus, null);
+      if (raw === null || raw === undefined || raw === "") return null;
+      const v = Number(raw);
+      return Number.isFinite(v)
+        ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "ppm") }
+        : null;
+    }
+
+    if (metric === "potassium") {
+      const raw = firstNonEmpty(lr.k, lr.potassium, null);
+      if (raw === null || raw === undefined || raw === "") return null;
+      const v = Number(raw);
+      return Number.isFinite(v)
+        ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "cmol/kg") }
+        : null;
+    }
+
+    return null;
+  }
+
+  if (sensorType === "soil_moisture") {
+    const hasRealField =
+      lr?.soilMoisture !== undefined ||
+      lr?.moisture !== undefined ||
+      lr?.soil_moisture !== undefined;
+
+    if (!hasRealField) return null;
+
+    const raw = firstNonEmpty(
+      lr.soilMoisture,
+      lr.moisture,
+      lr.soil_moisture,
+      null
+    );
+
+    if (raw === null || raw === undefined || raw === "") return null;
+
+    const v = Number(raw);
+    return Number.isFinite(v)
+      ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "%") }
+      : null;
+  }
+
+  if (sensorType === "wind") {
+    const raw = firstNonEmpty(lr.windSpeed, lr.wind, lr.speed, null);
+    if (raw === null || raw === undefined || raw === "") return null;
+    const v = Number(raw);
+    return Number.isFinite(v)
+      ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "กม./ชม.") }
+      : null;
+  }
+
+  if (sensorType === "ppfd") {
+    const raw = firstNonEmpty(
+      lr.light,
+      lr.lightIntensity,
+      lr.lux,
+      lr.ppfd,
+      null
+    );
+    if (raw === null || raw === undefined || raw === "") return null;
+    const v = Number(raw);
+    return Number.isFinite(v)
+      ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "Lux") }
+      : null;
+  }
+
+  if (sensorType === "rain") {
+    const raw = firstNonEmpty(lr.rain, lr.rainfall, lr.dailyRain, null);
+    if (raw === null || raw === undefined || raw === "") return null;
+    const v = Number(raw);
+    return Number.isFinite(v)
+      ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "มม./วัน") }
+      : null;
+  }
+
+  if (sensorType === "irrigation") {
+    if (metric === "irrigation") {
+      const raw = firstNonEmpty(
+        lr.irrigation,
+        lr.watering,
+        lr.irrigationVolume,
+        null
+      );
+      if (raw === null || raw === undefined || raw === "") return null;
+      const v = Number(raw);
+      return Number.isFinite(v)
+        ? {
+            value: v,
+            unit: firstNonEmpty(lr.unit, sensor?.unit, "ลิตร/วัน/ต้น"),
+          }
+        : null;
+    }
+
+    if (metric === "availableWater") {
+      const raw = firstNonEmpty(
+        lr.availableWater,
+        lr.waterAvailable,
+        lr.awc,
+        null
+      );
+      if (raw === null || raw === undefined || raw === "") return null;
+      const v = Number(raw);
+      return Number.isFinite(v)
+        ? {
+            value: v,
+            unit: firstNonEmpty(lr.unit, sensor?.unit, "ลิตร/วัน/ต้น"),
+          }
+        : null;
+    }
+
+    return null;
+  }
+
+  return null;
+}
+
+function extractLastReadingValue(sensor = {}) {
+  const reading = extractActualReading(sensor);
+  return reading && Number.isFinite(reading.value) ? reading.value : null;
+}
+
+function extractSensorUnit(sensor = {}, sensorTypeMeta = {}) {
+  const reading = extractActualReading(sensor);
+  if (reading?.unit) return reading.unit;
+
+  return firstNonEmpty(
+    sensor?.lastReading?.unit,
+    sensor?.unit,
+    sensorTypeMeta?.unit,
+    ""
+  );
 }
 
 function evaluateSensorThreshold(sensor = {}, sensorTypeMeta = {}, lang = "th") {
   const metric = detectBackendMetric(sensor);
-  const value = extractLastReadingValue(sensor);
-  const actualUnit = extractSensorUnit(sensor, sensorTypeMeta);
+  const reading = extractActualReading(sensor);
   const rule = METRIC_RULES[metric] || null;
 
-  if (!metric || !rule || !Number.isFinite(value)) {
+  if (!metric || !rule || !reading || !Number.isFinite(Number(reading.value))) {
     return {
       metric,
       abnormal: false,
       reason: "",
-      value,
-      unit: actualUnit,
+      value: null,
+      unit: reading?.unit || "",
       rule,
+      hasRealValue: false,
     };
   }
+
+  const numValue = Number(reading.value);
+  const actualUnit = reading.unit || rule.unit || "";
 
   let abnormal = false;
   let reason = "";
 
-  if (rule.min !== undefined && value < rule.min) {
+  if (rule.idealMin !== undefined && numValue < rule.idealMin) {
     abnormal = true;
     reason =
       lang === "en"
-        ? `Too low (< ${rule.min} ${rule.unit || actualUnit || ""})`
-        : `ต่ำเกิน (< ${rule.min} ${rule.unit || actualUnit || ""})`;
-  }
-
-  if (rule.max !== undefined && value > rule.max) {
+        ? `Too low (< ${rule.idealMin} ${actualUnit})`
+        : `ต่ำเกิน (< ${rule.idealMin} ${actualUnit})`;
+  } else if (rule.idealMax !== undefined && numValue > rule.idealMax) {
     abnormal = true;
     reason =
       lang === "en"
-        ? `Too high (> ${rule.max} ${rule.unit || actualUnit || ""})`
-        : `สูงเกิน (> ${rule.max} ${rule.unit || actualUnit || ""})`;
+        ? `Too high (> ${rule.idealMax} ${actualUnit})`
+        : `สูงเกิน (> ${rule.idealMax} ${actualUnit})`;
   }
 
   return {
     metric,
     abnormal,
     reason: reason.trim(),
-    value,
-    unit: actualUnit || rule.unit || "",
+    value: numValue,
+    unit: actualUnit,
     rule,
+    hasRealValue: true,
   };
 }
 
 function getSensorAlertSummary(sensor = {}, sensorTypeMeta = {}, lang = "th") {
   const result = evaluateSensorThreshold(sensor, sensorTypeMeta, lang);
-  if (!result.metric || !result.abnormal) return null;
+  if (!result.metric || !result.abnormal || !result.hasRealValue) return null;
 
   const label = getMetricLabel(
     result.metric,
@@ -1132,50 +1260,47 @@ function buildGroupsFromSensors(
     };
 
     const evalResult = evaluateSensorThreshold(s, st, lang);
-    const rawValue = firstNonEmpty(
-      s?.lastReading?.value,
-      s?.lastValue,
-      s?.value,
-      s?.reading,
-      s?.currentValue,
-      ""
-    );
+    const reading = extractActualReading(s);
 
-    const displayUnit = extractSensorUnit(s, st) || evalResult.unit || "";
-    const hasDisplayValue =
-      rawValue !== "" && rawValue !== null && rawValue !== undefined;
-
+    const hasDisplayValue = !!reading && Number.isFinite(Number(reading.value));
+    const displayUnit = reading?.unit || extractSensorUnit(s, st) || "";
     const lastV = hasDisplayValue
-      ? `${rawValue}${displayUnit ? ` ${displayUnit}` : ""}`
+      ? `${Number(reading.value)}${displayUnit ? ` ${displayUnit}` : ""}`
       : "-";
 
-    const thresholdAlert = !!evalResult.abnormal;
+    const thresholdAlert = hasDisplayValue ? !!evalResult.abnormal : false;
 
-    const fallbackName =
-      sensorType === "npk" && evalResult.metric
-        ? getMetricLabel(evalResult.metric, lang, st.label || sensorType)
-        : sensorType === "temp_rh" && evalResult.metric
-        ? getMetricLabel(evalResult.metric, lang, st.label || sensorType)
-        : sensorType === "irrigation" && evalResult.metric
-        ? getMetricLabel(evalResult.metric, lang, st.label || sensorType)
-        : s?.name || st.label || sensorType;
+    let fallbackName =
+      s?.name || s?.sensorName || s?.label || st.label || sensorType;
+
+    if (sensorType === "npk" && evalResult.metric) {
+      fallbackName = getMetricLabel(evalResult.metric, lang, fallbackName);
+    }
+    if (sensorType === "temp_rh" && evalResult.metric) {
+      fallbackName = getMetricLabel(evalResult.metric, lang, fallbackName);
+    }
+    if (sensorType === "irrigation" && evalResult.metric) {
+      fallbackName = getMetricLabel(evalResult.metric, lang, fallbackName);
+    }
 
     const itemName = firstNonEmpty(
+      fallbackName,
       s?.name,
       s?.sensorName,
       s?.label,
-      fallbackName
+      sensorType
     );
 
     groups.get(sensorType).items.push({
       name: itemName,
       value: `${lang === "en" ? "Value" : "ค่า"}: ${lastV}`,
       isAlert: thresholdAlert,
-      abnormalReason: thresholdAlert ? evalResult.reason : "",
-      thresholdHint: evalResult.rule
-        ? formatThresholdHint(evalResult.rule, lang)
-        : "",
-      currentValueNumber: evalResult.value,
+      abnormalReason: hasDisplayValue && thresholdAlert ? evalResult.reason : "",
+      thresholdHint:
+        hasDisplayValue && evalResult.rule
+          ? formatThresholdHint(evalResult.rule, lang)
+          : "",
+      currentValueNumber: hasDisplayValue ? Number(reading.value) : null,
       currentValueUnit: displayUnit,
       metric: evalResult.metric,
     });
@@ -1200,6 +1325,11 @@ function buildGroupsFromSensors(
       g.items.sort(
         (a, b) => (order[a.metric] || 99) - (order[b.metric] || 99)
       );
+    } else if (key === "temp_rh") {
+      const order = { temperature: 1, humidity: 2 };
+      g.items.sort(
+        (a, b) => (order[a.metric] || 99) - (order[b.metric] || 99)
+      );
     }
     out.push(g);
   }
@@ -1217,7 +1347,8 @@ function pinHasThresholdAlert(
       label: s.sensorType,
       unit: s.unit || "",
     };
-    if (evaluateSensorThreshold(s, st, lang).abnormal) return true;
+    const result = evaluateSensorThreshold(s, st, lang);
+    if (result.hasRealValue && result.abnormal) return true;
   }
   return false;
 }
@@ -1298,7 +1429,7 @@ export default function DashboardAllPlotsPage() {
     };
   }, [cardPad, cardRadius]);
 
-  const mapHeight = isMobile ? 240 : isTablet ? 300 : 320;
+  const mapHeight = isMobile ? 220 : isTablet ? 280 : 320;
 
   const gridTop = useMemo(() => {
     if (isMobile) {
@@ -1325,30 +1456,20 @@ export default function DashboardAllPlotsPage() {
     };
   }, [isMobile, isTablet]);
 
-  const gridMiddle = useMemo(() => {
+  const gridStatusBottom = useMemo(() => {
     if (isMobile) {
       return {
         display: "grid",
         gridTemplateColumns: "1fr",
-        gridTemplateAreas: `"map" "status" "issue"`,
         gap: 12,
-      };
-    }
-    if (isTablet) {
-      return {
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gridTemplateAreas: `"map map" "status issue"`,
-        gap: 14,
       };
     }
     return {
       display: "grid",
-      gridTemplateColumns: "2fr 1.1fr 1.1fr",
-      gridTemplateAreas: `"map status issue"`,
+      gridTemplateColumns: "1fr 1fr",
       gap: 16,
     };
-  }, [isMobile, isTablet]);
+  }, [isMobile]);
 
   const gridPins = useMemo(() => {
     if (isMobile)
@@ -1484,13 +1605,10 @@ export default function DashboardAllPlotsPage() {
       setLoadError("");
 
       try {
-        // ✅ backend ไม่มี /api/sensor-types
-        // ใช้ map ใน frontend แทน
         const sensorTypesLocal = getDefaultSensorTypes();
         if (cancelled) return;
         setSensorTypes(sensorTypesLocal);
 
-        // ✅ โหลด plots
         const pl = await apiFetch("/api/plots", { token });
         if (cancelled) return;
 
@@ -1507,7 +1625,6 @@ export default function DashboardAllPlotsPage() {
 
         setPlots(plotItems);
 
-        // ✅ backend มี /api/plots/:plotId/polygon
         const polygonPromises = plotItems.map((p) =>
           apiFetch(`/api/plots/${p.id}/polygon`, { token }).then((res) => ({
             plotId: p.id,
@@ -1516,7 +1633,6 @@ export default function DashboardAllPlotsPage() {
           }))
         );
 
-        // ✅ backend มี /api/plots/:plotId/pins
         const pinPromises = plotItems.map((p) =>
           apiFetch(`/api/plots/${p.id}/pins`, { token }).then((res) => ({
             plotId: p.id,
@@ -1525,7 +1641,6 @@ export default function DashboardAllPlotsPage() {
           }))
         );
 
-        // ✅ backend มี /api/sensors?plotId=...&sensorType=all
         const sensorPromises = plotItems.map((p) =>
           apiFetch(
             `/api/sensors?plotId=${encodeURIComponent(p.id)}&sensorType=all`,
@@ -1544,7 +1659,6 @@ export default function DashboardAllPlotsPage() {
         ]);
         if (cancelled) return;
 
-        // ✅ polygon
         const allPolys = [];
         for (const pp of polygonByPlot) {
           const polyItem = pp?.item;
@@ -1559,7 +1673,6 @@ export default function DashboardAllPlotsPage() {
         }
         setPolygonsAll(allPolys);
 
-        // ✅ pins
         const allPins = [];
         for (const pr of pinsByPlot) {
           const plotMeta =
@@ -1608,7 +1721,6 @@ export default function DashboardAllPlotsPage() {
         }
         setPinsAll(allPins);
 
-        // ✅ sensorsByPinId
         const pinMap = {};
         for (const sr of sensorsByPlotArr) {
           const sensors = (sr.items || []).map((x, idx) => ({
@@ -1632,6 +1744,11 @@ export default function DashboardAllPlotsPage() {
             connectionStatus: firstNonEmpty(x.connectionStatus, ""),
             powerStatus: firstNonEmpty(x.powerStatus, ""),
             number: firstNonEmpty(x.number, x.order, x.index, ""),
+            lastReading:
+              x?.lastReading && typeof x.lastReading === "object"
+                ? x.lastReading
+                : null,
+            unit: firstNonEmpty(x.unit, ""),
           }));
 
           for (const s of sensors) {
@@ -1805,8 +1922,6 @@ export default function DashboardAllPlotsPage() {
   }, [forecastDays, lang, t]);
 
   const pinCount = (pinsAll || []).length;
-  const plotCount = (plots || []).length;
-  const polyCount = (polygonsAll || []).length;
 
   const issueSummaryList = useMemo(() => {
     return buildOverallIssueSummary(sensorsByPinId, sensorTypeMap, lang);
@@ -2022,8 +2137,8 @@ export default function DashboardAllPlotsPage() {
             </div>
           </div>
 
-          <div style={{ ...gridMiddle, marginBottom: 16 }}>
-            <div style={{ ...cardBaseR, gridArea: "map" }}>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ ...cardBaseR }}>
               <div style={{ ...title18, marginBottom: 8 }}>
                 {t("mapAndResourcesAllPlots", "แผนที่และทรัพยากร (ทุกแปลง)")}
               </div>
@@ -2066,11 +2181,12 @@ export default function DashboardAllPlotsPage() {
                 )}
               </div>
             </div>
+          </div>
 
+          <div style={{ ...gridStatusBottom, marginBottom: 16 }}>
             <div
               style={{
                 ...cardBaseR,
-                gridArea: "status",
                 background: "linear-gradient(135deg,#22c55e 0%,#34d399 100%)",
                 color: "#ffffff",
               }}
@@ -2108,7 +2224,6 @@ export default function DashboardAllPlotsPage() {
             <div
               style={{
                 ...cardBaseR,
-                gridArea: "issue",
                 background: "linear-gradient(135deg,#f59e0b 0%,#fde68a 100%)",
               }}
             >
@@ -2158,60 +2273,8 @@ export default function DashboardAllPlotsPage() {
                     </div>
                   </>
                 ) : (
-                  t("noIssueFound", "ยังไม่พบปัญหา (ทุกเซนเซอร์ปกติ)")
+                  t("noIssueFound", "ยังไม่พบปัญหา (ทุกเซนเซอร์สถานะ OK)")
                 )}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ ...cardBaseR, marginBottom: 16 }}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
-                gap: 10,
-              }}
-            >
-              <div
-                style={{
-                  background: "#eff6ff",
-                  border: "1px solid #bfdbfe",
-                  borderRadius: 12,
-                  padding: "10px 12px",
-                }}
-              >
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  {lang === "en" ? "Plots" : "จำนวนแปลง"}
-                </div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{plotCount}</div>
-              </div>
-
-              <div
-                style={{
-                  background: "#ecfdf5",
-                  border: "1px solid #bbf7d0",
-                  borderRadius: 12,
-                  padding: "10px 12px",
-                }}
-              >
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  {lang === "en" ? "Polygons" : "จำนวน Polygon"}
-                </div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{polyCount}</div>
-              </div>
-
-              <div
-                style={{
-                  background: "#fefce8",
-                  border: "1px solid #fde68a",
-                  borderRadius: 12,
-                  padding: "10px 12px",
-                }}
-              >
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  {lang === "en" ? "Pins" : "จำนวน Pin"}
-                </div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{pinCount}</div>
               </div>
             </div>
           </div>
@@ -2235,8 +2298,8 @@ export default function DashboardAllPlotsPage() {
               const backgroundColor = !isOnline
                 ? "#e5e7eb"
                 : hasAlert
-                ? "#f1caca"
-                : "#cfe9e2";
+                ? "#fee2e2"
+                : "#dcfce7";
 
               const sensorGroupCount = new Set(
                 sensors
@@ -2264,7 +2327,7 @@ export default function DashboardAllPlotsPage() {
                       ? "1.5px solid #9ca3af"
                       : hasAlert
                       ? "1.5px solid #ef4444"
-                      : "1px solid rgba(148,163,184,0.25)",
+                      : "1.5px solid #16a34a",
                     boxShadow: hasAlert
                       ? "0 12px 28px rgba(239,68,68,0.12)"
                       : "0 10px 24px rgba(15,23,42,0.10)",
@@ -2381,23 +2444,23 @@ export default function DashboardAllPlotsPage() {
 
                             const itemStyle = {
                               ...pinGroupItem,
-                              background: isAlertItem ? "#f2d74d" : "#f3f4f6",
+                              background: isAlertItem ? "#fee2e2" : "#dcfce7",
                               boxShadow: "none",
                               border: isAlertItem
-                                ? "1px solid #eab308"
-                                : "1px solid #e5e7eb",
+                                ? "1px solid #ef4444"
+                                : "1px solid #22c55e",
                             };
 
                             const nameStyle = {
                               ...pinSensorName,
-                              color: isAlertItem ? "#7c2d12" : "#111827",
-                              fontWeight: isAlertItem ? 700 : 500,
+                              color: isAlertItem ? "#991b1b" : "#166534",
+                              fontWeight: 700,
                             };
 
                             const valueStyle = {
                               ...pinSensorValue,
-                              color: isAlertItem ? "#dc2626" : "#6b7280",
-                              fontWeight: isAlertItem ? 700 : 400,
+                              color: isAlertItem ? "#dc2626" : "#15803d",
+                              fontWeight: 700,
                             };
 
                             return (
@@ -2406,7 +2469,6 @@ export default function DashboardAllPlotsPage() {
                                 style={itemStyle}
                               >
                                 <div style={nameStyle}>{it.name}</div>
-
                                 <div style={valueStyle}>{it.value}</div>
 
                                 {!!it.abnormalReason && (
@@ -2428,7 +2490,7 @@ export default function DashboardAllPlotsPage() {
                                     style={{
                                       marginTop: 3,
                                       fontSize: 10,
-                                      color: isAlertItem ? "#7c2d12" : "#6b7280",
+                                      color: isAlertItem ? "#7f1d1d" : "#166534",
                                       lineHeight: 1.35,
                                     }}
                                   >

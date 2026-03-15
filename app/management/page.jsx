@@ -2,7 +2,6 @@
 
 import { useDuwimsT } from "@/app/TopBar";
 import "leaflet/dist/leaflet.css";
-
 import React, { useEffect, useMemo, useState } from "react";
 
 const pageStyle = {
@@ -290,54 +289,47 @@ const styles = {
   sensorList: {
     display: "flex",
     flexDirection: "column",
-    gap: 8,
+    gap: 10,
   },
 
   sensorItem: {
-    borderRadius: 14,
+    borderRadius: 16,
     background: "#f8fafc",
     border: "1px solid #e5e7eb",
-    padding: "10px 12px",
+    padding: "12px 12px",
   },
 
-  sensorMainRow: {
+  sensorNameWrap: {
     display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    flexWrap: "wrap",
-    marginBottom: 6,
+    flexDirection: "column",
+    gap: 2,
   },
 
   sensorName: {
-    fontSize: 12,
-    fontWeight: 700,
+    fontSize: 13,
+    fontWeight: 800,
     color: "#0f172a",
+    lineHeight: 1.15,
   },
 
-  sensorTypeBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "4px 8px",
-    borderRadius: 999,
-    background: "#e0f2fe",
-    color: "#075985",
-    fontSize: 10,
-    fontWeight: 700,
+  sensorSubName: {
+    fontSize: 11,
+    color: "#64748b",
+    lineHeight: 1.15,
   },
 
   sensorMetaGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: 8,
+    marginTop: 8,
   },
 
   sensorMetaBox: {
     borderRadius: 10,
     background: "#ffffff",
     border: "1px solid #e5e7eb",
-    padding: "7px 8px",
+    padding: "8px 9px",
   },
 
   sensorMetaLabel: {
@@ -349,8 +341,22 @@ const styles = {
   sensorMetaValue: {
     fontSize: 11,
     color: "#111827",
-    fontWeight: 500,
+    fontWeight: 600,
     wordBreak: "break-word",
+  },
+
+  npkWrap: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    marginTop: 8,
+  },
+
+  npkRow: {
+    borderRadius: 12,
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
+    padding: "10px 10px",
   },
 
   chipBtn: {
@@ -466,22 +472,286 @@ function normalizeCoords(coords) {
     .filter(Boolean);
 }
 
+function sensorValueDisplay(sensor) {
+  const candidates = [
+    sensor?.displayValue,
+    sensor?.latestDisplay,
+    sensor?.valueText,
+    sensor?.latestValue,
+    sensor?.currentValue,
+    sensor?.value,
+    sensor?.reading,
+  ];
+
+  for (const c of candidates) {
+    if (c !== undefined && c !== null && String(c).trim() !== "") return String(c);
+  }
+  return "-";
+}
+
+function sensorTimeDisplay(sensor, lang = "th") {
+  return fmtTs(
+    sensor?.lastUpdatedAt ||
+      sensor?.updatedAt ||
+      sensor?.measuredAt ||
+      sensor?.timestamp ||
+      sensor?.createdAt,
+    lang
+  );
+}
+
+function normalizeSensorStatus(sensor) {
+  return (
+    sensor?.status ||
+    sensor?.sensorStatus ||
+    sensor?.health ||
+    sensor?.state ||
+    "OK"
+  );
+}
+
+function getNodeLabel(nodeType, lang = "th") {
+  if (nodeType === "air") return lang === "en" ? "Air" : "อากาศ";
+  if (nodeType === "soil") return lang === "en" ? "Soil" : "ดิน";
+  return "-";
+}
+
+function sensorBaseId(sensor) {
+  return String(
+    sensor?._id ||
+      sensor?.sensorId ||
+      sensor?.id ||
+      sensor?.name ||
+      sensor?.sensorName ||
+      sensor?.sensorType ||
+      "sensor"
+  );
+}
+
+function extractTempValue(sensor) {
+  const candidates = [
+    sensor?.temperature,
+    sensor?.temp,
+    sensor?.tempValue,
+    sensor?.temperatureValue,
+    sensor?.latestTemperature,
+    sensor?.value?.temperature,
+    sensor?.reading?.temperature,
+  ];
+  for (const c of candidates) {
+    if (c !== undefined && c !== null && String(c).trim() !== "") return c;
+  }
+  return "-";
+}
+
+function extractHumidityValue(sensor) {
+  const candidates = [
+    sensor?.humidity,
+    sensor?.rh,
+    sensor?.humidityValue,
+    sensor?.relativeHumidity,
+    sensor?.latestHumidity,
+    sensor?.value?.humidity,
+    sensor?.reading?.humidity,
+  ];
+  for (const c of candidates) {
+    if (c !== undefined && c !== null && String(c).trim() !== "") return c;
+  }
+  return "-";
+}
+
+function extractNValue(sensor) {
+  const candidates = [
+    sensor?.n,
+    sensor?.N,
+    sensor?.nitrogen,
+    sensor?.nValue,
+    sensor?.value?.n,
+    sensor?.value?.N,
+    sensor?.value?.nitrogen,
+    sensor?.reading?.n,
+    sensor?.reading?.N,
+    sensor?.reading?.nitrogen,
+    sensor?.latestN,
+  ];
+  for (const c of candidates) {
+    if (c !== undefined && c !== null && String(c).trim() !== "") return c;
+  }
+  return "-";
+}
+
+function extractPValue(sensor) {
+  const candidates = [
+    sensor?.p,
+    sensor?.P,
+    sensor?.phosphorus,
+    sensor?.pValue,
+    sensor?.value?.p,
+    sensor?.value?.P,
+    sensor?.value?.phosphorus,
+    sensor?.reading?.p,
+    sensor?.reading?.P,
+    sensor?.reading?.phosphorus,
+    sensor?.latestP,
+  ];
+  for (const c of candidates) {
+    if (c !== undefined && c !== null && String(c).trim() !== "") return c;
+  }
+  return "-";
+}
+
+function extractKValue(sensor) {
+  const candidates = [
+    sensor?.k,
+    sensor?.K,
+    sensor?.potassium,
+    sensor?.kValue,
+    sensor?.value?.k,
+    sensor?.value?.K,
+    sensor?.value?.potassium,
+    sensor?.reading?.k,
+    sensor?.reading?.K,
+    sensor?.reading?.potassium,
+    sensor?.latestK,
+  ];
+  for (const c of candidates) {
+    if (c !== undefined && c !== null && String(c).trim() !== "") return c;
+  }
+  return "-";
+}
+
+function expandSensorForDisplay(sensor) {
+  const sensorType = String(sensor?.sensorType || "").toLowerCase();
+  const baseId = sensorBaseId(sensor);
+
+  if (sensorType === "temp_rh" || sensorType === "temperature_humidity") {
+    const base = {
+      ...sensor,
+      originalSensorType: sensorType,
+      baseId,
+    };
+
+    return [
+      {
+        ...base,
+        sensorType: "temp",
+        displayName: "Temp",
+        displaySubName: "temperature",
+        displayValue: String(extractTempValue(sensor)),
+      },
+      {
+        ...base,
+        sensorType: "humidity",
+        displayName: "Humidity",
+        displaySubName: "humidity",
+        displayValue: String(extractHumidityValue(sensor)),
+      },
+    ];
+  }
+
+  if (sensorType === "npk") {
+    const groupId = `npk-${baseId}`;
+    const base = {
+      ...sensor,
+      originalSensorType: sensorType,
+      baseId,
+      groupType: "npk",
+      groupId,
+    };
+
+    return [
+      {
+        ...base,
+        sensorType: "npk_n",
+        displayName: "N",
+        displaySubName: "nitrogen",
+        displayValue: String(extractNValue(sensor)),
+      },
+      {
+        ...base,
+        sensorType: "npk_p",
+        displayName: "P",
+        displaySubName: "phosphorus",
+        displayValue: String(extractPValue(sensor)),
+      },
+      {
+        ...base,
+        sensorType: "npk_k",
+        displayName: "K",
+        displaySubName: "potassium",
+        displayValue: String(extractKValue(sensor)),
+      },
+    ];
+  }
+
+  return [
+    {
+      ...sensor,
+      baseId,
+      displayName: sensor?.name || sensor?.sensorName || String(sensor?.sensorType || "-"),
+      displaySubName: String(sensor?.sensorType || "-"),
+      displayValue: sensorValueDisplay(sensor),
+    },
+  ];
+}
+
 function collectSensorsFromPin(pin) {
-  const soilSensors = Array.isArray(pin?.node_soil?.sensors)
+  const soilSensorsRaw = Array.isArray(pin?.node_soil?.sensors)
     ? pin.node_soil.sensors.map((s) => ({
         ...s,
         nodeType: "soil",
       }))
     : [];
 
-  const airSensors = Array.isArray(pin?.node_air?.sensors)
+  const airSensorsRaw = Array.isArray(pin?.node_air?.sensors)
     ? pin.node_air.sensors.map((s) => ({
         ...s,
         nodeType: "air",
       }))
     : [];
 
-  return [...soilSensors, ...airSensors];
+  return [...soilSensorsRaw, ...airSensorsRaw].flatMap((sensor) =>
+    expandSensorForDisplay(sensor)
+  );
+}
+
+function buildSensorCardsForRender(sensors) {
+  const cards = [];
+  const npkIndexMap = new Map();
+
+  for (const sensor of sensors) {
+    if (sensor?.groupType === "npk" && sensor?.groupId) {
+      if (!npkIndexMap.has(sensor.groupId)) {
+        npkIndexMap.set(sensor.groupId, cards.length);
+        cards.push({
+          kind: "npk",
+          groupId: sensor.groupId,
+          sensors: [],
+        });
+      }
+
+      const idx = npkIndexMap.get(sensor.groupId);
+      cards[idx].sensors.push(sensor);
+    } else {
+      cards.push({
+        kind: "single",
+        sensor,
+      });
+    }
+  }
+
+  for (const card of cards) {
+    if (card.kind === "npk") {
+      const order = { npk_n: 1, npk_p: 2, npk_k: 3 };
+      card.sensors.sort(
+        (a, b) =>
+          (order[String(a.sensorType).toLowerCase()] || 99) -
+          (order[String(b.sensorType).toLowerCase()] || 99)
+      );
+    }
+  }
+
+  return cards;
 }
 
 function useLeafletBundle() {
@@ -585,11 +855,13 @@ export default function ManagementPage() {
 
   const sensorOptions = useMemo(() => {
     const AIR = [
-      { value: "temp_rh", label: t("airTempHumidity", "อุณหภูมิและความชื้น") },
+      { value: "temp", label: lang === "en" ? "Temperature" : "อุณหภูมิ" },
+      { value: "humidity", label: lang === "en" ? "Humidity" : "ความชื้น" },
       { value: "wind", label: t("windMeasure", "วัดความเร็วลม") },
       { value: "ppfd", label: t("lightIntensity", "ความเข้มแสง") },
       { value: "rain", label: t("rainAmount", "ปริมาณน้ำฝน") },
     ];
+
     const SOIL = [
       { value: "soil_moisture", label: t("soilMoisture", "ความชื้นในดิน") },
       { value: "npk", label: t("npkConcentration", "ความเข้มข้นธาตุอาหาร (N,P,K)") },
@@ -603,7 +875,7 @@ export default function ManagementPage() {
       return [{ value: "all", label: t("allSensors", "ทุกเซนเซอร์") }, ...AIR];
     }
     return [{ value: "all", label: t("allSensors", "ทุกเซนเซอร์") }, ...SOIL];
-  }, [nodeCategory, t]);
+  }, [nodeCategory, t, lang]);
 
   useEffect(() => {
     const ok = sensorOptions.some((x) => x.value === selectedSensorType);
@@ -836,9 +1108,15 @@ export default function ManagementPage() {
         }
 
         if (selectedSensorType !== "all") {
-          sensors = sensors.filter(
-            (s) => String(s.sensorType) === String(selectedSensorType)
-          );
+          if (selectedSensorType === "npk") {
+            sensors = sensors.filter((s) =>
+              ["npk_n", "npk_p", "npk_k"].includes(String(s.sensorType).toLowerCase())
+            );
+          } else {
+            sensors = sensors.filter(
+              (s) => String(s.sensorType).toLowerCase() === String(selectedSensorType).toLowerCase()
+            );
+          }
         }
 
         return {
@@ -995,7 +1273,7 @@ export default function ManagementPage() {
 
             <div style={styles.dropdownCard}>
               <label style={styles.fieldLabel}>
-                {lang === "en" ? "Select Node" : "เลือก Node"}
+                {lang === "en" ? "Node Type" : "ประเภท Node"}
               </label>
               <select
                 value={nodeCategory}
@@ -1003,8 +1281,8 @@ export default function ManagementPage() {
                 style={styles.fieldSelect}
               >
                 <option value="all">{lang === "en" ? "All Nodes" : "ทุก Node"}</option>
-                <option value="air">{lang === "en" ? "Air Node" : "Node อากาศ"}</option>
-                <option value="soil">{lang === "en" ? "Soil Node" : "Node ดิน"}</option>
+                <option value="air">{lang === "en" ? "Air" : "อากาศ"}</option>
+                <option value="soil">{lang === "en" ? "Soil" : "ดิน"}</option>
               </select>
             </div>
 
@@ -1133,121 +1411,190 @@ export default function ManagementPage() {
               </div>
               <div style={styles.infoBox}>{selectedPlotMeta.farmer}</div>
             </div>
-            <div>
-              <div style={styles.infoLabel}>{t("plantType", "ประเภทพืช")}</div>
-              <div style={styles.infoBox}>{selectedPlotMeta.plant}</div>
-            </div>
-            <div>
-              <div style={styles.infoLabel}>{t("plantedAt", "วันที่เริ่มปลูก")}</div>
-              <div style={styles.infoBox}>{selectedPlotMeta.plantedAt}</div>
-            </div>
+
             <div>
               <div style={styles.infoLabel}>
-                {lang === "en" ? "PIN / Sensor Count" : "จำนวน PIN / เซนเซอร์"}
+                {lang === "en" ? "Plant Type" : "ชนิดพืช"}
+              </div>
+              <div style={styles.infoBox}>{selectedPlotMeta.plant}</div>
+            </div>
+
+            <div>
+              <div style={styles.infoLabel}>
+                {lang === "en" ? "Planted At" : "วันที่ปลูก"}
+              </div>
+              <div style={styles.infoBox}>{selectedPlotMeta.plantedAt}</div>
+            </div>
+
+            <div>
+              <div style={styles.infoLabel}>
+                {lang === "en" ? "Resources" : "ทรัพยากร"}
               </div>
               <div style={styles.infoBox}>{selectedPlotMeta.sensorCount}</div>
             </div>
           </div>
 
           <div style={styles.pinSectionTitle}>
-            {lang === "en" ? "PIN Details" : "รายละเอียด PIN"}
+            {lang === "en" ? "PIN & Sensor List" : "รายการ PIN และ Sensor"}
           </div>
 
-          {pinCards.length === 0 ? (
+          {!pinCards.length ? (
             <div style={styles.emptyBox}>
-              {t("noSensorData", "ยังไม่มีข้อมูลเซนเซอร์")}
+              {lang === "en"
+                ? "No PIN or sensor data found for the selected filters."
+                : "ไม่พบข้อมูล PIN หรือเซนเซอร์ตามตัวกรองที่เลือก"}
             </div>
           ) : (
             <div style={styles.pinCardList}>
               {pinCards.map((pin) => {
-                const shownNumber = pin.displayNumber;
+                const sensorCards = buildSensorCardsForRender(pin.sensors);
 
                 return (
                   <div key={`${pin.plotId}-${pin._id}`} style={styles.pinCard}>
                     <div style={styles.pinCardTop}>
-                      <div style={styles.pinBadge}>PIN #{shownNumber}</div>
-                      <div style={styles.pinNodeBadge}>
-                        {pin.nodeName || (lang === "en" ? "No Node" : "ยังไม่มี Node")}
-                      </div>
+                      <div style={styles.pinBadge}>PIN #{pin.displayNumber}</div>
+                      <div style={styles.pinNodeBadge}>{pin.nodeName || "Node -"}</div>
                     </div>
 
                     <div style={styles.pinPlotRow}>
-                      <span style={styles.pinPlotLabelInline}>
-                        {lang === "en" ? "Plot:" : "แปลง:"}
-                      </span>
-                      <span style={styles.pinPlotHeroInline}>
-                        {pin.plotLabel || "-"}
-                      </span>
+                      <div style={styles.pinPlotLabelInline}>
+                        {lang === "en" ? "Plot" : "แปลง"}
+                      </div>
+                      <div style={styles.pinPlotHeroInline}>{pin.plotLabel || "-"}</div>
                     </div>
 
                     <div style={styles.pinInfoGrid}>
                       <div style={styles.pinInfoItem}>
-                        <div style={styles.pinInfoItemLabel}>
-                          {lang === "en" ? "Latitude" : "ละติจูด"}
-                        </div>
+                        <div style={styles.pinInfoItemLabel}>Latitude</div>
                         <div style={styles.pinInfoItemValue}>
-                          {Number.isFinite(Number(pin.lat))
-                            ? Number(pin.lat).toFixed(6)
-                            : "-"}
+                          {Number.isFinite(pin.lat) ? Number(pin.lat).toFixed(6) : "-"}
                         </div>
                       </div>
 
                       <div style={styles.pinInfoItem}>
-                        <div style={styles.pinInfoItemLabel}>
-                          {lang === "en" ? "Longitude" : "ลองจิจูด"}
-                        </div>
+                        <div style={styles.pinInfoItemLabel}>Longitude</div>
                         <div style={styles.pinInfoItemValue}>
-                          {Number.isFinite(Number(pin.lng))
-                            ? Number(pin.lng).toFixed(6)
-                            : "-"}
+                          {Number.isFinite(pin.lng) ? Number(pin.lng).toFixed(6) : "-"}
                         </div>
                       </div>
 
                       <div style={styles.pinInfoItemFull}>
-                        <div style={styles.pinInfoItemLabel}>
-                          {lang === "en" ? "Node ID" : "รหัส Node"}
-                        </div>
+                        <div style={styles.pinInfoItemLabel}>Node ID</div>
                         <div style={styles.pinInfoItemValue}>{pin.nodeId || "-"}</div>
                       </div>
                     </div>
 
                     <div style={styles.sensorGroupTitle}>
-                      {lang === "en" ? "Sensors in this PIN" : "เซนเซอร์ใน PIN นี้"} ({pin.sensors.length})
+                      {lang === "en" ? "Sensors" : "เซนเซอร์"}
                     </div>
 
-                    {pin.sensors.length === 0 ? (
+                    {!sensorCards.length ? (
                       <div style={styles.emptyBox}>
                         {lang === "en"
-                          ? "No sensors match the selected filter"
-                          : "ไม่มีเซนเซอร์ที่ตรงกับตัวกรอง"}
+                          ? "No sensors for this PIN."
+                          : "ไม่มีเซนเซอร์ใน PIN นี้"}
                       </div>
                     ) : (
                       <div style={styles.sensorList}>
-                        {pin.sensors.map((s) => {
-                          const lr = s?.lastReading || null;
-                          const hasVal =
-                            lr &&
-                            lr.value !== undefined &&
-                            lr.value !== null &&
-                            !Number.isNaN(Number(lr.value));
+                        {sensorCards.map((card, idx) => {
+                          if (card.kind === "npk") {
+                            return (
+                              <div
+                                key={`npk-${card.groupId}-${idx}`}
+                                style={styles.sensorItem}
+                              >
+                                <div style={styles.sensorNameWrap}>
+                                  <div style={styles.sensorName}>NPK</div>
+                                  <div style={styles.sensorSubName}>npk</div>
+                                </div>
 
-                          const valText = hasVal
-                            ? `${Number(lr.value)}${s?.unit ? ` ${s.unit}` : ""}`
-                            : "-";
+                                <div style={styles.npkWrap}>
+                                  {card.sensors.map((sensor, j) => {
+                                    const status = normalizeSensorStatus(sensor);
+                                    const latestValue =
+                                      sensor?.displayValue !== undefined &&
+                                      sensor?.displayValue !== null &&
+                                      String(sensor.displayValue).trim() !== ""
+                                        ? String(sensor.displayValue)
+                                        : "-";
 
-                          const timeText = lr?.ts ? fmtTs(lr.ts, lang) : "-";
+                                    const nodeLabel = getNodeLabel(sensor?.nodeType, lang);
+                                    const ts = sensorTimeDisplay(sensor, lang);
+
+                                    return (
+                                      <div
+                                        key={`${card.groupId}-${sensor.sensorType}-${j}`}
+                                        style={styles.npkRow}
+                                      >
+                                        <div style={styles.sensorNameWrap}>
+                                          <div style={styles.sensorName}>
+                                            {sensor?.displayName || "-"}
+                                          </div>
+                                          <div style={styles.sensorSubName}>
+                                            {sensor?.displaySubName || "-"}
+                                          </div>
+                                        </div>
+
+                                        <div style={styles.sensorMetaGrid}>
+                                          <div style={styles.sensorMetaBox}>
+                                            <div style={styles.sensorMetaLabel}>
+                                              {lang === "en" ? "Node Type" : "ประเภท Node"}
+                                            </div>
+                                            <div style={styles.sensorMetaValue}>{nodeLabel}</div>
+                                          </div>
+
+                                          <div style={styles.sensorMetaBox}>
+                                            <div style={styles.sensorMetaLabel}>
+                                              {lang === "en" ? "Status" : "สถานะ"}
+                                            </div>
+                                            <div style={styles.sensorMetaValue}>{status}</div>
+                                          </div>
+
+                                          <div style={styles.sensorMetaBox}>
+                                            <div style={styles.sensorMetaLabel}>
+                                              {lang === "en" ? "Latest Value" : "ค่าล่าสุด"}
+                                            </div>
+                                            <div style={styles.sensorMetaValue}>{latestValue}</div>
+                                          </div>
+
+                                          <div style={styles.sensorMetaBox}>
+                                            <div style={styles.sensorMetaLabel}>
+                                              {lang === "en" ? "Time" : "เวลา"}
+                                            </div>
+                                            <div style={styles.sensorMetaValue}>{ts}</div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          const sensor = card.sensor;
+                          const status = normalizeSensorStatus(sensor);
+                          const latestValue =
+                            sensor?.displayValue !== undefined &&
+                            sensor?.displayValue !== null &&
+                            String(sensor.displayValue).trim() !== ""
+                              ? String(sensor.displayValue)
+                              : "-";
+
+                          const nodeLabel = getNodeLabel(sensor?.nodeType, lang);
+                          const ts = sensorTimeDisplay(sensor, lang);
 
                           return (
                             <div
-                              key={`${pin._id}-${s.nodeType}-${String(s._id || s.id || s.sensorType)}`}
+                              key={`${pin._id}-${sensor._id || sensor.sensorId || sensor.sensorType}-${idx}`}
                               style={styles.sensorItem}
                             >
-                              <div style={styles.sensorMainRow}>
+                              <div style={styles.sensorNameWrap}>
                                 <div style={styles.sensorName}>
-                                  {s?.name || s?.sensorType || "Sensor"}
+                                  {sensor?.displayName || "-"}
                                 </div>
-                                <div style={styles.sensorTypeBadge}>
-                                  {s?.sensorType || "-"}
+                                <div style={styles.sensorSubName}>
+                                  {sensor?.displaySubName || "-"}
                                 </div>
                               </div>
 
@@ -1256,38 +1603,28 @@ export default function ManagementPage() {
                                   <div style={styles.sensorMetaLabel}>
                                     {lang === "en" ? "Node Type" : "ประเภท Node"}
                                   </div>
-                                  <div style={styles.sensorMetaValue}>
-                                    {s?.nodeType === "air"
-                                      ? lang === "en"
-                                        ? "Air"
-                                        : "อากาศ"
-                                      : lang === "en"
-                                      ? "Soil"
-                                      : "ดิน"}
-                                  </div>
+                                  <div style={styles.sensorMetaValue}>{nodeLabel}</div>
                                 </div>
 
                                 <div style={styles.sensorMetaBox}>
                                   <div style={styles.sensorMetaLabel}>
                                     {lang === "en" ? "Status" : "สถานะ"}
                                   </div>
-                                  <div style={styles.sensorMetaValue}>
-                                    {s?.status || "-"}
-                                  </div>
+                                  <div style={styles.sensorMetaValue}>{status}</div>
                                 </div>
 
                                 <div style={styles.sensorMetaBox}>
                                   <div style={styles.sensorMetaLabel}>
                                     {lang === "en" ? "Latest Value" : "ค่าล่าสุด"}
                                   </div>
-                                  <div style={styles.sensorMetaValue}>{valText}</div>
+                                  <div style={styles.sensorMetaValue}>{latestValue}</div>
                                 </div>
 
                                 <div style={styles.sensorMetaBox}>
                                   <div style={styles.sensorMetaLabel}>
                                     {lang === "en" ? "Time" : "เวลา"}
                                   </div>
-                                  <div style={styles.sensorMetaValue}>{timeText}</div>
+                                  <div style={styles.sensorMetaValue}>{ts}</div>
                                 </div>
                               </div>
                             </div>
