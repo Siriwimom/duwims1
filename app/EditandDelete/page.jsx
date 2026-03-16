@@ -79,9 +79,41 @@ function hasSensorInNode(pin, nodeCategory, sensorType) {
   const soilSensors = Array.isArray(pin?.node_soil?.sensors) ? pin.node_soil.sensors : [];
   const airSensors = Array.isArray(pin?.node_air?.sensors) ? pin.node_air.sensors : [];
 
+  const normalize = (v) => String(v || "").trim().toLowerCase();
+
   const hasByType = (arr) => {
     if (sensorType === "all") return arr.length > 0;
-    return arr.some((s) => String(s?.sensorType || "") === String(sensorType));
+
+    return arr.some((s) => {
+      const type = normalize(s?.sensorType);
+      const name = normalize(s?.sensorName);
+
+      if (sensorType === "temp") {
+        return (
+          type === "temp" ||
+          type === "temperature" ||
+          type === "temp_rh" ||
+          name.includes("temp") ||
+          name.includes("temperature") ||
+          name.includes("อุณหภูมิ")
+        );
+      }
+
+      if (sensorType === "humidity") {
+        return (
+          type === "humidity" ||
+          type === "humid" ||
+          type === "rh" ||
+          type === "temp_rh" ||
+          name.includes("humidity") ||
+          name.includes("humid") ||
+          name.includes("rh") ||
+          name.includes("ความชื้นสัมพัทธ์")
+        );
+      }
+
+      return type === normalize(sensorType);
+    });
   };
 
   if (nodeCategory === "soil") return hasByType(soilSensors);
@@ -183,7 +215,12 @@ const LeafletClient = dynamic(
         <>
           <div style={styles.mapCard}>
             <div style={styles.mapTitle}>{t("polygonsOfPlot", "Plot Polygons")}</div>
-            <MapContainer center={center} zoom={11} scrollWheelZoom style={{ height: 230, width: "100%" }}>
+            <MapContainer
+              center={center}
+              zoom={11}
+              scrollWheelZoom
+              style={{ height: 230, width: "100%" }}
+            >
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -205,7 +242,12 @@ const LeafletClient = dynamic(
 
           <div style={styles.mapCard}>
             <div style={styles.mapTitle}>{t("sensorPinsMap", "Sensor Pins")}</div>
-            <MapContainer center={center} zoom={11} scrollWheelZoom style={{ height: 230, width: "100%" }}>
+            <MapContainer
+              center={center}
+              zoom={11}
+              scrollWheelZoom
+              style={{ height: 230, width: "100%" }}
+            >
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -428,8 +470,9 @@ const styles = {
 };
 
 const SENSOR_ALL = [
-  { value: "all", labelKey: "allSensorTypes", fallback: "ทุกประเภทเซนเซอร์" },
-  { value: "temp_rh", labelKey: "airTempHumidity", fallback: "อุณหภูมิและความชื้น" },
+  { value: "all", labelKey: "allSensorTypes", fallback: "ทุกชนิดเซนเซอร์" },
+  { value: "temp", labelKey: "temperature", fallback: "อุณหภูมิ" },
+  { value: "humidity", labelKey: "humidity", fallback: "ความชื้นสัมพัทธ์" },
   { value: "wind", labelKey: "windMeasure", fallback: "วัดความเร็วลม" },
   { value: "ppfd", labelKey: "lightIntensity", fallback: "ความเข้มแสง" },
   { value: "rain", labelKey: "rainAmount", fallback: "ปริมาณน้ำฝน" },
@@ -440,8 +483,12 @@ const SENSOR_ALL = [
 
 const SENSOR_BY_NODE = {
   all: SENSOR_ALL,
-  air: SENSOR_ALL.filter((s) => ["all", "temp_rh", "wind", "ppfd", "rain"].includes(s.value)),
-  soil: SENSOR_ALL.filter((s) => ["all", "npk", "irrigation", "soil_moisture"].includes(s.value)),
+  air: SENSOR_ALL.filter((s) =>
+    ["all", "temp", "humidity", "wind", "ppfd", "rain"].includes(s.value)
+  ),
+  soil: SENSOR_ALL.filter((s) =>
+    ["all", "npk", "irrigation", "soil_moisture"].includes(s.value)
+  ),
 };
 
 export default function EditAndDeletePage() {
@@ -683,7 +730,7 @@ export default function EditAndDeletePage() {
     } finally {
       setLoading(false);
     }
-  }, [plots, selectedPlot, nodeCategory, selectedSensorType, router]);
+  }, [plots, selectedPlot, nodeCategory, selectedSensorType, router, t]);
 
   useEffect(() => {
     if (!hydrated) return;
