@@ -343,7 +343,7 @@ function ensureUniquePinNumbers(items = []) {
   });
 }
 
-function sensorTypeLabel(sensorType, t) {
+function sensorTypeLabel(sensorType) {
   const key = String(sensorType || "");
 
   if (key === "temp") return "อุณหภูมิ";
@@ -412,26 +412,16 @@ function getTempRhParts(sensor) {
     sensor?.relativeHumidity ??
     null;
 
-  const tempUnit =
-    sensor?.tempUnit ||
-    sensor?.temperatureUnit ||
-    (String(sensor?.unit || "").includes("°") ? sensor.unit : "°C");
-
-  const rhUnit =
-    sensor?.rhUnit ||
-    sensor?.humidityUnit ||
-    (String(sensor?.unit || "").includes("%") ? sensor.unit : "%");
-
-  const formatPart = (v, unit) => {
+  const formatPart = (v, fallbackUnit) => {
     const n = Number(v);
-    if (Number.isFinite(n)) return `${n}${unit ? ` ${unit}` : ""}`;
-    if (v !== undefined && v !== null && v !== "") return String(v);
+    if (Number.isFinite(n)) return `${n} ${fallbackUnit}`;
+    if (v !== undefined && v !== null && v !== "") return `${v} ${fallbackUnit}`;
     return "-";
   };
 
   return {
-    tempValue: formatPart(temp, tempUnit),
-    rhValue: formatPart(rh, rhUnit),
+    tempValue: formatPart(temp, "°C"),
+    rhValue: formatPart(rh, "%"),
   };
 }
 
@@ -481,7 +471,7 @@ function getNpkValues(sensor) {
   return { n, p, k };
 }
 
-function toFlatSensorItems(nodeDoc, t, selectedNode, selectedSensorType) {
+function toFlatSensorItems(nodeDoc, selectedNode, selectedSensorType, lang) {
   const soilSensors = Array.isArray(nodeDoc?.node_soil?.sensors)
     ? nodeDoc.node_soil.sensors
     : [];
@@ -507,11 +497,12 @@ function toFlatSensorItems(nodeDoc, t, selectedNode, selectedSensorType) {
             nodeType,
             sensorType: "temp",
             sourceSensorType: normalizedType,
-            name: "Temp",
+            name: lang === "en" ? "Temperature" : "Temp",
+            subLabel: sensorTypeLabel("temp"),
             value: parts.tempValue,
             status: s?.status || "OK",
             lastReadingAt: s?.lastReadingAt || s?.lastReading?.ts || "-",
-            unit: s?.tempUnit || s?.temperatureUnit || "°C",
+            unit: "°C",
             rawSensor: s,
           },
           {
@@ -519,11 +510,12 @@ function toFlatSensorItems(nodeDoc, t, selectedNode, selectedSensorType) {
             nodeType,
             sensorType: "rh",
             sourceSensorType: normalizedType,
-            name: "Humidity",
+            name: lang === "en" ? "Humidity" : "Humidity",
+            subLabel: sensorTypeLabel("rh"),
             value: parts.rhValue,
             status: s?.status || "OK",
             lastReadingAt: s?.lastReadingAt || s?.lastReading?.ts || "-",
-            unit: s?.rhUnit || s?.humidityUnit || "%",
+            unit: "%",
             rawSensor: s,
           },
         ];
@@ -537,7 +529,8 @@ function toFlatSensorItems(nodeDoc, t, selectedNode, selectedSensorType) {
           sourceSensorType: normalizedType,
           name:
             String(s?.name || "").trim() ||
-            `${sensorTypeLabel(s?.sensorType, t)} #${idx + 1}`,
+            `${sensorTypeLabel(s?.sensorType)} #${idx + 1}`,
+          subLabel: sensorTypeLabel(s?.sensorType),
           value: formatSensorDisplayValue(s),
           status: s?.status || "OK",
           lastReadingAt: s?.lastReadingAt || s?.lastReading?.ts || "-",
@@ -727,8 +720,8 @@ export default function AddSensorPage() {
   }, [pins, selectedPlot]);
 
   const sensorDisplayItems = useMemo(
-    () => toFlatSensorItems(activePinNode, t, selectedNode, selectedSensorType),
-    [activePinNode, selectedNode, selectedSensorType, t]
+    () => toFlatSensorItems(activePinNode, selectedNode, selectedSensorType, lang),
+    [activePinNode, selectedNode, selectedSensorType, lang]
   );
 
   useEffect(() => {
@@ -2043,9 +2036,7 @@ export default function AddSensorPage() {
                           <div style={styles.itemTitle}>{it.name}</div>
 
                           <div style={styles.itemSub}>
-                            {it.sourceSensorType === "temp_rh"
-                              ? "อุณหภูมิ / ความชื้นสัมพัทธ์"
-                              : sensorTypeLabel(it.sensorType, t)}
+                            {it.subLabel || sensorTypeLabel(it.sensorType)}
                           </div>
 
                           {npk ? (
