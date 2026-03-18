@@ -124,13 +124,26 @@ function normalizeTopicItem(item = {}, index = 0) {
 
 function normalizeCoordsToPairs(coords) {
   if (!Array.isArray(coords)) return [];
+
   return coords
-    .map((pair) => {
-      if (!Array.isArray(pair) || pair.length < 2) return null;
-      const lat = Number(pair[0]);
-      const lng = Number(pair[1]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-      return [lat, lng];
+    .map((point) => {
+      // รองรับ [{lat,lng}]
+      if (point && typeof point === "object" && !Array.isArray(point)) {
+        const lat = Number(point.lat);
+        const lng = Number(point.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return [lat, lng];
+      }
+
+      // รองรับ [[lat,lng]]
+      if (Array.isArray(point) && point.length >= 2) {
+        const lat = Number(point[0]);
+        const lng = Number(point[1]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return [lat, lng];
+      }
+
+      return null;
     })
     .filter(Boolean);
 }
@@ -160,7 +173,9 @@ function PolyLayer({ leaflet, poly, onReady }) {
       pathOptions={{
         color: poly?.color || "#2563eb",
         fillColor: poly?.color || "#2563eb",
-        fillOpacity: 0.25,
+        weight: 1.5,
+        opacity: 0.9,
+        fillOpacity: 0.1,
       }}
     />
   );
@@ -1085,7 +1100,19 @@ export default function AddPlantingPlotsPage() {
                           circlemarker: false,
                           marker: false,
                           polyline: false,
-                          polygon: !isReadOnly && plotPolygons.length === 0,
+                          polygon: !isReadOnly && plotPolygons.length === 0
+                            ? {
+                                allowIntersection: false,
+                                showArea: true,
+                                shapeOptions: {
+                                  color: "#2563eb",
+                                  fillColor: "#2563eb",
+                                  weight: 1.5,
+                                  opacity: 0.9,
+                                  fillOpacity: 0.1,
+                                },
+                              }
+                            : false,
                         }}
                         edit={{
                           edit: !isReadOnly && plotPolygons.length > 0,
