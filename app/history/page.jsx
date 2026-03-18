@@ -141,7 +141,7 @@ function rangeFromQuickLabel(label, t) {
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_BASE ||
-  "";
+  "http://localhost:3001";
 
 async function apiFetch(path, opts = {}) {
   const method = opts.method || "GET";
@@ -199,65 +199,62 @@ function normalizeText(v) {
   return String(v || "").toLowerCase().trim().replace(/\s+/g, " ");
 }
 
-function sensorMetaToKey(meta) {
-  const st = normalizeSensorType(meta?.sensorType);
-  const name = normalizeText(meta?.name);
-  const unit = normalizeText(meta?.unit);
+function parseDateMs(input) {
+  if (!input) return NaN;
 
-  if (st === "soil_moisture" || st === "soilmoisture" || st === "soil") {
-    return "soil";
+  if (typeof input === "string" || typeof input === "number") {
+    const d = new Date(input);
+    const ms = d.getTime();
+    if (!Number.isNaN(ms)) return ms;
   }
 
-  if (st === "temperature" || st === "temp" || st === "air_temp" || st === "air_temperature") {
-    return "temp";
-  }
-
-  if (st === "humidity" || st === "rh" || st === "relative_humidity" || st === "air_humidity") {
-    return "rh";
-  }
-
-  if (st === "temp_rh" || st === "temprh") {
-    if (name.includes("temp") || name.includes("temperature") || name.includes("อุณหภูมิ") || unit.includes("°c")) {
-      return "temp";
+  if (typeof input === "object") {
+    if (typeof input._seconds === "number") return input._seconds * 1000;
+    if (typeof input.seconds === "number") return input.seconds * 1000;
+    if (typeof input.toDate === "function") {
+      const d = input.toDate();
+      return d instanceof Date ? d.getTime() : NaN;
     }
-    if (name.includes("humidity") || name.includes("rh") || name.includes("ความชื้น") || unit.includes("%")) {
-      return "rh";
+    if (typeof input.toMillis === "function") {
+      const ms = input.toMillis();
+      return Number.isFinite(ms) ? ms : NaN;
     }
-    return null;
   }
 
-  if (st === "light" || st === "ppfd" || st === "light_intensity" || st === "lightintensity") {
-    return "light";
+  return NaN;
+}
+
+function parseReadingDay(reading) {
+  const candidates = [
+    reading?.ts,
+    reading?.timestamp,
+    reading?.createdAt,
+    reading?.updatedAt,
+  ];
+
+  for (const c of candidates) {
+    const ms = parseDateMs(c);
+    if (!Number.isNaN(ms)) {
+      return new Date(ms).toISOString().slice(0, 10);
+    }
   }
 
-  if (st === "rain" || st === "rainfall" || st === "rain_amount") {
-    return "rain";
-  }
+  return "";
+}
 
-  if (st === "wind" || st === "wind_speed" || st === "windspeed" || st === "wind_velocity") {
-    return "wind";
-  }
+function isReadingInRange(reading, startDate, endDate) {
+  const day = parseReadingDay(reading);
+  if (!day) return false;
+  return day >= startDate && day <= endDate;
+}
 
-  if (st === "irrigation" || st === "water" || st === "water_flow" || st === "watering") {
-    return "water";
-  }
-
-  if (st === "npk") {
-    return "npk";
-  }
-
-  if (name.includes("soil") && name.includes("moist")) return "soil";
-  if (name.includes("ดิน") && name.includes("ชื้น")) return "soil";
-
-  if (name.includes("temperature") || name.includes("temp") || name.includes("อุณหภูมิ")) return "temp";
-  if (name.includes("humidity") || name.includes("relative humidity") || name.includes("ความชื้น")) return "rh";
-  if (name.includes("light") || name.includes("ppfd") || name.includes("แสง")) return "light";
-  if (name.includes("rain") || name.includes("ฝน")) return "rain";
-  if (name.includes("wind") || name.includes("ลม")) return "wind";
-  if (name.includes("water") || name.includes("irrigation") || name.includes("น้ำ")) return "water";
-  if (name.includes("npk")) return "npk";
-
-  return null;
+function getPlotDisplayName(plot, idx, t) {
+  return (
+    plot?.alias ||
+    plot?.plotName ||
+    plot?.name ||
+    `${t("plot", "แปลง")} ${idx + 1}`
+  );
 }
 
 function getFallbackNumeric(meta) {
@@ -280,13 +277,198 @@ function getFallbackNumeric(meta) {
   return null;
 }
 
-function getPlotDisplayName(plot, idx, t) {
-  return (
-    plot?.alias ||
-    plot?.plotName ||
-    plot?.name ||
-    `${t("plot", "แปลง")} ${idx + 1}`
+function sensorMetaToKey(meta) {
+  const st = normalizeSensorType(meta?.sensorType);
+  const name = normalizeText(meta?.name);
+  const unit = normalizeText(meta?.unit);
+
+  if (st === "soil_moisture" || st === "soilmoisture" || st === "soil") {
+    return "soil";
+  }
+
+  if (
+    st === "temperature" ||
+    st === "temp" ||
+    st === "air_temp" ||
+    st === "air_temperature"
+  ) {
+    return "temp";
+  }
+
+  if (
+    st === "humidity" ||
+    st === "rh" ||
+    st === "relative_humidity" ||
+    st === "air_humidity"
+  ) {
+    return "rh";
+  }
+
+  if (st === "temp_rh" || st === "temprh") {
+    if (
+      name.includes("temp only") ||
+      name.includes("temperature only") ||
+      name.includes("อุณหภูมิอย่างเดียว")
+    ) {
+      return "temp";
+    }
+    if (
+      name.includes("humidity only") ||
+      name.includes("rh only") ||
+      name.includes("ความชื้นอย่างเดียว")
+    ) {
+      return "rh";
+    }
+
+    if (
+      (name.includes("อุณหภูมิ") && !name.includes("ความชื้น")) ||
+      unit === "°c"
+    ) {
+      return "temp";
+    }
+    if (
+      (!name.includes("อุณหภูมิ") && name.includes("ความชื้น")) ||
+      unit === "%"
+    ) {
+      return "rh";
+    }
+
+    return "temp_rh";
+  }
+
+  if (
+    st === "light" ||
+    st === "ppfd" ||
+    st === "light_intensity" ||
+    st === "lightintensity"
+  ) {
+    return "light";
+  }
+
+  if (st === "rain" || st === "rainfall" || st === "rain_amount") {
+    return "rain";
+  }
+
+  if (
+    st === "wind" ||
+    st === "wind_speed" ||
+    st === "windspeed" ||
+    st === "wind_velocity"
+  ) {
+    return "wind";
+  }
+
+  if (
+    st === "irrigation" ||
+    st === "water" ||
+    st === "water_flow" ||
+    st === "watering" ||
+    st === "water_level"
+  ) {
+    return "water";
+  }
+
+  if (st === "npk") {
+    return "npk";
+  }
+
+  if (name.includes("soil") && name.includes("moist")) return "soil";
+  if (name.includes("ดิน") && name.includes("ชื้น")) return "soil";
+
+  if (
+    (name.includes("temperature") || name.includes("temp") || name.includes("อุณหภูมิ")) &&
+    !name.includes("ความชื้น")
+  ) {
+    return "temp";
+  }
+
+  if (
+    (name.includes("humidity") ||
+      name.includes("relative humidity") ||
+      name.includes("ความชื้น")) &&
+    !name.includes("อุณหภูมิ")
+  ) {
+    return "rh";
+  }
+
+  if (name.includes("light") || name.includes("ppfd") || name.includes("แสง")) return "light";
+  if (name.includes("rain") || name.includes("ฝน")) return "rain";
+  if (name.includes("wind") || name.includes("ลม")) return "wind";
+  if (name.includes("water") || name.includes("irrigation") || name.includes("น้ำ")) return "water";
+  if (name.includes("npk")) return "npk";
+
+  return null;
+}
+
+function getSensorKeysForMeta(meta) {
+  const primary = sensorMetaToKey(meta);
+  if (!primary) return [];
+  if (primary === "temp_rh") return ["temp", "rh"];
+  return [primary];
+}
+
+function flattenSensorsFromPlot(plot) {
+  const pins = plot?.polygon?.pins || [];
+  const items = [];
+
+  for (const pin of pins) {
+    for (const node of pin?.node_air || []) {
+      for (const sensor of node?.sensors || []) {
+        items.push({
+          ...sensor,
+          id: sensor?.id || sensor?._id,
+          plotId: plot?.id,
+          pinId: pin?.id,
+          nodeId: node?.id,
+          nodeUid: node?.uid || "",
+          nodeType: "air",
+        });
+      }
+    }
+
+    for (const node of pin?.node_soil || []) {
+      for (const sensor of node?.sensors || []) {
+        items.push({
+          ...sensor,
+          id: sensor?.id || sensor?._id,
+          plotId: plot?.id,
+          pinId: pin?.id,
+          nodeId: node?.id,
+          nodeUid: node?.uid || "",
+          nodeType: "soil",
+        });
+      }
+    }
+  }
+
+  return items;
+}
+
+function buildSummaryFallbackFromPlot(plot) {
+  const pins = plot?.polygon?.pins || [];
+  const nodeAirCount = pins.reduce((sum, pin) => sum + (pin?.node_air || []).length, 0);
+  const nodeSoilCount = pins.reduce((sum, pin) => sum + (pin?.node_soil || []).length, 0);
+  const sensorCount = pins.reduce(
+    (sum, pin) =>
+      sum +
+      (pin?.node_air || []).reduce((a, n) => a + (n?.sensors || []).length, 0) +
+      (pin?.node_soil || []).reduce((a, n) => a + (n?.sensors || []).length, 0),
+    0
   );
+
+  return {
+    plotId: plot?.id || "",
+    plotName: plot?.plotName || plot?.name || "",
+    pinCount: pins.length,
+    nodeAirCount,
+    nodeSoilCount,
+    sensorCount,
+  };
+}
+
+function avgNumbers(nums) {
+  if (!nums.length) return null;
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
 export default function HistoryPage() {
@@ -426,17 +608,13 @@ export default function HistoryPage() {
   const [summaryByPlot, setSummaryByPlot] = useState({});
   const [readingsByPlot, setReadingsByPlot] = useState({});
   const [sensorsByPlot, setSensorsByPlot] = useState({});
+  const [fullPlotById, setFullPlotById] = useState({});
 
   const hasDateError =
     !!startDate &&
     !!endDate &&
     new Date(`${startDate}T00:00:00`).getTime() >
       new Date(`${endDate}T00:00:00`).getTime();
-
-  function toIsoFromDate(d, endOfDay = false) {
-    if (!d) return "";
-    return endOfDay ? `${d}T23:59:59.999Z` : `${d}T00:00:00.000Z`;
-  }
 
   useEffect(() => {
     let cancelled = false;
@@ -450,6 +628,7 @@ export default function HistoryPage() {
           setSummaryByPlot({});
           setReadingsByPlot({});
           setSensorsByPlot({});
+          setFullPlotById({});
           return;
         }
 
@@ -464,62 +643,59 @@ export default function HistoryPage() {
             setSummaryByPlot({});
             setReadingsByPlot({});
             setSensorsByPlot({});
+            setFullPlotById({});
           }
           return;
         }
 
-        const fromIso = toIsoFromDate(startDate, false);
-        const toIso = toIsoFromDate(endDate, true);
-
-        const [summaries, readingsList, sensorsList] = await Promise.all([
+        const [allReadingsRes, fullPlotsRes, summariesRes] = await Promise.all([
+          apiFetch("/api/readings"),
           Promise.all(
-            plots.map((pid) =>
-              apiFetch(`/api/plots/${encodeURIComponent(pid)}/summary`)
-            )
+            plots.map((pid) => apiFetch(`/api/plots/${encodeURIComponent(pid)}/full`))
           ),
           Promise.all(
-            plots.map((pid) =>
-              apiFetch(
-                `/api/readings?plotId=${encodeURIComponent(
-                  pid
-                )}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
-              )
-            )
-          ),
-          Promise.all(
-            plots.map((pid) =>
-              apiFetch(`/api/sensors?plotId=${encodeURIComponent(pid)}&sensorType=all`)
-            )
+            plots.map((pid) => apiFetch(`/api/plots/${encodeURIComponent(pid)}/summary`))
           ),
         ]);
 
         if (cancelled) return;
 
+        const allReadings = Array.isArray(allReadingsRes?.items)
+          ? allReadingsRes.items
+          : [];
+
         const nextSummary = {};
         const nextReadings = {};
         const nextSensors = {};
+        const nextFullPlots = {};
 
         plots.forEach((pid, i) => {
-          nextSummary[pid] = Array.isArray(summaries[i]?.items)
-            ? summaries[i].items
-            : [];
-          nextReadings[pid] = Array.isArray(readingsList[i]?.items)
-            ? readingsList[i].items
-            : [];
-          nextSensors[pid] = Array.isArray(sensorsList[i]?.items)
-            ? sensorsList[i].items
-            : [];
+          const fullPlot = fullPlotsRes[i]?.item || null;
+          const summaryItem = summariesRes[i]?.item || buildSummaryFallbackFromPlot(fullPlot || {});
+          const sensors = fullPlot ? flattenSensorsFromPlot(fullPlot) : [];
+
+          const filteredReadings = allReadings.filter((r) => {
+            const plotId = String(r?.plotId || "").trim();
+            return plotId === String(pid) && isReadingInRange(r, startDate, endDate);
+          });
+
+          nextSummary[pid] = summaryItem;
+          nextReadings[pid] = filteredReadings;
+          nextSensors[pid] = sensors;
+          nextFullPlots[pid] = fullPlot;
         });
 
         setSummaryByPlot(nextSummary);
         setReadingsByPlot(nextReadings);
         setSensorsByPlot(nextSensors);
+        setFullPlotById(nextFullPlots);
       } catch (e) {
         if (!cancelled) {
           setHistoryError(String(e?.message || e));
           setSummaryByPlot({});
           setReadingsByPlot({});
           setSensorsByPlot({});
+          setFullPlotById({});
         }
       } finally {
         if (!cancelled) setHistoryLoading(false);
@@ -699,83 +875,59 @@ export default function HistoryPage() {
     const out = {};
 
     for (const pid of plots) {
-      const summaryItems = Array.isArray(summaryByPlot?.[pid]) ? summaryByPlot[pid] : [];
       const readings = Array.isArray(readingsByPlot?.[pid]) ? readingsByPlot[pid] : [];
       const sensorMetaItems = Array.isArray(sensorsByPlot?.[pid]) ? sensorsByPlot[pid] : [];
 
       const metaBySensorId = new Map();
-
       for (const s of sensorMetaItems) {
-        metaBySensorId.set(String(s._id || s.id), s);
-      }
-
-      for (const s of summaryItems) {
-        const sid = String(s.sensorId || "");
+        const sid = String(s?.id || s?._id || "");
         if (!sid) continue;
-        if (!metaBySensorId.has(sid)) {
-          metaBySensorId.set(sid, {
-            _id: sid,
-            sensorType: s.sensorType,
-            name: s.name || "",
-            unit: s.unit || "",
-            avg: s.avg,
-            last: s.last,
-            lastAt: s.lastAt,
-          });
-        }
+        metaBySensorId.set(sid, s);
       }
 
       const bucket = new Map();
 
       for (const r of readings) {
-        const sid = String(r.sensorId || "");
+        const sid = String(r?.sensorId || "");
         if (!sid) continue;
 
-        const day = String(r.ts || r.timestamp || "").slice(0, 10);
+        const day = parseReadingDay(r);
         if (!day) continue;
 
-        const v = Number(r.value ?? r.readingValue ?? r.lastValue);
+        const v = Number(r?.value ?? r?.readingValue ?? r?.lastValue);
         if (Number.isNaN(v)) continue;
 
-        const byDay = bucket.get(day) || new Map();
-        const acc = byDay.get(sid) || { sum: 0, count: 0 };
-        acc.sum += v;
-        acc.count += 1;
-        byDay.set(sid, acc);
-        bucket.set(day, byDay);
+        const meta = metaBySensorId.get(sid);
+        const keys = getSensorKeysForMeta(meta);
+        if (!keys.length) continue;
+
+        const dayMap = bucket.get(day) || new Map();
+
+        for (const key of keys) {
+          const acc = dayMap.get(key) || { sum: 0, count: 0 };
+          acc.sum += v;
+          acc.count += 1;
+          dayMap.set(key, acc);
+        }
+
+        bucket.set(day, dayMap);
       }
 
       out[pid] = {};
 
       for (const sk of sensors) {
-        const sensorIds = [...metaBySensorId.entries()]
-          .filter(([, m]) => sensorMetaToKey(m) === sk)
-          .map(([sid]) => sid);
-
         const pts = baseTimes.map((tt) => {
-          let sum = 0;
-          let count = 0;
-
           const byDay = bucket.get(tt.day);
-
-          if (byDay && sensorIds.length) {
-            for (const sid of sensorIds) {
-              const acc = byDay.get(sid);
-              if (acc && acc.count) {
-                sum += acc.sum;
-                count += acc.count;
-              }
-            }
-          }
-
           let value = null;
 
-          if (count > 0) {
-            value = Math.round((sum / count) * 10) / 10;
-          } else if (sensorIds.length) {
-            const fallbackValues = sensorIds
-              .map((sid) => metaBySensorId.get(String(sid)))
-              .filter(Boolean)
+          if (byDay?.has(sk)) {
+            const acc = byDay.get(sk);
+            if (acc?.count) {
+              value = Math.round((acc.sum / acc.count) * 10) / 10;
+            }
+          } else {
+            const fallbackValues = sensorMetaItems
+              .filter((m) => getSensorKeysForMeta(m).includes(sk))
               .map((m) => getFallbackNumeric(m))
               .filter((v) => v !== null && !Number.isNaN(v));
 
@@ -795,7 +947,7 @@ export default function HistoryPage() {
     }
 
     return out;
-  }, [selectedPlotIdsResolved, selectedSensors, baseTimes, summaryByPlot, readingsByPlot, sensorsByPlot]);
+  }, [selectedPlotIdsResolved, selectedSensors, baseTimes, readingsByPlot, sensorsByPlot]);
 
   const activeSensorKey = selectedSensors[0] || "soil";
   const activeSensorMeta =
@@ -972,45 +1124,28 @@ export default function HistoryPage() {
     const avgOf = (pid, sk) => {
       const readings = Array.isArray(readingsByPlot?.[pid]) ? readingsByPlot[pid] : [];
       const sensorMetaItems = Array.isArray(sensorsByPlot?.[pid]) ? sensorsByPlot[pid] : [];
-      const summaryItems = Array.isArray(summaryByPlot?.[pid]) ? summaryByPlot[pid] : [];
 
-      const sensorIds = [
-        ...sensorMetaItems
-          .filter((m) => sensorMetaToKey(m) === sk)
-          .map((m) => String(m._id || m.id)),
-        ...summaryItems
-          .filter((m) => sensorMetaToKey(m) === sk)
-          .map((m) => String(m.sensorId)),
-      ];
+      const readingVals = readings
+        .filter((r) => {
+          const sid = String(r?.sensorId || "");
+          if (!sid) return false;
+          const meta = sensorMetaItems.find(
+            (m) => String(m?.id || m?._id || "") === sid
+          );
+          return getSensorKeysForMeta(meta).includes(sk);
+        })
+        .map((r) => Number(r?.value ?? r?.readingValue ?? r?.lastValue))
+        .filter((v) => !Number.isNaN(v));
 
-      const uniqSensorIds = [...new Set(sensorIds)].filter(Boolean);
-      if (!uniqSensorIds.length) return "-";
+      let v = avgNumbers(readingVals);
 
-      let sum = 0;
-      let count = 0;
-
-      for (const r of readings) {
-        const sid = String(r.sensorId || "");
-        if (!sid || !uniqSensorIds.includes(sid)) continue;
-        const v = Number(r.value ?? r.readingValue ?? r.lastValue);
-        if (Number.isNaN(v)) continue;
-        sum += v;
-        count += 1;
-      }
-
-      let v = null;
-
-      if (count > 0) {
-        v = sum / count;
-      } else {
-        const fallbackValues = summaryItems
-          .filter((m) => uniqSensorIds.includes(String(m.sensorId)))
+      if (v === null) {
+        const fallbackValues = sensorMetaItems
+          .filter((m) => getSensorKeysForMeta(m).includes(sk))
           .map((m) => getFallbackNumeric(m))
           .filter((x) => x !== null && !Number.isNaN(x));
 
-        if (fallbackValues.length) {
-          v = fallbackValues.reduce((a, b) => a + b, 0) / fallbackValues.length;
-        }
+        v = avgNumbers(fallbackValues);
       }
 
       if (v === null) return "-";
@@ -1038,7 +1173,7 @@ export default function HistoryPage() {
         bg: i % 2 === 0 ? "#f9fafb" : "#eef2ff",
       };
     });
-  }, [selectedPlotIdsResolved, plotList, summaryByPlot, readingsByPlot, sensorsByPlot, t]);
+  }, [selectedPlotIdsResolved, plotList, readingsByPlot, sensorsByPlot, t]);
 
   const statusMessage = hasDateError
     ? t("dateRangeInvalid", "วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด")
@@ -2104,7 +2239,7 @@ export default function HistoryPage() {
               *{" "}
               {t(
                 "summaryApiNote",
-                "แสดงค่าจริงจาก API ตามช่วงวันที่ที่เลือก และจะ fallback เป็นค่า avg/last จาก summary เมื่อไม่มี reading ในช่วงนั้น"
+                "หน้านี้ใช้ข้อมูลจริงจาก backend ชุดนี้ โดย filter ช่วงวันที่ฝั่ง frontend และ fallback จากค่า sensor ล่าสุดใน plot เมื่อไม่มี reading ในช่วงที่เลือก"
               )}
             </div>
           </div>

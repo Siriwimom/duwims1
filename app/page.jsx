@@ -66,7 +66,7 @@ const LeafletBundle = dynamic(
           scrollWheelZoom={true}
           attributionControl={false}
           style={{ height, width: "100%" }}
-          whenCreated={onMapCreated}
+          whenReady={(e) => onMapCreated?.(e?.target)}
         >
           <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
@@ -79,8 +79,8 @@ const LeafletBundle = dynamic(
               pathOptions={{
                 color: poly.color || "#16a34a",
                 weight: 2,
-                fillColor: "#86efac",
-                fillOpacity: 0.4,
+                fillColor: poly.color || "#86efac",
+                fillOpacity: 0.22,
               }}
             />
           ))}
@@ -417,10 +417,6 @@ function pickCaretaker(obj = {}) {
   );
 }
 
-function pickNodeId(obj = {}) {
-  return firstNonEmpty(obj.nodeId, obj.node, obj.nodeName, obj.nodeLabel);
-}
-
 function mergePlotMeta(plot = {}, pin = {}) {
   return {
     id: String(firstNonEmpty(plot.id, plot._id, pin.plotId, pin.plot_id, "")),
@@ -428,7 +424,6 @@ function mergePlotMeta(plot = {}, pin = {}) {
     plantType: pickPlantType(plot) || pickPlantType(pin) || "",
     plantedAt: pickPlantedAt(plot) || pickPlantedAt(pin) || "",
     caretakerName: pickCaretaker(plot) || pickCaretaker(pin) || "",
-    nodeId: pickNodeId(pin) || pickNodeId(plot) || "",
     rawPlot: plot,
     rawPin: pin,
   };
@@ -448,63 +443,56 @@ function normalizeText(v) {
 const SENSOR_TYPE_INFO = {
   soil_moisture: {
     key: "soil_moisture",
-    label: "soil_moisture",
     unit: "%",
     labelTh: "เซนเซอร์ ความชื้นในดิน",
     labelEn: "Sensor Soil Moisture",
   },
   temp_rh: {
     key: "temp_rh",
-    label: "temp_rh",
-    unit: "",
+    unit: "°C / %",
     labelTh: "เซนเซอร์ อุณหภูมิและความชื้น",
     labelEn: "Sensor Temperature & Humidity",
   },
-  wind: {
-    key: "wind",
-    label: "wind",
-    unit: "",
+  wind_speed: {
+    key: "wind_speed",
+    unit: "m/s",
     labelTh: "เซนเซอร์ ความเร็วลม",
     labelEn: "Sensor Wind Speed",
   },
-  ppfd: {
-    key: "ppfd",
-    label: "ppfd",
-    unit: "Lux",
+  light: {
+    key: "light",
+    unit: "lux",
     labelTh: "เซนเซอร์ ความเข้มแสง",
     labelEn: "Sensor Light Intensity",
   },
   rain: {
     key: "rain",
-    label: "rain",
     unit: "mm",
     labelTh: "เซนเซอร์ ปริมาณน้ำฝน",
     labelEn: "Sensor Rainfall",
   },
   npk: {
     key: "npk",
-    label: "npk",
-    unit: "",
+    unit: "mg/kg",
     labelTh: "เซนเซอร์ NPK",
     labelEn: "Sensor NPK",
   },
-  irrigation: {
-    key: "irrigation",
-    label: "irrigation",
-    unit: "",
+  water_level: {
+    key: "water_level",
+    unit: "%",
     labelTh: "เซนเซอร์ การให้น้ำ / ความพร้อมใช้น้ำ",
-    labelEn: "Sensor Irrigation / Available Water",
+    labelEn: "Sensor Irrigation / Water Level",
   },
 };
 
 const GROUP_ORDER = [
   "soil_moisture",
   "temp_rh",
-  "wind",
-  "ppfd",
+  "wind_speed",
+  "light",
   "rain",
   "npk",
-  "irrigation",
+  "water_level",
 ];
 
 function getDefaultSensorTypes() {
@@ -518,7 +506,7 @@ function getGroupLabel(sensorType, lang = "th") {
 }
 
 // ============================
-// ✅ Thresholds มาตรฐานทุเรียน
+// ✅ Thresholds
 // ============================
 function detectBackendMetric(sensor = {}) {
   const sensorType = String(sensor?.sensorType || "").trim();
@@ -539,7 +527,7 @@ function detectBackendMetric(sensor = {}) {
     ) {
       return "humidity";
     }
-    return "temp_rh_unknown";
+    return "temp_rh";
   }
 
   if (sensorType === "npk") {
@@ -565,31 +553,14 @@ function detectBackendMetric(sensor = {}) {
     ) {
       return "potassium";
     }
-    return "npk_unknown";
+    return "npk";
   }
 
-  if (sensorType === "irrigation") {
-    if (
-      name.includes("available water") ||
-      name.includes("awc") ||
-      name.includes("ความพร้อมใช้น้ำ")
-    ) {
-      return "availableWater";
-    }
-    if (
-      name.includes("irrigation") ||
-      name.includes("watering") ||
-      name.includes("การให้น้ำ")
-    ) {
-      return "irrigation";
-    }
-    return "irrigation_unknown";
-  }
-
-  if (sensorType === "wind") return "wind";
-  if (sensorType === "ppfd") return "lightIntensity";
+  if (sensorType === "wind_speed") return "wind";
+  if (sensorType === "light") return "lightIntensity";
   if (sensorType === "rain") return "rainfall_daily";
   if (sensorType === "soil_moisture") return "soilMoisturePercent";
+  if (sensorType === "water_level") return "waterLevel";
 
   return null;
 }
@@ -609,24 +580,31 @@ const METRIC_RULES = {
     labelTh: "Humidity",
     labelEn: "Humidity",
   },
+  temp_rh: {
+    idealMin: null,
+    idealMax: null,
+    unit: "°C / %",
+    labelTh: "อุณหภูมิและความชื้น",
+    labelEn: "Temperature & Humidity",
+  },
   wind: {
     idealMin: 2,
     idealMax: 5,
-    unit: "กม./ชม.",
+    unit: "m/s",
     labelTh: "Wind",
     labelEn: "Wind",
   },
   lightIntensity: {
     idealMin: 40000,
     idealMax: 60000,
-    unit: "Lux",
+    unit: "lux",
     labelTh: "Light",
     labelEn: "Light",
   },
   rainfall_daily: {
     idealMin: 4,
     idealMax: 8,
-    unit: "มม./วัน",
+    unit: "mm/day",
     labelTh: "Rain",
     labelEn: "Rain",
   },
@@ -636,6 +614,13 @@ const METRIC_RULES = {
     unit: "%",
     labelTh: "Soil Moisture",
     labelEn: "Soil Moisture",
+  },
+  waterLevel: {
+    idealMin: 30,
+    idealMax: 100,
+    unit: "%",
+    labelTh: "Water Level",
+    labelEn: "Water Level",
   },
   nitrogen: {
     idealMin: 0.1,
@@ -658,19 +643,12 @@ const METRIC_RULES = {
     labelTh: "K",
     labelEn: "K",
   },
-  irrigation: {
-    idealMin: 80,
-    idealMax: 150,
-    unit: "ลิตร/วัน/ต้น",
-    labelTh: "Irrigation",
-    labelEn: "Irrigation",
-  },
-  availableWater: {
-    idealMin: 80,
-    idealMax: 150,
-    unit: "ลิตร/วัน/ต้น",
-    labelTh: "Available Water",
-    labelEn: "Available Water",
+  npk: {
+    idealMin: null,
+    idealMax: null,
+    unit: "mg/kg",
+    labelTh: "NPK",
+    labelEn: "NPK",
   },
 };
 
@@ -682,197 +660,81 @@ function getMetricLabel(metric, lang = "th", fallback = "-") {
 
 function formatThresholdHint(rule, lang = "th") {
   if (!rule) return "";
-  const unit = rule.unit ? ` ${rule.unit}` : "";
-
-  if (lang === "en") {
-    if (rule.idealMin !== undefined && rule.idealMax !== undefined) {
-      return `Normal ${rule.idealMin} - ${rule.idealMax}${unit}`;
-    }
+  if (
+    rule.idealMin === null ||
+    rule.idealMin === undefined ||
+    rule.idealMax === null ||
+    rule.idealMax === undefined
+  ) {
     return "";
   }
 
-  if (rule.idealMin !== undefined && rule.idealMax !== undefined) {
-    return `ช่วงเหมาะสม ${rule.idealMin} - ${rule.idealMax}${unit}`;
+  const unit = rule.unit ? ` ${rule.unit}` : "";
+
+  if (lang === "en") {
+    return `Normal ${rule.idealMin} - ${rule.idealMax}${unit}`;
   }
 
-  return "";
+  return `ช่วงเหมาะสม ${rule.idealMin} - ${rule.idealMax}${unit}`;
 }
 
 // ============================
-// ✅ ดึงค่าจริงจากระบบเท่านั้น
+// ✅ Value extract helpers
 // ============================
-function extractActualReading(sensor = {}) {
+function getSensorRawValue(sensor = {}) {
   const lr = sensor?.lastReading;
-
-  if (!lr || typeof lr !== "object") return null;
-
-  const sensorType = String(sensor?.sensorType || "").trim();
-  const metric = detectBackendMetric(sensor);
-
-  if (sensorType === "temp_rh") {
-    if (metric === "temperature") {
-      const raw = firstNonEmpty(
-        lr.temperature,
-        lr.temp,
-        lr.tempC,
-        lr.temperatureC,
-        null
-      );
-      if (raw === null || raw === undefined || raw === "") return null;
-      const v = Number(raw);
-      return Number.isFinite(v)
-        ? { value: v, unit: firstNonEmpty(lr.unit, "°C") }
-        : null;
-    }
-
-    if (metric === "humidity") {
-      const raw = firstNonEmpty(
-        lr.humidity,
-        lr.rh,
-        lr.relativeHumidity,
-        null
-      );
-      if (raw === null || raw === undefined || raw === "") return null;
-      const v = Number(raw);
-      return Number.isFinite(v)
-        ? { value: v, unit: firstNonEmpty(lr.unit, "%") }
-        : null;
-    }
-
-    return null;
+  if (lr && typeof lr === "object" && lr.value !== undefined && lr.value !== null) {
+    return lr.value;
   }
+  if (sensor?.value !== undefined && sensor?.value !== null) return sensor.value;
+  return null;
+}
+
+function extractActualReading(sensor = {}) {
+  const raw = getSensorRawValue(sensor);
+  const sensorType = String(sensor?.sensorType || "").trim();
+
+  if (raw === null || raw === undefined || raw === "") return null;
 
   if (sensorType === "npk") {
-    if (metric === "nitrogen") {
-      const raw = firstNonEmpty(lr.n, lr.nitrogen, null);
-      if (raw === null || raw === undefined || raw === "") return null;
-      const v = Number(raw);
-      return Number.isFinite(v)
-        ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "%") }
-        : null;
+    if (typeof raw === "object") return { value: raw, unit: sensor?.unit || "mg/kg" };
+    return { value: raw, unit: sensor?.unit || "mg/kg" };
+  }
+
+  if (sensorType === "temp_rh") {
+    if (typeof raw === "object") {
+      return { value: raw, unit: sensor?.unit || "°C / %" };
     }
-
-    if (metric === "phosphorus") {
-      const raw = firstNonEmpty(lr.p, lr.phosphorus, null);
-      if (raw === null || raw === undefined || raw === "") return null;
-      const v = Number(raw);
-      return Number.isFinite(v)
-        ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "ppm") }
-        : null;
-    }
-
-    if (metric === "potassium") {
-      const raw = firstNonEmpty(lr.k, lr.potassium, null);
-      if (raw === null || raw === undefined || raw === "") return null;
-      const v = Number(raw);
-      return Number.isFinite(v)
-        ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "cmol/kg") }
-        : null;
-    }
-
-    return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return null;
+    return { value: n, unit: sensor?.unit || "°C / %" };
   }
 
-  if (sensorType === "soil_moisture") {
-    const hasRealField =
-      lr?.soilMoisture !== undefined ||
-      lr?.moisture !== undefined ||
-      lr?.soil_moisture !== undefined;
+  if (typeof raw === "object") return null;
 
-    if (!hasRealField) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
 
-    const raw = firstNonEmpty(
-      lr.soilMoisture,
-      lr.moisture,
-      lr.soil_moisture,
-      null
-    );
-
-    if (raw === null || raw === undefined || raw === "") return null;
-
-    const v = Number(raw);
-    return Number.isFinite(v)
-      ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "%") }
-      : null;
-  }
-
-  if (sensorType === "wind") {
-    const raw = firstNonEmpty(lr.windSpeed, lr.wind, lr.speed, null);
-    if (raw === null || raw === undefined || raw === "") return null;
-    const v = Number(raw);
-    return Number.isFinite(v)
-      ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "กม./ชม.") }
-      : null;
-  }
-
-  if (sensorType === "ppfd") {
-    const raw = firstNonEmpty(
-      lr.light,
-      lr.lightIntensity,
-      lr.lux,
-      lr.ppfd,
-      null
-    );
-    if (raw === null || raw === undefined || raw === "") return null;
-    const v = Number(raw);
-    return Number.isFinite(v)
-      ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "Lux") }
-      : null;
-  }
-
-  if (sensorType === "rain") {
-    const raw = firstNonEmpty(lr.rain, lr.rainfall, lr.dailyRain, null);
-    if (raw === null || raw === undefined || raw === "") return null;
-    const v = Number(raw);
-    return Number.isFinite(v)
-      ? { value: v, unit: firstNonEmpty(lr.unit, sensor?.unit, "มม./วัน") }
-      : null;
-  }
-
-  if (sensorType === "irrigation") {
-    if (metric === "irrigation") {
-      const raw = firstNonEmpty(
-        lr.irrigation,
-        lr.watering,
-        lr.irrigationVolume,
-        null
-      );
-      if (raw === null || raw === undefined || raw === "") return null;
-      const v = Number(raw);
-      return Number.isFinite(v)
-        ? {
-            value: v,
-            unit: firstNonEmpty(lr.unit, sensor?.unit, "ลิตร/วัน/ต้น"),
-          }
-        : null;
-    }
-
-    if (metric === "availableWater") {
-      const raw = firstNonEmpty(
-        lr.availableWater,
-        lr.waterAvailable,
-        lr.awc,
-        null
-      );
-      if (raw === null || raw === undefined || raw === "") return null;
-      const v = Number(raw);
-      return Number.isFinite(v)
-        ? {
-            value: v,
-            unit: firstNonEmpty(lr.unit, sensor?.unit, "ลิตร/วัน/ต้น"),
-          }
-        : null;
-    }
-
-    return null;
-  }
-
-  return null;
+  return {
+    value: n,
+    unit:
+      firstNonEmpty(
+        sensor?.lastReading?.unit,
+        sensor?.unit,
+        SENSOR_TYPE_INFO[sensorType]?.unit,
+        ""
+      ) || "",
+  };
 }
 
 function extractLastReadingValue(sensor = {}) {
   const reading = extractActualReading(sensor);
-  return reading && Number.isFinite(reading.value) ? reading.value : null;
+  if (!reading) return null;
+
+  if (typeof reading.value === "number" && Number.isFinite(reading.value)) {
+    return reading.value;
+  }
+  return null;
 }
 
 function extractSensorUnit(sensor = {}, sensorTypeMeta = {}) {
@@ -892,7 +754,7 @@ function evaluateSensorThreshold(sensor = {}, sensorTypeMeta = {}, lang = "th") 
   const reading = extractActualReading(sensor);
   const rule = METRIC_RULES[metric] || null;
 
-  if (!metric || !rule || !reading || !Number.isFinite(Number(reading.value))) {
+  if (!metric || !rule || !reading) {
     return {
       metric,
       abnormal: false,
@@ -901,6 +763,35 @@ function evaluateSensorThreshold(sensor = {}, sensorTypeMeta = {}, lang = "th") 
       unit: reading?.unit || "",
       rule,
       hasRealValue: false,
+    };
+  }
+
+  if (typeof reading.value !== "number" || !Number.isFinite(Number(reading.value))) {
+    return {
+      metric,
+      abnormal: false,
+      reason: "",
+      value: null,
+      unit: reading?.unit || "",
+      rule,
+      hasRealValue: false,
+    };
+  }
+
+  if (
+    rule.idealMin === null ||
+    rule.idealMin === undefined ||
+    rule.idealMax === null ||
+    rule.idealMax === undefined
+  ) {
+    return {
+      metric,
+      abnormal: false,
+      reason: "",
+      value: Number(reading.value),
+      unit: reading.unit || "",
+      rule,
+      hasRealValue: true,
     };
   }
 
@@ -954,6 +845,35 @@ function getSensorAlertSummary(sensor = {}, sensorTypeMeta = {}, lang = "th") {
   };
 }
 
+function formatMixedValue(value, unit = "", lang = "th") {
+  if (value === null || value === undefined || value === "") return "-";
+
+  if (typeof value === "number") {
+    return `${value}${unit ? ` ${unit}` : ""}`;
+  }
+
+  if (typeof value === "object") {
+    const n = value?.n ?? value?.N;
+    const p = value?.p ?? value?.P;
+    const k = value?.k ?? value?.K;
+
+    if (n !== undefined || p !== undefined || k !== undefined) {
+      return `N: ${n ?? "-"}  P: ${p ?? "-"}  K: ${k ?? "-"}`;
+    }
+
+    const temp = value?.temperature ?? value?.temp;
+    const humidity = value?.humidity ?? value?.rh;
+
+    if (temp !== undefined || humidity !== undefined) {
+      return lang === "en"
+        ? `Temp: ${temp ?? "-"}°C  Humidity: ${humidity ?? "-"}%`
+        : `อุณหภูมิ: ${temp ?? "-"}°C  ความชื้น: ${humidity ?? "-"}%`;
+    }
+  }
+
+  return String(value);
+}
+
 function isOfflineStatus(v) {
   const s = String(v || "").trim().toUpperCase();
   return (
@@ -976,7 +896,8 @@ function isOnlineStatus(v) {
     s === "CONNECTED" ||
     s === "ACTIVE" ||
     s === "1" ||
-    s === "TRUE"
+    s === "TRUE" ||
+    s === "OK"
   );
 }
 
@@ -995,15 +916,15 @@ function isPinOnline(pin = {}, sensors = []) {
 
   if (!sensors.length) return true;
 
-  const onlineCount = sensors.filter((s) =>
-    [s?.deviceStatus, s?.connectionStatus, s?.powerStatus, s?.isOnline].some(
-      isOnlineStatus
+  const offlineCount = sensors.filter((s) =>
+    [s?.status, s?.deviceStatus, s?.connectionStatus, s?.powerStatus, s?.isOnline].some(
+      isOfflineStatus
     )
   ).length;
 
-  const offlineCount = sensors.filter((s) =>
-    [s?.deviceStatus, s?.connectionStatus, s?.powerStatus, s?.isOnline].some(
-      isOfflineStatus
+  const onlineCount = sensors.filter((s) =>
+    [s?.status, s?.deviceStatus, s?.connectionStatus, s?.powerStatus, s?.isOnline].some(
+      isOnlineStatus
     )
   ).length;
 
@@ -1060,14 +981,16 @@ function centroidOfPolygon(coords) {
   let sumLat = 0;
   let sumLng = 0;
   let n = 0;
+
   for (const pair of coords) {
-    const lat = Number(pair?.[0]);
-    const lng = Number(pair?.[1]);
+    const lat = Number(Array.isArray(pair) ? pair?.[0] : pair?.lat);
+    const lng = Number(Array.isArray(pair) ? pair?.[1] : pair?.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
     sumLat += lat;
     sumLng += lng;
     n += 1;
   }
+
   return n ? [sumLat / n, sumLng / n] : null;
 }
 
@@ -1231,6 +1154,46 @@ function normalizePolygons(items, plotId = "", plotName = "") {
 }
 
 // ============================
+// ✅ Build sensors from pin nodes directly
+// ============================
+function flattenSensorsFromPin(pin = {}, plotId = "", plotName = "") {
+  const items = [];
+
+  const addFromNodes = (nodes = [], nodeType = "") => {
+    for (const node of nodes || []) {
+      for (const sensor of node?.sensors || []) {
+        items.push({
+          ...sensor,
+          id: String(firstNonEmpty(sensor?.id, `sensor-${Math.random()}`)),
+          pinId: String(pin?.id || ""),
+          plotId: String(plotId || ""),
+          plotName: String(plotName || ""),
+          nodeId: String(node?.id || ""),
+          nodeUid: String(node?.uid || ""),
+          nodeName: firstNonEmpty(node?.nodeName, ""),
+          nodeType,
+          sensorType: String(sensor?.sensorType || "").trim(),
+          name: firstNonEmpty(sensor?.name, sensor?.sensorType, ""),
+          status: firstNonEmpty(sensor?.status, ""),
+          unit: firstNonEmpty(sensor?.unit, ""),
+          lastReading:
+            sensor?.lastReading && typeof sensor.lastReading === "object"
+              ? sensor.lastReading
+              : null,
+          value: sensor?.value ?? null,
+          updatedAt: firstNonEmpty(sensor?.lastReadingAt, node?.updatedAt, pin?.updatedAt, ""),
+        });
+      }
+    }
+  };
+
+  addFromNodes(pin?.node_air || [], "air");
+  addFromNodes(pin?.node_soil || [], "soil");
+
+  return items;
+}
+
+// ============================
 // ✅ Build groups from backend sensorType
 // ============================
 function buildGroupsFromSensors(
@@ -1262,24 +1225,19 @@ function buildGroupsFromSensors(
     const evalResult = evaluateSensorThreshold(s, st, lang);
     const reading = extractActualReading(s);
 
-    const hasDisplayValue = !!reading && Number.isFinite(Number(reading.value));
-    const displayUnit = reading?.unit || extractSensorUnit(s, st) || "";
-    const lastV = hasDisplayValue
-      ? `${Number(reading.value)}${displayUnit ? ` ${displayUnit}` : ""}`
+    const displayUnit = extractSensorUnit(s, st) || "";
+    const displayValue = reading
+      ? formatMixedValue(reading.value, displayUnit, lang)
       : "-";
-
-    const thresholdAlert = hasDisplayValue ? !!evalResult.abnormal : false;
 
     let fallbackName =
       s?.name || s?.sensorName || s?.label || st.label || sensorType;
 
-    if (sensorType === "npk" && evalResult.metric) {
-      fallbackName = getMetricLabel(evalResult.metric, lang, fallbackName);
-    }
-    if (sensorType === "temp_rh" && evalResult.metric) {
-      fallbackName = getMetricLabel(evalResult.metric, lang, fallbackName);
-    }
-    if (sensorType === "irrigation" && evalResult.metric) {
+    if (
+      (sensorType === "npk" || sensorType === "temp_rh") &&
+      evalResult.metric &&
+      evalResult.metric !== sensorType
+    ) {
       fallbackName = getMetricLabel(evalResult.metric, lang, fallbackName);
     }
 
@@ -1293,16 +1251,15 @@ function buildGroupsFromSensors(
 
     groups.get(sensorType).items.push({
       name: itemName,
-      value: `${lang === "en" ? "Value" : "ค่า"}: ${lastV}`,
-      isAlert: thresholdAlert,
-      abnormalReason: hasDisplayValue && thresholdAlert ? evalResult.reason : "",
-      thresholdHint:
-        hasDisplayValue && evalResult.rule
-          ? formatThresholdHint(evalResult.rule, lang)
-          : "",
-      currentValueNumber: hasDisplayValue ? Number(reading.value) : null,
+      value: `${lang === "en" ? "Value" : "ค่า"}: ${displayValue}`,
+      isAlert: !!evalResult.abnormal,
+      abnormalReason: evalResult.abnormal ? evalResult.reason : "",
+      thresholdHint: evalResult.rule ? formatThresholdHint(evalResult.rule, lang) : "",
+      currentValueNumber:
+        typeof reading?.value === "number" ? Number(reading.value) : null,
       currentValueUnit: displayUnit,
       metric: evalResult.metric,
+      updatedAt: firstNonEmpty(s?.lastReadingAt, s?.updatedAt, ""),
     });
   }
 
@@ -1319,17 +1276,8 @@ function buildGroupsFromSensors(
         currentValueNumber: null,
         currentValueUnit: "",
         metric: null,
+        updatedAt: "",
       });
-    } else if (key === "npk") {
-      const order = { nitrogen: 1, phosphorus: 2, potassium: 3 };
-      g.items.sort(
-        (a, b) => (order[a.metric] || 99) - (order[b.metric] || 99)
-      );
-    } else if (key === "temp_rh") {
-      const order = { temperature: 1, humidity: 2 };
-      g.items.sort(
-        (a, b) => (order[a.metric] || 99) - (order[b.metric] || 99)
-      );
     }
     out.push(g);
   }
@@ -1359,7 +1307,6 @@ function buildOverallIssueSummary(
   lang = "th"
 ) {
   const summaries = [];
-  const npkParts = [];
 
   for (const pid of Object.keys(sensorsByPinId || {})) {
     const arr = sensorsByPinId?.[pid] || [];
@@ -1372,27 +1319,11 @@ function buildOverallIssueSummary(
 
       const info = getSensorAlertSummary(s, st, lang);
       if (!info || !info.abnormal) continue;
-
-      if (
-        info.metric === "nitrogen" ||
-        info.metric === "phosphorus" ||
-        info.metric === "potassium"
-      ) {
-        npkParts.push(info.text);
-      } else {
-        summaries.push(info.text);
-      }
+      summaries.push(info.text);
     }
   }
 
-  const uniqueSummaries = [...new Set(summaries)];
-  const uniqueNpkParts = [...new Set(npkParts)];
-
-  if (uniqueNpkParts.length) {
-    uniqueSummaries.unshift(`NPK: ${uniqueNpkParts.join(", ")}`);
-  }
-
-  return uniqueSummaries;
+  return [...new Set(summaries)];
 }
 
 export default function DashboardAllPlotsPage() {
@@ -1641,22 +1572,11 @@ export default function DashboardAllPlotsPage() {
           }))
         );
 
-        const sensorPromises = plotItems.map((p) =>
-          apiFetch(
-            `/api/sensors?plotId=${encodeURIComponent(p.id)}&sensorType=all`,
-            { token }
-          ).then((res) => ({
-            plotId: p.id,
-            plotName: p.plotName,
-            items: res?.items || [],
-          }))
-        );
-
-        const [polygonByPlot, pinsByPlot, sensorsByPlotArr] = await Promise.all([
+        const [polygonByPlot, pinsByPlot] = await Promise.all([
           Promise.all(polygonPromises),
           Promise.all(pinPromises),
-          Promise.all(sensorPromises),
         ]);
+
         if (cancelled) return;
 
         const allPolys = [];
@@ -1674,6 +1594,8 @@ export default function DashboardAllPlotsPage() {
         setPolygonsAll(allPolys);
 
         const allPins = [];
+        const pinMap = {};
+
         for (const pr of pinsByPlot) {
           const plotMeta =
             plotItems.find((p) => String(p.id) === String(pr.plotId)) || null;
@@ -1695,14 +1617,8 @@ export default function DashboardAllPlotsPage() {
                 ),
                 lat: Number(firstNonEmpty(x.lat, x.latitude)),
                 lng: Number(firstNonEmpty(x.lng, x.longitude)),
-                nodeId: firstNonEmpty(
-                  x.nodeId,
-                  x.node,
-                  x.nodeName,
-                  merged.nodeId,
-                  null
-                ),
-                nodeName: firstNonEmpty(x.nodeName, ""),
+                node_air: Array.isArray(x?.node_air) ? x.node_air : [],
+                node_soil: Array.isArray(x?.node_soil) ? x.node_soil : [],
                 status: firstNonEmpty(
                   x.status,
                   x.deviceStatus,
@@ -1718,47 +1634,18 @@ export default function DashboardAllPlotsPage() {
             );
 
           allPins.push(...pinsNorm);
-        }
-        setPinsAll(allPins);
 
-        const pinMap = {};
-        for (const sr of sensorsByPlotArr) {
-          const sensors = (sr.items || []).map((x, idx) => ({
-            ...x,
-            id: String(firstNonEmpty(x._id, x.id, `sensor-${idx}`)),
-            pinId: x.pinId ? String(x.pinId) : null,
-            plotId: x.plotId ? String(x.plotId) : sr.plotId,
-            nodeId: x.nodeId ? String(x.nodeId) : null,
-            nodeName: firstNonEmpty(x.nodeName, ""),
-            nodeType: firstNonEmpty(x.nodeType, ""),
-            sensorType: firstNonEmpty(x.sensorType, ""),
-            name: firstNonEmpty(
-              x.name,
-              x.sensorName,
-              x.label,
-              x.displayName,
-              ""
-            ),
-            status: firstNonEmpty(x.status, ""),
-            deviceStatus: firstNonEmpty(x.deviceStatus, ""),
-            connectionStatus: firstNonEmpty(x.connectionStatus, ""),
-            powerStatus: firstNonEmpty(x.powerStatus, ""),
-            number: firstNonEmpty(x.number, x.order, x.index, ""),
-            lastReading:
-              x?.lastReading && typeof x.lastReading === "object"
-                ? x.lastReading
-                : null,
-            unit: firstNonEmpty(x.unit, ""),
-          }));
-
-          for (const s of sensors) {
-            const pid = s.pinId || "__no_pin__";
-            if (!pinMap[pid]) pinMap[pid] = [];
-            pinMap[pid].push(s);
+          for (const pin of pinsNorm) {
+            pinMap[String(pin.id)] = flattenSensorsFromPin(
+              pin,
+              pin.plotId,
+              pin.plotName
+            );
           }
         }
-        setSensorsByPinId(pinMap);
 
+        setPinsAll(allPins);
+        setSensorsByPinId(pinMap);
         setCacheTs(new Date().toISOString());
       } catch (e) {
         if (!cancelled) {
@@ -1831,10 +1718,18 @@ export default function DashboardAllPlotsPage() {
   const allMapPoints = useMemo(() => {
     const pts = [];
     for (const poly of polygonsAll || []) {
-      for (const c of poly?.coords || []) pts.push(c);
+      for (const c of poly?.coords || []) {
+        const lat = Number(Array.isArray(c) ? c?.[0] : c?.lat);
+        const lng = Number(Array.isArray(c) ? c?.[1] : c?.lng);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) pts.push([lat, lng]);
+      }
     }
-    for (const p of pinsAll || []) pts.push([Number(p.lat), Number(p.lng)]);
-    return pts.filter((x) => Array.isArray(x) && x.length === 2);
+    for (const p of pinsAll || []) {
+      const lat = Number(p.lat);
+      const lng = Number(p.lng);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) pts.push([lat, lng]);
+    }
+    return pts;
   }, [polygonsAll, pinsAll]);
 
   const mapCenter = useMemo(() => {
@@ -2495,6 +2390,20 @@ export default function DashboardAllPlotsPage() {
                                     }}
                                   >
                                     {it.thresholdHint}
+                                  </div>
+                                )}
+
+                                {!!it.updatedAt && (
+                                  <div
+                                    style={{
+                                      marginTop: 4,
+                                      fontSize: 10,
+                                      color: "#6b7280",
+                                      lineHeight: 1.35,
+                                    }}
+                                  >
+                                    {lang === "en" ? "Updated:" : "อัปเดต:"}{" "}
+                                    {prettyTs(it.updatedAt, lang)}
                                   </div>
                                 )}
                               </div>
