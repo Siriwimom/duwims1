@@ -206,16 +206,15 @@ const TOKEN_KEYS = [
 
 const SENSOR_TYPE_GROUPS = {
   air: [
-    { value: "temp", label: "อุณหภูมิ" },
-    { value: "rh", label: "ความชื้นสัมพัทธ์" },
-    { value: "wind", label: "วัดความเร็วลม" },
-    { value: "ppfd", label: "ความเข้มแสง" },
-    { value: "rain", label: "ปริมาณน้ำฝน" },
+    { value: "temp_rh", label: "อุณหภูมิและความชื้น", unit: "°C / %" },
+    { value: "wind_speed", label: "วัดความเร็วลม", unit: "m/s" },
+    { value: "light", label: "ความเข้มแสง", unit: "lux" },
+    { value: "rain", label: "ปริมาณน้ำฝน", unit: "mm" },
   ],
   soil: [
-    { value: "soil_moisture", label: "ความชื้นในดิน" },
-    { value: "npk", label: "ความเข้มข้นธาตุอาหาร (N,P,K)" },
-    { value: "irrigation", label: "การให้น้ำ / ความพร้อมใช้น้ำ" },
+    { value: "soil_moisture", label: "ความชื้นในดิน", unit: "%" },
+    { value: "npk", label: "ความเข้มข้นธาตุอาหาร (N,P,K)", unit: "mg/kg" },
+    { value: "water_level", label: "การให้น้ำ / ความพร้อมใช้น้ำ", unit: "%" },
   ],
 };
 
@@ -345,215 +344,137 @@ function ensureUniquePinNumbers(items = []) {
 
 function sensorTypeLabel(sensorType) {
   const key = String(sensorType || "");
-
-  if (key === "temp") return "อุณหภูมิ";
-  if (key === "rh") return "ความชื้นสัมพัทธ์";
-  if (key === "temp_rh") return "อุณหภูมิ / ความชื้นสัมพัทธ์";
+  if (key === "temp_rh") return "อุณหภูมิและความชื้น";
   if (key === "soil_moisture") return "ความชื้นในดิน";
-  if (key === "irrigation") return "การให้น้ำ / ความพร้อมใช้น้ำ";
+  if (key === "water_level") return "การให้น้ำ / ความพร้อมใช้น้ำ";
   if (key === "npk") return "ความเข้มข้นธาตุอาหาร (N,P,K)";
-  if (key === "wind") return "วัดความเร็วลม";
   if (key === "wind_speed") return "วัดความเร็วลม";
-  if (key === "ppfd") return "ความเข้มแสง";
   if (key === "light") return "ความเข้มแสง";
   if (key === "rain") return "ปริมาณน้ำฝน";
-  if (key === "rainfall") return "ปริมาณน้ำฝน";
-  if (key === "temperature_humidity") return "อุณหภูมิ / ความชื้นสัมพัทธ์";
-
   return key || "-";
+}
+
+function getDefaultUnitByType(sensorType) {
+  const all = [...SENSOR_TYPE_GROUPS.air, ...SENSOR_TYPE_GROUPS.soil];
+  const found = all.find((x) => String(x.value) === String(sensorType));
+  return found?.unit || "";
+}
+
+function getDefaultNameByType(sensorType) {
+  const all = [...SENSOR_TYPE_GROUPS.air, ...SENSOR_TYPE_GROUPS.soil];
+  const found = all.find((x) => String(x.value) === String(sensorType));
+  return found?.label || sensorTypeLabel(sensorType);
+}
+
+function createLocalSensor(nodeType, sensorType = "") {
+  const safeType =
+    sensorType ||
+    (nodeType === "air" ? SENSOR_TYPE_GROUPS.air[0].value : SENSOR_TYPE_GROUPS.soil[0].value);
+
+  return {
+    id: `tmp-sensor-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    sensorType: safeType,
+    name: getDefaultNameByType(safeType),
+    unit: getDefaultUnitByType(safeType),
+    value: null,
+    valueHint: "",
+    status: "OK",
+    lastReadingAt: null,
+    lastReading: { value: null, ts: null },
+  };
+}
+
+function createLocalNode(nodeType = "air") {
+  return {
+    id: `tmp-node-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    nodeType,
+    nodeName: nodeType === "air" ? "Node อากาศใหม่" : "Node ดินใหม่",
+    sensors: [
+      createLocalSensor(
+        nodeType,
+        nodeType === "air" ? "temp_rh" : "soil_moisture"
+      ),
+    ],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function normalizePinFromApi(p = {}, plotId = "") {
+  return {
+    ...p,
+    id: String(p.id || p._id || ""),
+    plotId: String(p.plotId || plotId || ""),
+    pinName: String(p.pinName || p.name || ""),
+    node_air: Array.isArray(p.node_air) ? p.node_air : [],
+    node_soil: Array.isArray(p.node_soil) ? p.node_soil : [],
+  };
+}
+
+function getPinStatus(pin) {
+  const airCount = Array.isArray(pin?.node_air) ? pin.node_air.length : 0;
+  const soilCount = Array.isArray(pin?.node_soil) ? pin.node_soil.length : 0;
+  if (airCount === 0 && soilCount === 0) return "UNASSIGNED";
+  if (airCount === 0 || soilCount === 0) return "PARTIAL";
+  return "READY";
+}
+
+function getPinStatusLabel(pin) {
+  const s = getPinStatus(pin);
+  if (s === "READY") return "พร้อมใช้งาน";
+  if (s === "PARTIAL") return "ยังไม่ครบ";
+  return "ยังไม่ผูก node";
 }
 
 function formatSensorDisplayValue(sensor) {
   const rawValue =
     sensor?.lastReading?.value !== undefined && sensor?.lastReading?.value !== null
-      ? Number(sensor.lastReading.value)
-      : sensor?.value !== undefined && sensor?.value !== null
-      ? Number(sensor.value)
-      : null;
+      ? sensor.lastReading.value
+      : sensor?.value;
 
-  const unit = String(sensor?.unit || "").trim();
-
-  if (rawValue !== null && Number.isFinite(rawValue)) {
-    return `${rawValue}${unit ? ` ${unit}` : ""}`;
+  if (
+    rawValue !== null &&
+    rawValue !== undefined &&
+    typeof rawValue !== "object" &&
+    rawValue !== ""
+  ) {
+    return `${rawValue}${sensor?.unit ? ` ${sensor.unit}` : ""}`;
   }
 
   const hint = String(sensor?.valueHint || "").trim();
   if (hint) return hint;
 
-  if (sensor?.value !== undefined && sensor?.value !== null && sensor?.value !== "") {
-    return String(sensor.value);
+  if (sensor?.sensorType === "npk") {
+    const src = sensor?.lastReading?.value ?? sensor?.value ?? {};
+    const n = src?.n ?? src?.N ?? "-";
+    const p = src?.p ?? src?.P ?? "-";
+    const k = src?.k ?? src?.K ?? "-";
+    return `N:${n} P:${p} K:${k}`;
   }
 
   return "-";
 }
 
-function getTempRhParts(sensor) {
-  const reading = sensor?.lastReading ?? {};
-  const value = reading?.value ?? sensor?.value ?? {};
-
-  const temp =
-    value?.temp ??
-    value?.temperature ??
-    reading?.temp ??
-    reading?.temperature ??
-    sensor?.temp ??
-    sensor?.temperature ??
-    null;
-
-  const rh =
-    value?.rh ??
-    value?.humidity ??
-    value?.relativeHumidity ??
-    reading?.rh ??
-    reading?.humidity ??
-    reading?.relativeHumidity ??
-    sensor?.rh ??
-    sensor?.humidity ??
-    sensor?.relativeHumidity ??
-    null;
-
-  const formatPart = (v, fallbackUnit) => {
-    const n = Number(v);
-    if (Number.isFinite(n)) return `${n} ${fallbackUnit}`;
-    if (v !== undefined && v !== null && v !== "") return `${v} ${fallbackUnit}`;
-    return "-";
-  };
-
-  return {
-    tempValue: formatPart(temp, "°C"),
-    rhValue: formatPart(rh, "%"),
-  };
+function getNodeTypeBadge(nodeType) {
+  return nodeType === "air" ? "Node อากาศ" : "Node ดิน";
 }
 
-function normalizeSensorType(sensorType) {
-  const key = String(sensorType || "");
-
-  if (key === "temperature_humidity") return "temp_rh";
-  if (key === "wind_speed") return "wind";
-  if (key === "light") return "ppfd";
-  if (key === "rainfall") return "rain";
-
-  return key;
+function getTemplateName(tpl) {
+  return tpl?.nodeName || tpl?.id || tpl?._id || "-";
 }
 
-function matchesSensorTypeFilter(sensorType, selectedSensorType) {
-  if (!selectedSensorType || selectedSensorType === "all") return true;
-
-  const current = normalizeSensorType(sensorType);
-  const selected = String(selectedSensorType || "");
-
-  if (selected === "temp") {
-    return current === "temp" || current === "temp_rh";
-  }
-
-  if (selected === "rh") {
-    return current === "rh" || current === "temp_rh";
-  }
-
-  return current === selected;
-}
-
-function isNpkSensor(sensor) {
-  return normalizeSensorType(sensor?.sensorType) === "npk";
-}
-
-function getNpkValues(sensor) {
-  const src =
-    sensor?.lastReading?.value ??
-    sensor?.value ??
-    sensor?.lastReading ??
-    {};
-
-  const n = src?.n ?? src?.N ?? sensor?.n ?? sensor?.N ?? "-";
-  const p = src?.p ?? src?.P ?? sensor?.p ?? sensor?.P ?? "-";
-  const k = src?.k ?? src?.K ?? sensor?.k ?? sensor?.K ?? "-";
-
-  return { n, p, k };
-}
-
-function toFlatSensorItems(nodeDoc, selectedNode, selectedSensorType, lang) {
-  const soilSensors = Array.isArray(nodeDoc?.node_soil?.sensors)
-    ? nodeDoc.node_soil.sensors
-    : [];
-  const airSensors = Array.isArray(nodeDoc?.node_air?.sensors)
-    ? nodeDoc.node_air.sensors
-    : [];
-
-  const mapItems = (arr, nodeType) =>
-    arr.flatMap((s, idx) => {
-      if (!matchesSensorTypeFilter(s?.sensorType, selectedSensorType)) {
-        return [];
-      }
-
-      const normalizedType = normalizeSensorType(s?.sensorType);
-
-      if (normalizedType === "temp_rh") {
-        const parts = getTempRhParts(s);
-        const baseId = String(s?._id || `${nodeType}-${idx}`);
-
-        return [
-          {
-            id: `${baseId}-temp`,
-            nodeType,
-            sensorType: "temp",
-            sourceSensorType: normalizedType,
-            name: lang === "en" ? "Temperature" : "Temp",
-            subLabel: sensorTypeLabel("temp"),
-            value: parts.tempValue,
-            status: s?.status || "OK",
-            lastReadingAt: s?.lastReadingAt || s?.lastReading?.ts || "-",
-            unit: "°C",
-            rawSensor: s,
-          },
-          {
-            id: `${baseId}-rh`,
-            nodeType,
-            sensorType: "rh",
-            sourceSensorType: normalizedType,
-            name: lang === "en" ? "Humidity" : "Humidity",
-            subLabel: sensorTypeLabel("rh"),
-            value: parts.rhValue,
-            status: s?.status || "OK",
-            lastReadingAt: s?.lastReadingAt || s?.lastReading?.ts || "-",
-            unit: "%",
-            rawSensor: s,
-          },
-        ];
-      }
-
-      return [
-        {
-          id: String(s?._id || `${nodeType}-${idx}`),
-          nodeType,
-          sensorType: String(s?.sensorType || ""),
-          sourceSensorType: normalizedType,
-          name:
-            String(s?.name || "").trim() ||
-            `${sensorTypeLabel(s?.sensorType)} #${idx + 1}`,
-          subLabel: sensorTypeLabel(s?.sensorType),
-          value: formatSensorDisplayValue(s),
-          status: s?.status || "OK",
-          lastReadingAt: s?.lastReadingAt || s?.lastReading?.ts || "-",
-          unit: s?.unit || "",
-          rawSensor: s,
-        },
-      ];
-    });
-
-  const onlySoil = selectedNode === "soil";
-  const onlyAir = selectedNode === "air";
-
-  let items = [];
-
-  if (!onlyAir) {
-    items = [...items, ...mapItems(soilSensors, "soil")];
-  }
-
-  if (!onlySoil) {
-    items = [...items, ...mapItems(airSensors, "air")];
-  }
-
-  return items;
+function prepareSensorsForSave(sensors = []) {
+  return (Array.isArray(sensors) ? sensors : []).map((s) => ({
+    id: s.id && !String(s.id).startsWith("tmp-") ? s.id : undefined,
+    sensorType: String(s.sensorType || "").trim(),
+    name: String(s.name || "").trim(),
+    unit: String(s.unit || "").trim(),
+    value: s.value ?? null,
+    valueHint: s.valueHint ?? "",
+    status: String(s.status || "OK"),
+    lastReadingAt: s.lastReadingAt ?? null,
+    lastReading: s.lastReading ?? { value: s.value ?? null, ts: s.lastReadingAt ?? null },
+  }));
 }
 
 export default function AddSensorPage() {
@@ -621,15 +542,31 @@ export default function AddSensorPage() {
   const [selectedPlot, setSelectedPlot] = useState("all");
   const [selectedNode, setSelectedNode] = useState("all");
   const [selectedSensorType, setSelectedSensorType] = useState("all");
-  const [showNodePicker, setShowNodePicker] = useState(false);
+
+  const [plots, setPlots] = useState([]);
+  const [nodeTemplates, setNodeTemplates] = useState([]);
+  const [plotMeta, setPlotMeta] = useState(null);
+  const [plotPolygons, setPlotPolygons] = useState([]);
+
+  const [pins, setPins] = useState([]);
+  const [activePinId, setActivePinId] = useState(null);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [savingNodeId, setSavingNodeId] = useState("");
+
+  const activePin = useMemo(
+    () => pins.find((p) => String(p.id) === String(activePinId)) || null,
+    [pins, activePinId]
+  );
+
+  useEffect(() => {
+    setTemplatePickerOpen(false);
+    setSelectedTemplateId("");
+  }, [activePinId]);
 
   useEffect(() => {
     setMapReady(false);
   }, [selectedPlot, selectedNode]);
-
-  useEffect(() => {
-    setShowNodePicker(false);
-  }, [selectedPlot]);
 
   useEffect(() => {
     const allowedTypes =
@@ -649,38 +586,6 @@ export default function AddSensorPage() {
   }, [selectedNode, selectedSensorType]);
 
   const readOnlyAllPlots = false;
-
-  const [plots, setPlots] = useState([]);
-  const [nodeTemplates, setNodeTemplates] = useState([]);
-  const [plotMeta, setPlotMeta] = useState(null);
-  const [plotPolygons, setPlotPolygons] = useState([]);
-
-  const [pins, setPins] = useState([]);
-  const [activePinId, setActivePinId] = useState(null);
-  const [activePinNode, setActivePinNode] = useState(null);
-
-  const activePin = useMemo(
-    () => pins.find((p) => String(p.id) === String(activePinId)) || null,
-    [pins, activePinId]
-  );
-
-  useEffect(() => {
-    setShowNodePicker(false);
-  }, [activePinId]);
-
-  const selectedNodeTemplateId = useMemo(
-    () => String(activePin?.nodeId || ""),
-    [activePin]
-  );
-
-  const activeNodeName = useMemo(() => {
-    if (activePin?.nodeName) return activePin.nodeName;
-    if (activePinNode?.nodeName) return activePinNode.nodeName;
-    const found = nodeTemplates.find(
-      (n) => String(n.id || n._id) === String(selectedNodeTemplateId)
-    );
-    return found?.nodeName || "";
-  }, [activePin, activePinNode, nodeTemplates, selectedNodeTemplateId]);
 
   const plotLabel = useMemo(() => {
     if (selectedPlot === "all") return "ทุกแปลง";
@@ -719,10 +624,24 @@ export default function AddSensorPage() {
     return [...scoped].sort((a, b) => Number(a?.number || 0) - Number(b?.number || 0));
   }, [pins, selectedPlot]);
 
-  const sensorDisplayItems = useMemo(
-    () => toFlatSensorItems(activePinNode, selectedNode, selectedSensorType, lang),
-    [activePinNode, selectedNode, selectedSensorType, lang]
-  );
+  const activePinVisibleNodes = useMemo(() => {
+    if (!activePin) return [];
+    let nodes = [];
+    if (selectedNode === "all" || selectedNode === "air") {
+      nodes.push(...(activePin.node_air || []).map((n) => ({ ...n, __nodeType: "air" })));
+    }
+    if (selectedNode === "all" || selectedNode === "soil") {
+      nodes.push(...(activePin.node_soil || []).map((n) => ({ ...n, __nodeType: "soil" })));
+    }
+
+    return nodes.map((node) => ({
+      ...node,
+      sensors: (node.sensors || []).filter((s) => {
+        if (selectedSensorType === "all") return true;
+        return String(s.sensorType) === String(selectedSensorType);
+      }),
+    }));
+  }, [activePin, selectedNode, selectedSensorType]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -777,13 +696,7 @@ export default function AddSensorPage() {
         meta,
         polygons: polys,
         pins: ensureUniquePinNumbers(
-          pinsItems.map((p) => ({
-            ...p,
-            id: String(p.id || p._id),
-            plotId: String(plotId),
-            nodeId: p?.nodeId ? String(p.nodeId) : "",
-            nodeName: p?.nodeName || "",
-          }))
+          pinsItems.map((p) => normalizePinFromApi(p, plotId))
         ),
       };
     };
@@ -796,7 +709,6 @@ export default function AddSensorPage() {
         setPlotPolygons([]);
         setPins([]);
         setActivePinId(null);
-        setActivePinNode(null);
 
         if (selectedPlot === "all") {
           const plotRes = await apiFetch("/api/plots", {
@@ -820,8 +732,9 @@ export default function AddSensorPage() {
           }
 
           setPlotPolygons(allPolygons);
-          setPins(ensureUniquePinNumbers(allPins));
-          setActivePinId(allPins[0]?.id ? String(allPins[0].id) : null);
+          const fixedPins = ensureUniquePinNumbers(allPins);
+          setPins(fixedPins);
+          setActivePinId(fixedPins[0]?.id ? String(fixedPins[0].id) : null);
           return;
         }
 
@@ -838,36 +751,6 @@ export default function AddSensorPage() {
     run();
     return () => controller.abort();
   }, [selectedPlot]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const run = async () => {
-      try {
-        if (!activePinId || !isLikelyObjectId(String(activePinId))) {
-          setActivePinNode(null);
-          return;
-        }
-
-        const token = getToken();
-        const res = await apiFetch(
-          `/api/pins/${encodeURIComponent(String(activePinId))}/node`,
-          {
-            token,
-            signal: controller.signal,
-          }
-        );
-
-        setActivePinNode(res?.item || null);
-      } catch (e) {
-        console.warn("[AddSensor] load active pin node failed:", e?.message || e);
-        setActivePinNode(null);
-      }
-    };
-
-    run();
-    return () => controller.abort();
-  }, [activePinId]);
 
   const addPin = async () => {
     if (selectedPlot === "all") {
@@ -886,27 +769,22 @@ export default function AddSensorPage() {
     const nextNumber = getNextAvailablePinNumber(scopedPins);
     const tempId = `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-    setPins((prev) => {
-      const next = [
-        ...(Array.isArray(prev) ? prev : []),
-        {
-          id: tempId,
-          _tmp: true,
-          number: nextNumber,
-          lat: null,
-          lng: null,
-          nodeId: "",
-          nodeName: "",
-          plotId: String(selectedPlot),
-        },
-      ];
-
-      return Array.isArray(next) ? next : [];
-    });
+    setPins((prev) => [
+      ...(Array.isArray(prev) ? prev : []),
+      {
+        id: tempId,
+        _tmp: true,
+        number: nextNumber,
+        pinName: `Pin ${nextNumber}`,
+        lat: null,
+        lng: null,
+        node_air: [],
+        node_soil: [],
+        plotId: String(selectedPlot),
+      },
+    ]);
 
     setActivePinId(tempId);
-    setActivePinNode(null);
-    setShowNodePicker(true);
   };
 
   const removePinById = async (pinId) => {
@@ -918,7 +796,6 @@ export default function AddSensorPage() {
 
     if (String(pinId) === String(activePinId)) {
       setActivePinId(null);
-      setActivePinNode(null);
     }
 
     try {
@@ -930,6 +807,28 @@ export default function AddSensorPage() {
       });
     } catch (e) {
       console.warn("[AddSensor] delete pin failed:", e?.message || e);
+    }
+  };
+
+  const reloadOnePin = async (pinId) => {
+    if (!pinId || !isLikelyObjectId(String(pinId))) return;
+    try {
+      const token = getToken();
+      const res = await apiFetch(`/api/pins/${encodeURIComponent(String(pinId))}`, {
+        token,
+      });
+      const item = res?.item || null;
+      if (!item) return;
+
+      setPins((prev) =>
+        (prev || []).map((p) =>
+          String(p.id) === String(pinId)
+            ? normalizePinFromApi(item, p.plotId || selectedPlot)
+            : p
+        )
+      );
+    } catch (e) {
+      console.warn("[AddSensor] reload pin failed:", e?.message || e);
     }
   };
 
@@ -964,9 +863,9 @@ export default function AddSensorPage() {
             token,
             body: {
               number: pin.number,
+              pinName: pin.pinName || `Pin ${pin.number}`,
               lat,
               lng,
-              nodeId: pin.nodeId || null,
             },
           }
         );
@@ -975,23 +874,11 @@ export default function AddSensorPage() {
         const createdId = created?.id || created?._id;
         if (!createdId) throw new Error("ไม่ได้รับ id จาก API");
 
+        const normalizedCreated = normalizePinFromApi(created, targetPlotId);
+
         setPins((prev) => {
           const replaced = prev.map((p) =>
-            String(p.id) === String(activePinId)
-              ? {
-                  ...p,
-                  _tmp: false,
-                  id: String(createdId),
-                  number: created.number ?? pin.number,
-                  lat: created.lat ?? lat,
-                  lng: created.lng ?? lng,
-                  nodeId: created?.nodeId
-                    ? String(created.nodeId)
-                    : pin.nodeId || "",
-                  nodeName: created?.nodeName || pin.nodeName || "",
-                  plotId: targetPlotId,
-                }
-              : p
+            String(p.id) === String(activePinId) ? normalizedCreated : p
           );
 
           const samePlot = replaced.filter(
@@ -1072,41 +959,269 @@ export default function AddSensorPage() {
     }
   };
 
-  const onChangeNodeTemplate = async (nodeId) => {
-    if (!activePinId) {
-      alert(
-        lang === "en" ? "Please select a pin first" : "กรุณาเลือก Pin ก่อน"
-      );
-      return;
-    }
-
-    const chosen = nodeTemplates.find(
-      (n) => String(n.id || n._id) === String(nodeId)
+  const setActivePinName = async (pinName) => {
+    if (!activePinId) return;
+    setPins((prev) =>
+      prev.map((p) =>
+        String(p.id) === String(activePinId) ? { ...p, pinName } : p
+      )
     );
 
-    if (!chosen) {
-      alert(
-        lang === "en"
-          ? "Please select a valid NodeTemplate"
-          : "กรุณาเลือก NodeTemplate ที่ถูกต้อง"
-      );
+    try {
+      const token = getToken();
+      if (!isLikelyObjectId(String(activePinId))) return;
+
+      await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}`, {
+        method: "PATCH",
+        token,
+        body: { pinName },
+      });
+    } catch (e) {
+      console.warn("[AddSensor] patch pin name failed:", e?.message || e);
+    }
+  };
+
+  const addNodeToActivePin = async (nodeType) => {
+    if (!activePinId) {
+      alert(lang === "en" ? "Please select a pin first" : "กรุณาเลือก Pin ก่อน");
       return;
     }
 
     if (!isLikelyObjectId(String(activePinId))) {
       setPins((prev) =>
-        prev.map((p) =>
-          String(p.id) === String(activePinId)
-            ? {
-                ...p,
-                nodeId: String(nodeId),
-                nodeName: chosen?.nodeName || "",
-              }
-            : p
-        )
+        prev.map((p) => {
+          if (String(p.id) !== String(activePinId)) return p;
+          const key = nodeType === "air" ? "node_air" : "node_soil";
+          return {
+            ...p,
+            [key]: [...(p[key] || []), createLocalNode(nodeType)],
+          };
+        })
       );
-      setActivePinNode(chosen || null);
-      setShowNodePicker(false);
+      return;
+    }
+
+    try {
+      const token = getToken();
+      const path =
+        nodeType === "air"
+          ? `/api/pins/${encodeURIComponent(String(activePinId))}/node-air`
+          : `/api/pins/${encodeURIComponent(String(activePinId))}/node-soil`;
+
+      const body =
+        nodeType === "air"
+          ? { nodeName: "Node อากาศใหม่" }
+          : { nodeName: "Node ดินใหม่" };
+
+      const res = await apiFetch(path, {
+        method: "POST",
+        token,
+        body,
+      });
+
+      const created = res?.item || null;
+      if (!created) throw new Error("ไม่สามารถสร้าง node ได้");
+
+      setPins((prev) =>
+        prev.map((p) => {
+          if (String(p.id) !== String(activePinId)) return p;
+          const key = nodeType === "air" ? "node_air" : "node_soil";
+          return {
+            ...p,
+            [key]: [...(p[key] || []), created],
+          };
+        })
+      );
+    } catch (e) {
+      console.warn("[AddSensor] add node failed:", e?.message || e);
+      alert(`${lang === "en" ? "Add node failed" : "เพิ่ม node ไม่สำเร็จ"}: ${e?.message || e}`);
+    }
+  };
+
+  const updateLocalNode = (pinId, nodeType, nodeId, updater) => {
+    setPins((prev) =>
+      (prev || []).map((pin) => {
+        if (String(pin.id) !== String(pinId)) return pin;
+        const key = nodeType === "air" ? "node_air" : "node_soil";
+        return {
+          ...pin,
+          [key]: (pin[key] || []).map((node) =>
+            String(node.id) === String(nodeId)
+              ? typeof updater === "function"
+                ? updater(node)
+                : { ...node, ...updater }
+              : node
+          ),
+        };
+      })
+    );
+  };
+
+  const deleteNodeFromPin = async (pinId, nodeId) => {
+    if (!pinId || !nodeId) return;
+    const pin = pins.find((p) => String(p.id) === String(pinId));
+    const node =
+      (pin?.node_air || []).find((n) => String(n.id) === String(nodeId)) ||
+      (pin?.node_soil || []).find((n) => String(n.id) === String(nodeId));
+
+    if (!node) return;
+
+    if (!window.confirm(lang === "en" ? "Delete this node?" : "ลบ node นี้ใช่ไหม")) {
+      return;
+    }
+
+    setPins((prev) =>
+      (prev || []).map((p) => {
+        if (String(p.id) !== String(pinId)) return p;
+        return {
+          ...p,
+          node_air: (p.node_air || []).filter((n) => String(n.id) !== String(nodeId)),
+          node_soil: (p.node_soil || []).filter((n) => String(n.id) !== String(nodeId)),
+        };
+      })
+    );
+
+    if (!isLikelyObjectId(String(pinId)) || !isLikelyObjectId(String(nodeId))) return;
+
+    try {
+      const token = getToken();
+      await apiFetch(
+        `/api/pins/${encodeURIComponent(String(pinId))}/nodes/${encodeURIComponent(
+          String(nodeId)
+        )}`,
+        {
+          method: "DELETE",
+          token,
+        }
+      );
+    } catch (e) {
+      console.warn("[AddSensor] delete node failed:", e?.message || e);
+      alert(`${lang === "en" ? "Delete node failed" : "ลบ node ไม่สำเร็จ"}: ${e?.message || e}`);
+      await reloadOnePin(pinId);
+    }
+  };
+
+  const saveNode = async (pinId, nodeType, node) => {
+    if (!pinId || !node?.id) return;
+
+    if (!isLikelyObjectId(String(pinId)) || !isLikelyObjectId(String(node.id))) {
+      alert(
+        lang === "en"
+          ? "Please place/save the pin on the map first."
+          : "กรุณาปักและบันทึก Pin บนแผนที่ก่อน"
+      );
+      return;
+    }
+
+    setSavingNodeId(String(node.id));
+    try {
+      const token = getToken();
+      await apiFetch(
+        `/api/pins/${encodeURIComponent(String(pinId))}/nodes/${encodeURIComponent(
+          String(node.id)
+        )}`,
+        {
+          method: "PATCH",
+          token,
+          body: {
+            nodeName: node.nodeName,
+            sensors: prepareSensorsForSave(node.sensors || []),
+          },
+        }
+      );
+      await reloadOnePin(pinId);
+    } catch (e) {
+      console.warn("[AddSensor] save node failed:", e?.message || e);
+      alert(`${lang === "en" ? "Save node failed" : "บันทึก node ไม่สำเร็จ"}: ${e?.message || e}`);
+    } finally {
+      setSavingNodeId("");
+    }
+  };
+
+  const addSensorToNode = (pinId, nodeType, nodeId) => {
+    updateLocalNode(pinId, nodeType, nodeId, (node) => ({
+      ...node,
+      sensors: [...(node.sensors || []), createLocalSensor(nodeType)],
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  const updateSensorInNode = (pinId, nodeType, nodeId, sensorId, patch) => {
+    updateLocalNode(pinId, nodeType, nodeId, (node) => ({
+      ...node,
+      sensors: (node.sensors || []).map((s) =>
+        String(s.id) === String(sensorId)
+          ? {
+              ...s,
+              ...patch,
+              ...(patch.sensorType
+                ? {
+                    name:
+                      patch.name !== undefined
+                        ? patch.name
+                        : getDefaultNameByType(patch.sensorType),
+                    unit:
+                      patch.unit !== undefined
+                        ? patch.unit
+                        : getDefaultUnitByType(patch.sensorType),
+                  }
+                : {}),
+            }
+          : s
+      ),
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  const removeSensorFromNode = async (pinId, nodeType, nodeId, sensorId) => {
+    const pin = pins.find((p) => String(p.id) === String(pinId));
+    const nodeList = nodeType === "air" ? pin?.node_air || [] : pin?.node_soil || [];
+    const node = nodeList.find((n) => String(n.id) === String(nodeId));
+    const sensor = (node?.sensors || []).find((s) => String(s.id) === String(sensorId));
+    if (!node || !sensor) return;
+
+    updateLocalNode(pinId, nodeType, nodeId, (n) => ({
+      ...n,
+      sensors: (n.sensors || []).filter((s) => String(s.id) !== String(sensorId)),
+      updatedAt: new Date().toISOString(),
+    }));
+
+    if (isLikelyObjectId(String(sensorId))) {
+      try {
+        const token = getToken();
+        await apiFetch(`/api/sensors/${encodeURIComponent(String(sensorId))}`, {
+          method: "PATCH",
+          token,
+          body: {
+            status: "DELETED",
+            name: sensor.name || "",
+          },
+        });
+      } catch (e) {
+        console.warn("[AddSensor] soft delete sensor failed:", e?.message || e);
+      }
+    }
+  };
+
+  const attachTemplateToActivePin = async () => {
+    if (!activePinId) {
+      alert(lang === "en" ? "Please select a pin first" : "กรุณาเลือก Pin ก่อน");
+      return;
+    }
+    if (!selectedTemplateId) {
+      alert(
+        lang === "en"
+          ? "Please select a node template"
+          : "กรุณาเลือก NodeTemplate"
+      );
+      return;
+    }
+    if (!isLikelyObjectId(String(activePinId))) {
+      alert(
+        lang === "en"
+          ? "Please place/save the pin on the map first."
+          : "กรุณาปักและบันทึก Pin บนแผนที่ก่อน"
+      );
       return;
     }
 
@@ -1115,27 +1230,15 @@ export default function AddSensorPage() {
       await apiFetch(`/api/pins/${encodeURIComponent(String(activePinId))}/node`, {
         method: "PATCH",
         token,
-        body: { nodeId },
+        body: { nodeId: selectedTemplateId },
       });
-
-      setPins((prev) =>
-        prev.map((p) =>
-          String(p.id) === String(activePinId)
-            ? {
-                ...p,
-                nodeId: String(nodeId),
-                nodeName: chosen?.nodeName || "",
-              }
-            : p
-        )
-      );
-
-      setActivePinNode(chosen || null);
-      setShowNodePicker(false);
+      await reloadOnePin(activePinId);
+      setTemplatePickerOpen(false);
+      setSelectedTemplateId("");
     } catch (e) {
       console.warn("[AddSensor] assign node template failed:", e?.message || e);
       alert(
-        `${lang === "en" ? "Assign node failed" : "ผูก node ไม่สำเร็จ"}: ${
+        `${lang === "en" ? "Assign template failed" : "เพิ่ม template ไม่สำเร็จ"}: ${
           e?.message || e
         }`
       );
@@ -1314,9 +1417,16 @@ export default function AddSensorPage() {
       },
 
       pinList: { marginTop: 10, display: "grid", gap: 10 },
-      pinCard: (active) => ({
+      pinCard: (active, status) => ({
         borderRadius: 16,
-        background: active ? "#fee2e2" : "#fef9c3",
+        background:
+          active
+            ? "#fee2e2"
+            : status === "READY"
+            ? "#dcfce7"
+            : status === "PARTIAL"
+            ? "#fef3c7"
+            : "#f1f5f9",
         padding: 10,
         border: active ? "2px solid #ef4444" : "1px solid rgba(15,23,42,0.10)",
         boxShadow: active
@@ -1330,7 +1440,7 @@ export default function AddSensorPage() {
           ? "1fr"
           : isTablet
           ? "repeat(2,minmax(0,1fr))"
-          : "repeat(4,minmax(0,1fr))",
+          : "repeat(5,minmax(0,1fr))",
         gap: 12,
       },
       pinMetaBox: {
@@ -1382,7 +1492,7 @@ export default function AddSensorPage() {
 
       pinFormGrid: {
         display: "grid",
-        gridTemplateColumns: isMobile ? "1fr" : "repeat(2,minmax(0,1fr))",
+        gridTemplateColumns: isMobile ? "1fr" : "repeat(3,minmax(0,1fr))",
         gap: 14,
         alignItems: "start",
       },
@@ -1451,32 +1561,27 @@ export default function AddSensorPage() {
         color: "#334155",
       },
 
-      nodeInfoCard: {
+      templateCard: {
         borderRadius: 16,
         background: "#ffffff",
         border: "1px solid rgba(15,23,42,0.08)",
         boxShadow: "0 10px 18px rgba(15,23,42,0.08)",
         padding: "12px 14px",
-      },
-      nodeInfoTop: {
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: isMobile ? "stretch" : "center",
-        flexDirection: isMobile ? "column" : "row",
+        display: "grid",
         gap: 10,
       },
-      nodeInfoName: {
-        fontSize: 14,
-        fontWeight: 900,
-        color: "#111827",
-        lineHeight: 1.4,
+      templateActions: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
       },
-      nodeInfoSub: {
-        fontSize: 11,
-        color: "#64748b",
-        marginTop: 4,
+      nodeRow: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        marginBottom: 10,
       },
-      nodeActionBtn: {
+      actionBtn: {
         borderRadius: 999,
         border: "none",
         padding: "10px 16px",
@@ -1485,7 +1590,6 @@ export default function AddSensorPage() {
         background: "linear-gradient(135deg,#6366f1,#a855f7)",
         color: "#fff",
         cursor: "pointer",
-        whiteSpace: "nowrap",
       },
       secondaryBtn: {
         borderRadius: 999,
@@ -1496,16 +1600,16 @@ export default function AddSensorPage() {
         background: "#ffffff",
         color: "#111827",
         cursor: "pointer",
-        whiteSpace: "nowrap",
       },
-      nodePickerWrap: {
-        display: "grid",
-        gap: 10,
-      },
-      nodePickerActions: {
-        display: "flex",
-        gap: 8,
-        flexWrap: "wrap",
+      dangerBtn: {
+        borderRadius: 999,
+        border: "none",
+        padding: "10px 16px",
+        fontSize: 12,
+        fontWeight: 800,
+        background: "#ef4444",
+        color: "#fff",
+        cursor: "pointer",
       },
 
       groupList: { display: "grid", gap: 12 },
@@ -1516,11 +1620,35 @@ export default function AddSensorPage() {
         border: "1px solid rgba(15,23,42,0.08)",
         boxShadow: "0 10px 18px rgba(15,23,42,0.08)",
       },
+      groupTitleRow: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: isMobile ? "flex-start" : "center",
+        flexDirection: isMobile ? "column" : "row",
+        gap: 8,
+        marginBottom: 10,
+      },
       groupTitle: {
         fontSize: 12,
         fontWeight: 900,
         color: "#111827",
-        marginBottom: 10,
+      },
+      badge: {
+        display: "inline-flex",
+        alignItems: "center",
+        borderRadius: 999,
+        padding: "6px 10px",
+        fontSize: 11,
+        fontWeight: 900,
+        background: "#ede9fe",
+        color: "#5b21b6",
+      },
+
+      nodeEditGrid: {
+        display: "grid",
+        gridTemplateColumns: isMobile ? "1fr" : "repeat(2,minmax(0,1fr))",
+        gap: 12,
+        marginBottom: 12,
       },
 
       itemsGrid: {
@@ -1548,6 +1676,31 @@ export default function AddSensorPage() {
       itemMeta: {
         fontSize: 11,
         color: "#475569",
+      },
+      sensorEditGrid: {
+        display: "grid",
+        gridTemplateColumns: isMobile ? "1fr" : "repeat(3,minmax(0,1fr))",
+        gap: 10,
+        marginBottom: 8,
+      },
+      miniInput: {
+        width: "100%",
+        minHeight: 40,
+        borderRadius: 12,
+        border: "1px solid rgba(15,23,42,0.12)",
+        background: "#fff",
+        padding: "8px 10px",
+        fontSize: 12,
+        outline: "none",
+        fontWeight: 700,
+        color: "#0f172a",
+        boxSizing: "border-box",
+      },
+      sensorBtns: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        marginTop: 6,
       },
 
       saveBtn: {
@@ -1807,10 +1960,11 @@ export default function AddSensorPage() {
           <div style={styles.pinList}>
             {filteredPins.map((p) => {
               const active = String(p.id) === String(activePinId);
+              const status = getPinStatus(p);
               return (
                 <div
                   key={p.id}
-                  style={{ ...styles.pinCard(active), position: "relative" }}
+                  style={{ ...styles.pinCard(active, status), position: "relative" }}
                   onClick={() => setActivePinId(String(p.id))}
                   role="button"
                   tabIndex={0}
@@ -1848,6 +2002,11 @@ export default function AddSensorPage() {
                     </div>
 
                     <div style={styles.pinMetaBox}>
+                      <div style={styles.pinMetaLabel}>สถานะ</div>
+                      <div style={styles.pinMetaValue}>{getPinStatusLabel(p)}</div>
+                    </div>
+
+                    <div style={styles.pinMetaBox}>
                       <div style={styles.pinMetaLabel}>
                         {lang === "en" ? "Latitude" : "ละติจูด"}
                       </div>
@@ -1862,10 +2021,10 @@ export default function AddSensorPage() {
                     </div>
 
                     <div style={styles.pinMetaBox}>
-                      <div style={styles.pinMetaLabel}>
-                        {lang === "en" ? "Node name" : "ชื่อ Node"}
+                      <div style={styles.pinMetaLabel}>Node</div>
+                      <div style={styles.pinMetaValue}>
+                        Air {(p.node_air || []).length} / Soil {(p.node_soil || []).length}
                       </div>
-                      <div style={styles.pinMetaValue}>{p.nodeName || "-"}</div>
                     </div>
                   </div>
                 </div>
@@ -1887,6 +2046,16 @@ export default function AddSensorPage() {
 
           <div style={styles.pinStack}>
             <div style={styles.pinFormGrid}>
+              <div style={styles.pinField}>
+                <div style={styles.pinFieldLabel}>Pin Name</div>
+                <input
+                  style={styles.groupPick}
+                  value={activePin?.pinName || ""}
+                  onChange={(e) => setActivePinName(e.target.value)}
+                  disabled={!activePinId}
+                />
+              </div>
+
               <div style={styles.pinField}>
                 <div style={styles.pinFieldLabel}>Latitude</div>
                 <input
@@ -1937,139 +2106,276 @@ export default function AddSensorPage() {
               </span>
             </div>
 
-            <div>
-              <div style={styles.sectionLabel}>
-                {lang === "en" ? "NodeTemplate of this pin" : "NodeTemplate ของ Pin นี้"}
-              </div>
-
-              {!activePinId ? (
-                <div style={styles.infoNotice}>
-                  {lang === "en"
-                    ? "Please select a pin first."
-                    : "กรุณาเลือก Pin ก่อน"}
-                </div>
-              ) : selectedNodeTemplateId && !showNodePicker ? (
-                <div style={styles.nodeInfoCard}>
-                  <div style={styles.nodeInfoTop}>
-                    <div>
-                      <div style={styles.nodeInfoName}>{activeNodeName || "-"}</div>
-                      <div style={styles.nodeInfoSub}>
-                        {lang === "en"
-                          ? "This pin is already linked to a NodeTemplate."
-                          : "Pin นี้ถูกผูกกับ NodeTemplate แล้ว"}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      style={styles.nodeActionBtn}
-                      onClick={() => setShowNodePicker(true)}
-                    >
-                      {lang === "en" ? "Change NodeTemplate" : "เปลี่ยน NodeTemplate"}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div style={styles.nodePickerWrap}>
-                  <select
-                    style={styles.groupPick}
-                    value={selectedNodeTemplateId}
-                    onChange={(e) => onChangeNodeTemplate(e.target.value)}
-                    disabled={!activePinId}
-                  >
-                    <option value="">
-                      {lang === "en"
-                        ? "Select node template"
-                        : "เลือก NodeTemplate"}
-                    </option>
-                    {nodeTemplates.map((n) => (
-                      <option key={n.id || n._id} value={n.id || n._id}>
-                        {n.nodeName || n.id || n._id}
-                      </option>
-                    ))}
-                  </select>
-
-                  {selectedNodeTemplateId ? (
-                    <div style={styles.nodePickerActions}>
-                      <button
-                        type="button"
-                        style={styles.secondaryBtn}
-                        onClick={() => setShowNodePicker(false)}
-                      >
-                        {lang === "en" ? "Cancel" : "ยกเลิก"}
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
-
             {!activePinId ? (
               <div style={styles.infoNotice}>
                 {lang === "en"
                   ? "Please select a pin first."
                   : "กรุณาเลือก Pin ก่อน"}
               </div>
-            ) : !selectedNodeTemplateId ? (
-              <div style={styles.infoNotice}>
-                {lang === "en"
-                  ? "This pin has not been assigned to a NodeTemplate yet. Please select one if needed."
-                  : "Pin นี้ยังไม่ได้ผูกกับ NodeTemplate หากต้องการใช้งานให้เลือกก่อน"}
-              </div>
-            ) : sensorDisplayItems.length === 0 ? (
-              <div style={styles.infoNotice}>
-                {lang === "en"
-                  ? "No sensors found inside this NodeTemplate."
-                  : "ไม่พบ sensor ภายใน NodeTemplate นี้"}
-              </div>
             ) : (
-              <div style={styles.groupList}>
-                <div style={styles.groupCard}>
-                  <div style={styles.itemsGrid}>
-                    {sensorDisplayItems.map((it) => {
-                      const npk = isNpkSensor(it.rawSensor)
-                        ? getNpkValues(it.rawSensor)
-                        : null;
+              <>
+                <div>
+                  <div style={styles.sectionLabel}>เพิ่ม NodeTemplate เข้า Pin</div>
+                  <div style={styles.templateCard}>
+                    <div style={styles.templateActions}>
+                      <button
+                        type="button"
+                        style={styles.actionBtn}
+                        onClick={() => setTemplatePickerOpen((v) => !v)}
+                      >
+                        {templatePickerOpen
+                          ? "ปิดตัวเลือก Template"
+                          : "เลือก Template เพื่อเพิ่ม Node"}
+                      </button>
+                    </div>
 
+                    {templatePickerOpen ? (
+                      <>
+                        <select
+                          style={styles.groupPick}
+                          value={selectedTemplateId}
+                          onChange={(e) => setSelectedTemplateId(e.target.value)}
+                        >
+                          <option value="">เลือก NodeTemplate</option>
+                          {nodeTemplates.map((tpl) => (
+                            <option key={tpl.id || tpl._id} value={tpl.id || tpl._id}>
+                              {getTemplateName(tpl)}
+                            </option>
+                          ))}
+                        </select>
+
+                        <div style={styles.templateActions}>
+                          <button
+                            type="button"
+                            style={styles.actionBtn}
+                            onClick={attachTemplateToActivePin}
+                          >
+                            เพิ่ม Template เข้า Pin นี้
+                          </button>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={styles.sectionLabel}>จัดการ Node ของ Pin นี้</div>
+                  <div style={styles.nodeRow}>
+                    <button
+                      type="button"
+                      style={styles.actionBtn}
+                      onClick={() => addNodeToActivePin("air")}
+                    >
+                      + เพิ่ม Node อากาศ
+                    </button>
+                    <button
+                      type="button"
+                      style={styles.actionBtn}
+                      onClick={() => addNodeToActivePin("soil")}
+                    >
+                      + เพิ่ม Node ดิน
+                    </button>
+                  </div>
+                </div>
+
+                {activePinVisibleNodes.length === 0 ? (
+                  <div style={styles.infoNotice}>
+                    {lang === "en"
+                      ? "No nodes found in this pin yet."
+                      : "Pin นี้ยังไม่มี node"}
+                  </div>
+                ) : (
+                  <div style={styles.groupList}>
+                    {activePinVisibleNodes.map((node) => {
+                      const nodeType = node.__nodeType || node.nodeType || "air";
                       return (
-                        <div key={it.id} style={styles.itemCard}>
-                          <div style={styles.itemTitle}>{it.name}</div>
-
-                          <div style={styles.itemSub}>
-                            {it.subLabel || sensorTypeLabel(it.sensorType)}
+                        <div key={node.id} style={styles.groupCard}>
+                          <div style={styles.groupTitleRow}>
+                            <div style={styles.groupTitle}>
+                              {node.nodeName || "-"}
+                            </div>
+                            <div style={styles.badge}>
+                              {getNodeTypeBadge(nodeType)}
+                            </div>
                           </div>
 
-                          {npk ? (
-                            <>
-                              <div style={styles.itemMeta}>
-                                <b>N:</b> {npk.n}
+                          <div style={styles.nodeEditGrid}>
+                            <div>
+                              <div style={styles.pinFieldLabel}>ชื่อ Node</div>
+                              <input
+                                style={styles.groupPick}
+                                value={node.nodeName || ""}
+                                onChange={(e) =>
+                                  updateLocalNode(
+                                    activePin.id,
+                                    nodeType,
+                                    node.id,
+                                    { nodeName: e.target.value }
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div>
+                              <div style={styles.pinFieldLabel}>จำนวน Sensor</div>
+                              <div style={styles.infoNotice}>
+                                {(node.sensors || []).length} รายการ
                               </div>
-                              <div style={styles.itemMeta}>
-                                <b>P:</b> {npk.p}
-                              </div>
-                              <div style={styles.itemMeta}>
-                                <b>K:</b> {npk.k}
-                              </div>
-                            </>
+                            </div>
+                          </div>
+
+                          <div style={styles.nodeRow}>
+                            <button
+                              type="button"
+                              style={styles.secondaryBtn}
+                              onClick={() =>
+                                addSensorToNode(activePin.id, nodeType, node.id)
+                              }
+                            >
+                              + เพิ่ม Sensor
+                            </button>
+
+                            <button
+                              type="button"
+                              style={styles.actionBtn}
+                              onClick={() => saveNode(activePin.id, nodeType, node)}
+                              disabled={savingNodeId === String(node.id)}
+                            >
+                              {savingNodeId === String(node.id)
+                                ? "กำลังบันทึก..."
+                                : "บันทึก Node"}
+                            </button>
+
+                            <button
+                              type="button"
+                              style={styles.dangerBtn}
+                              onClick={() => deleteNodeFromPin(activePin.id, node.id)}
+                            >
+                              ลบ Node
+                            </button>
+                          </div>
+
+                          {!node.sensors || node.sensors.length === 0 ? (
+                            <div style={styles.infoNotice}>ยังไม่มี sensor ใน node นี้</div>
                           ) : (
-                            <div style={styles.itemMeta}>
-                              <b>{lang === "en" ? "Value" : "ค่า"}:</b> {it.value}
+                            <div style={styles.itemsGrid}>
+                              {node.sensors.map((sensor) => {
+                                const options =
+                                  nodeType === "air"
+                                    ? SENSOR_TYPE_GROUPS.air
+                                    : SENSOR_TYPE_GROUPS.soil;
+
+                                return (
+                                  <div key={sensor.id} style={styles.itemCard}>
+                                    <div style={styles.itemTitle}>
+                                      {sensor.name || sensorTypeLabel(sensor.sensorType)}
+                                    </div>
+
+                                    <div style={styles.itemSub}>
+                                      {sensorTypeLabel(sensor.sensorType)}
+                                    </div>
+
+                                    <div style={styles.sensorEditGrid}>
+                                      <div>
+                                        <div style={styles.pinFieldLabel}>ประเภท</div>
+                                        <select
+                                          style={styles.miniInput}
+                                          value={sensor.sensorType || ""}
+                                          onChange={(e) =>
+                                            updateSensorInNode(
+                                              activePin.id,
+                                              nodeType,
+                                              node.id,
+                                              sensor.id,
+                                              {
+                                                sensorType: e.target.value,
+                                                name: getDefaultNameByType(e.target.value),
+                                                unit: getDefaultUnitByType(e.target.value),
+                                              }
+                                            )
+                                          }
+                                        >
+                                          {options.map((op) => (
+                                            <option key={op.value} value={op.value}>
+                                              {op.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+
+                                      <div>
+                                        <div style={styles.pinFieldLabel}>ชื่อ Sensor</div>
+                                        <input
+                                          style={styles.miniInput}
+                                          value={sensor.name || ""}
+                                          onChange={(e) =>
+                                            updateSensorInNode(
+                                              activePin.id,
+                                              nodeType,
+                                              node.id,
+                                              sensor.id,
+                                              { name: e.target.value }
+                                            )
+                                          }
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <div style={styles.pinFieldLabel}>Unit</div>
+                                        <input
+                                          style={styles.miniInput}
+                                          value={sensor.unit || ""}
+                                          onChange={(e) =>
+                                            updateSensorInNode(
+                                              activePin.id,
+                                              nodeType,
+                                              node.id,
+                                              sensor.id,
+                                              { unit: e.target.value }
+                                            )
+                                          }
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div style={styles.itemMeta}>
+                                      <b>ค่า:</b> {formatSensorDisplayValue(sensor)}
+                                    </div>
+                                    <div style={styles.itemMeta}>
+                                      <b>Status:</b> {sensor.status || "OK"}
+                                    </div>
+                                    <div style={styles.itemMeta}>
+                                      <b>อ่านค่าล่าสุด:</b>{" "}
+                                      {sensor.lastReadingAt || sensor?.lastReading?.ts || "-"}
+                                    </div>
+
+                                    <div style={styles.sensorBtns}>
+                                      <button
+                                        type="button"
+                                        style={styles.secondaryBtn}
+                                        onClick={() =>
+                                          removeSensorFromNode(
+                                            activePin.id,
+                                            nodeType,
+                                            node.id,
+                                            sensor.id
+                                          )
+                                        }
+                                      >
+                                        ลบ Sensor
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
-
-                          <div style={styles.itemMeta}>
-                            <b>Status:</b> {it.status}
-                          </div>
-                          <div style={styles.itemMeta}>
-                            <b>{lang === "en" ? "Last reading" : "อ่านค่าล่าสุด"}:</b>{" "}
-                            {it.lastReadingAt || "-"}
-                          </div>
                         </div>
                       );
                     })}
                   </div>
-                </div>
-              </div>
+                )}
+              </>
             )}
 
             <button
@@ -2078,8 +2384,8 @@ export default function AddSensorPage() {
               onClick={() =>
                 alert(
                   lang === "en"
-                    ? "Saved (pin-node link and coordinates are synced with DB)"
-                    : "บันทึกแล้ว (ตำแหน่ง pin และการผูก node sync กับ DB แล้ว)"
+                    ? "Saved. Pin position, nodes, and sensors are now synced with the backend when you save each node."
+                    : "บันทึกแล้ว โดยตำแหน่ง pin จะ sync ทันที และ node/sensor จะ sync เมื่อกดบันทึก Node"
                 )
               }
             >

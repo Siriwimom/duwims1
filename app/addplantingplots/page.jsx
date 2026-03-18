@@ -7,7 +7,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDuwimsT } from "@/app/TopBar";
 
-// --- ✅ Load react-leaflet first, set window.L, then load leaflet-draw ---
+/* =========================================================
+   LEAFLET BUNDLE
+========================================================= */
 function useLeafletBundle() {
   const [bundle, setBundle] = useState(null);
 
@@ -17,7 +19,6 @@ function useLeafletBundle() {
     (async () => {
       const RL = await import("react-leaflet");
       const LModule = await import("leaflet");
-
       const L = LModule?.default || LModule;
 
       if (typeof window !== "undefined") {
@@ -49,6 +50,9 @@ function useLeafletBundle() {
   return bundle;
 }
 
+/* =========================================================
+   CONFIG / API
+========================================================= */
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001").replace(
   /\/$/,
   ""
@@ -67,6 +71,7 @@ function getToken() {
 
 async function apiFetch(path, { method = "GET", body } = {}) {
   const token = typeof window !== "undefined" ? getToken() : "";
+
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
@@ -74,18 +79,24 @@ async function apiFetch(path, { method = "GET", body } = {}) {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
+    cache: "no-store",
   });
 
   const data = await res.json().catch(() => ({}));
+
   if (!res.ok) {
     const msg = data?.error
-      ? `${data.message || "Error"}: ${data.error}`
+      ? `${data?.message || "Error"}: ${data.error}`
       : data?.message || `HTTP ${res.status}`;
     throw new Error(msg);
   }
+
   return data;
 }
 
+/* =========================================================
+   HELPERS
+========================================================= */
 function isoToThai(iso) {
   if (!iso) return "";
   const [y, m, d] = String(iso).split("-");
@@ -105,12 +116,34 @@ function normalizeCaretaker(v) {
 
 function normalizeTopicItem(item = {}, index = 0) {
   return {
-    id: String(item._id || item.id || `topic_${index}`),
+    id: String(item.id || item._id || `topic_${index}`),
     topic: String(item.topic || "").trim(),
     content: String(item.description || item.content || "").trim(),
   };
 }
 
+function normalizeCoordsToPairs(coords) {
+  if (!Array.isArray(coords)) return [];
+  return coords
+    .map((pair) => {
+      if (!Array.isArray(pair) || pair.length < 2) return null;
+      const lat = Number(pair[0]);
+      const lng = Number(pair[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return [lat, lng];
+    })
+    .filter(Boolean);
+}
+
+function getPlotDisplayNameLocal(plot, fallback = "แปลง") {
+  return (
+    String(plot?.alias || plot?.plotName || plot?.name || "").trim() || fallback
+  );
+}
+
+/* =========================================================
+   MAP CHILDREN
+========================================================= */
 function PolyLayer({ leaflet, poly, onReady }) {
   const ref = useRef(null);
 
@@ -123,10 +156,10 @@ function PolyLayer({ leaflet, poly, onReady }) {
   return (
     <leaflet.RL.Polygon
       ref={ref}
-      positions={poly.coords}
+      positions={normalizeCoordsToPairs(poly?.coords || [])}
       pathOptions={{
-        color: poly.color || "#2563eb",
-        fillColor: poly.color || "#2563eb",
+        color: poly?.color || "#2563eb",
+        fillColor: poly?.color || "#2563eb",
         fillOpacity: 0.25,
       }}
     />
@@ -152,6 +185,7 @@ function CurrentLocationLayer({ leaflet, locateTick, onStatus, lang }) {
     }
 
     onStatus?.(lang === "en" ? "Finding current location..." : "กำลังหาตำแหน่งปัจจุบัน...");
+
     navigator.geolocation.getCurrentPosition(
       (p) => {
         const lat = p.coords.latitude;
@@ -191,6 +225,21 @@ function CurrentLocationLayer({ leaflet, locateTick, onStatus, lang }) {
   );
 }
 
+function FitPolygonBounds({ leaflet, coords }) {
+  const map = leaflet.RL.useMap();
+
+  useEffect(() => {
+    const safeCoords = normalizeCoordsToPairs(coords);
+    if (!map || safeCoords.length < 3) return;
+    map.fitBounds(safeCoords, { padding: [20, 20] });
+  }, [map, coords]);
+
+  return null;
+}
+
+/* =========================================================
+   PAGE
+========================================================= */
 export default function AddPlantingPlotsPage() {
   const router = useRouter();
   const leaflet = useLeafletBundle();
@@ -363,8 +412,8 @@ export default function AddPlantingPlotsPage() {
       if (!token) return "";
 
       const data = await apiFetch("/auth/me");
-      const u = data?.user || {};
-      const nick = normalizeCaretaker(u?.nickname || "");
+      const user = data?.user || {};
+      const nick = normalizeCaretaker(user?.nickname || "");
       if (nick) {
         setCurrentNickname(nick);
         return nick;
@@ -378,9 +427,12 @@ export default function AddPlantingPlotsPage() {
   async function loadPlots() {
     const r = await apiFetch("/api/plots");
     const items = (r?.items || []).map((p) => ({ ...p, id: String(p.id || p._id) }));
+
     setPlots(items);
+
     const firstId = items?.[0]?.id || "";
     setSelectedPlotId((prev) => prev || firstId);
+
     return firstId || selectedPlotId || "";
   }
 
@@ -394,9 +446,9 @@ export default function AddPlantingPlotsPage() {
       poly && Array.isArray(poly.coords) && poly.coords.length
         ? [
             {
-              id: String(poly._id || plotId),
+              id: String(poly.id || poly._id || plotId),
               color: poly.color || "#2563eb",
-              coords: poly.coords || [],
+              coords: normalizeCoordsToPairs(poly.coords || []),
             },
           ]
         : [];
@@ -415,6 +467,7 @@ export default function AddPlantingPlotsPage() {
   async function loadAll() {
     setErr("");
     setLoading(true);
+
     try {
       await loadCurrentUserNickname();
       const first = await loadPlots();
@@ -498,6 +551,7 @@ export default function AddPlantingPlotsPage() {
   async function addPlot() {
     setErr("");
     setBusy(true);
+
     try {
       let nicknameToUse = normalizeCaretaker(currentNickname);
       if (!nicknameToUse) {
@@ -520,11 +574,16 @@ export default function AddPlantingPlotsPage() {
           plantType: "",
           plantedAt: "",
           topics: [],
-          polygon: { color: "#2563eb", coords: [], pins: [] },
+          polygon: {
+            color: "#2563eb",
+            coords: [],
+            pins: [],
+          },
         },
       });
 
       const created = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
+
       if (created) {
         setPlots((prev) => [created, ...prev]);
         setSelectedPlotId(created.id);
@@ -535,6 +594,10 @@ export default function AddPlantingPlotsPage() {
             nicknameToUse ||
             ""
         );
+        setPlotAlias(created.alias || created.plotName || created.name || "");
+        setPlotName(created.plotName || created.name || "");
+        setPlantType(created.plantType || created.cropType || "");
+        setPlantedAt(created.plantedAt || "");
         setEditMode(true);
       }
     } catch (e) {
@@ -553,12 +616,15 @@ export default function AddPlantingPlotsPage() {
 
     setErr("");
     setBusy(true);
+
     try {
       const safeAlias = String(plotAlias || "").trim();
       const safePlotName = String(plotName || "").trim();
       const safeCaretaker = String(caretaker || "").trim();
       const safePlantType = String(plantType || "").trim();
+
       const safeTopics = extraItems.map((x) => ({
+        id: x.id,
         topic: String(x.topic || "").trim(),
         description: String(x.content || "").trim(),
       }));
@@ -630,8 +696,9 @@ export default function AddPlantingPlotsPage() {
           ? 'Please click "Edit / Delete" first before deleting a plot'
           : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบแปลงได้"
       )
-    )
+    ) {
       return;
+    }
 
     const pid = String(plotId || selectedPlotId || "");
     if (!pid) return;
@@ -639,6 +706,7 @@ export default function AddPlantingPlotsPage() {
 
     setErr("");
     setBusy(true);
+
     try {
       await apiFetch(`/api/plots/${pid}`, { method: "DELETE" });
 
@@ -673,22 +741,31 @@ export default function AddPlantingPlotsPage() {
           ? 'Please click "Edit / Delete" first before drawing a polygon'
           : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะวาด Polygon ได้"
       )
-    )
+    ) {
       return;
+    }
+
     if (!selectedPlotId) return;
 
     setErr("");
     setBusy(true);
+
     try {
+      const safeCoords = normalizeCoordsToPairs(coords);
+
       const ring =
-        coords.length >= 3 &&
-        (coords[0][0] !== coords.at(-1)[0] || coords[0][1] !== coords.at(-1)[1])
-          ? [...coords, coords[0]]
-          : coords;
+        safeCoords.length >= 3 &&
+        (safeCoords[0][0] !== safeCoords.at(-1)[0] ||
+          safeCoords[0][1] !== safeCoords.at(-1)[1])
+          ? [...safeCoords, safeCoords[0]]
+          : safeCoords;
 
       await apiFetch(`/api/plots/${selectedPlotId}/polygon`, {
         method: "PUT",
-        body: { color, coords: ring, pins: [] },
+        body: {
+          color,
+          coords: ring,
+        },
       });
 
       await loadPolygon(selectedPlotId);
@@ -706,16 +783,22 @@ export default function AddPlantingPlotsPage() {
           ? 'Please click "Edit / Delete" first before deleting a polygon'
           : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบ Polygon ได้"
       )
-    )
+    ) {
       return;
+    }
+
     if (!selectedPlotId) return;
 
     setErr("");
     setBusy(true);
+
     try {
       await apiFetch(`/api/plots/${selectedPlotId}/polygon`, {
         method: "PUT",
-        body: { color: "#2563eb", coords: [], pins: [] },
+        body: {
+          color: "#2563eb",
+          coords: [],
+        },
       });
 
       await loadPolygon(selectedPlotId);
@@ -733,10 +816,11 @@ export default function AddPlantingPlotsPage() {
           ? 'Please click "Edit / Delete" first before deleting a polygon'
           : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบ Polygon ได้"
       )
-    )
+    ) {
       return;
-    if (!confirm(txt.confirmDeletePolygon)) return;
+    }
 
+    if (!confirm(txt.confirmDeletePolygon)) return;
     await clearPolygon();
   }
 
@@ -747,8 +831,10 @@ export default function AddPlantingPlotsPage() {
           ? 'Please click "Edit / Delete" first before deleting all polygons'
           : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบ Polygon ทั้งหมดได้"
       )
-    )
+    ) {
       return;
+    }
+
     if (!selectedPlotId) return;
     if (!confirm(txt.confirmDeleteAllPolygons)) return;
 
@@ -764,12 +850,14 @@ export default function AddPlantingPlotsPage() {
       );
       return;
     }
+
     const layer = e?.layer;
     if (!layer) return;
 
     const latlngs = layer.getLatLngs?.();
     const pts = Array.isArray(latlngs) ? latlngs[0] : [];
     const coords = (pts || []).map((p) => [Number(p.lat), Number(p.lng)]);
+
     if (coords.length >= 3) {
       await putPolygon(coords, "#2563eb");
     }
@@ -784,6 +872,7 @@ export default function AddPlantingPlotsPage() {
       );
       return;
     }
+
     const layers = e?.layers;
     if (!layers || !selectedPlotId) return;
 
@@ -815,7 +904,7 @@ export default function AddPlantingPlotsPage() {
   };
 
   const handlePolyLayerReady = () => {
-    // backend.txt uses one embedded polygon per plot
+    // backend currently uses one embedded polygon per plot
   };
 
   const getPlotDisplayName = (p) => {
@@ -824,6 +913,7 @@ export default function AddPlantingPlotsPage() {
   };
 
   if (!mounted) return null;
+
   if (!leaflet) {
     return <div style={{ padding: 16 }}>{txt.loadingMap}</div>;
   }
@@ -966,6 +1056,13 @@ export default function AddPlantingPlotsPage() {
                       onStatus={setLocateStatus}
                       lang={lang}
                     />
+
+                    {!!plotPolygons?.[0]?.coords?.length && (
+                      <FitPolygonBounds
+                        leaflet={leaflet}
+                        coords={plotPolygons?.[0]?.coords || []}
+                      />
+                    )}
 
                     <leaflet.RL.FeatureGroup ref={fgRef}>
                       {plotPolygons.map((poly) => (
@@ -1111,6 +1208,7 @@ export default function AddPlantingPlotsPage() {
                     readOnly={isReadOnly}
                     disabled={busy || isReadOnly}
                   />
+
                   {plantedAt && (
                     <div className="pui-datehint">
                       {txt.dateDisplayPrefix} {isoToThai(plantedAt)}
@@ -1224,6 +1322,7 @@ export default function AddPlantingPlotsPage() {
           box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12);
           margin-bottom: 14px;
         }
+
         .pui-hero-top {
           display: flex;
           justify-content: space-between;
@@ -1253,6 +1352,7 @@ export default function AddPlantingPlotsPage() {
           justify-content: center;
           line-height: 1;
         }
+
         .pui-back:hover {
           background: rgba(255, 255, 255, 0.22);
         }
@@ -1276,6 +1376,7 @@ export default function AddPlantingPlotsPage() {
           font-size: 12px;
           cursor: pointer;
         }
+
         .pui-hero-btn:disabled {
           opacity: 0.6;
           cursor: not-allowed;
@@ -1286,9 +1387,11 @@ export default function AddPlantingPlotsPage() {
           color: #991b1b;
           border: 1px solid rgba(239, 68, 68, 0.25);
         }
+
         .pui-hero-btn-danger:hover {
           background: rgba(254, 226, 226, 0.98);
         }
+
         .pui-hero-btn-danger:disabled {
           opacity: 0.6;
           cursor: not-allowed;
@@ -1307,6 +1410,7 @@ export default function AddPlantingPlotsPage() {
           box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12);
           border: 1px solid rgba(0, 0, 0, 0.06);
         }
+
         .pui-card-top {
           display: flex;
           justify-content: space-between;
@@ -1314,11 +1418,13 @@ export default function AddPlantingPlotsPage() {
           gap: 10px;
           margin-bottom: 10px;
         }
+
         .pui-card-title {
           font-weight: 900;
           font-size: 12px;
           color: rgba(0, 0, 0, 0.7);
         }
+
         .pui-pill {
           border: none;
           background: rgba(255, 255, 255, 0.75);
@@ -1330,10 +1436,12 @@ export default function AddPlantingPlotsPage() {
           color: rgba(0, 0, 0, 0.7);
           cursor: pointer;
         }
+
         .pui-pill:disabled {
           opacity: 0.6;
           cursor: not-allowed;
         }
+
         .pui-pill.done {
           background: rgba(16, 185, 129, 0.2);
           border-color: rgba(16, 185, 129, 0.35);
@@ -1355,6 +1463,7 @@ export default function AddPlantingPlotsPage() {
           border: 1px solid rgba(0, 0, 0, 0.06);
           margin-bottom: 12px;
         }
+
         .pui-form-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -1371,6 +1480,7 @@ export default function AddPlantingPlotsPage() {
           color: rgba(255, 255, 255, 0.9);
           margin: 0 0 6px 6px;
         }
+
         .pui-label-dark {
           font-size: 11px;
           font-weight: 900;
@@ -1427,6 +1537,7 @@ export default function AddPlantingPlotsPage() {
           gap: 12px;
           margin-bottom: 12px;
         }
+
         .pui-notes-title {
           font-weight: 1000;
           font-size: 12px;
@@ -1455,12 +1566,14 @@ export default function AddPlantingPlotsPage() {
           border-radius: 14px;
           padding: 12px;
         }
+
         .pui-map-title {
           font-weight: 900;
           font-size: 12px;
           color: rgba(0, 0, 0, 0.7);
           margin-bottom: 8px;
         }
+
         .pui-map {
           height: 560px;
           border-radius: 12px;
@@ -1469,12 +1582,15 @@ export default function AddPlantingPlotsPage() {
           background: rgba(255, 255, 255, 0.8);
           position: relative;
         }
+
         .pui-mapbox-top {
           margin-bottom: 12px;
         }
+
         .pui-map-top {
           height: 260px;
         }
+
         .pui-map-loading {
           height: 100%;
           display: flex;
@@ -1491,6 +1607,7 @@ export default function AddPlantingPlotsPage() {
           display: grid;
           gap: 8px;
         }
+
         .pui-polyrow {
           display: flex;
           align-items: center;
@@ -1501,11 +1618,13 @@ export default function AddPlantingPlotsPage() {
           border-radius: 12px;
           padding: 8px 10px;
         }
+
         .pui-polynum {
           font-weight: 900;
           color: rgba(0, 0, 0, 0.72);
           font-size: 12px;
         }
+
         .pui-polychip {
           width: 14px;
           height: 14px;
@@ -1524,10 +1643,12 @@ export default function AddPlantingPlotsPage() {
           cursor: pointer;
           font-size: 12px;
         }
+
         .pui-danger:disabled {
           opacity: 0.6;
           cursor: not-allowed;
         }
+
         .pui-danger.small {
           height: 40px;
           display: inline-flex;
@@ -1548,6 +1669,7 @@ export default function AddPlantingPlotsPage() {
           justify-content: center;
           margin-top: 12px;
         }
+
         .pui-save {
           width: 160px;
           border: none;
@@ -1559,6 +1681,7 @@ export default function AddPlantingPlotsPage() {
           box-shadow: 0 14px 26px rgba(76, 99, 255, 0.25);
           cursor: pointer;
         }
+
         .pui-save:disabled {
           opacity: 0.6;
           cursor: not-allowed;
@@ -1573,6 +1696,7 @@ export default function AddPlantingPlotsPage() {
           font-weight: 1000;
           cursor: pointer;
         }
+
         .pui-plus:disabled {
           opacity: 0.6;
           cursor: not-allowed;
@@ -1628,9 +1752,11 @@ export default function AddPlantingPlotsPage() {
           .pui-form-grid {
             grid-template-columns: 1fr;
           }
+
           .pui-input-short {
             width: 100%;
           }
+
           .pui-map-top {
             height: 340px;
           }
@@ -1648,18 +1774,21 @@ export default function AddPlantingPlotsPage() {
           border: 1px solid rgba(239, 68, 68, 0.25);
           box-shadow: 0 12px 22px rgba(0, 0, 0, 0.1);
         }
+
         .pui-alert-title {
           font-weight: 1000;
           font-size: 12px;
           color: rgba(127, 29, 29, 0.95);
           margin-bottom: 6px;
         }
+
         .pui-alert-msg {
           font-size: 12px;
           color: rgba(127, 29, 29, 0.9);
           line-height: 1.45;
           white-space: pre-wrap;
         }
+
         .pui-alert-hint {
           margin-top: 8px;
           font-size: 11px;
