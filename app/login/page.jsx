@@ -22,6 +22,16 @@ export default function App() {
 
   const TOKEN_KEYS_TO_SAVE = ["AUTH_TOKEN_V1", "token"];
 
+  const API_BASE =
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_BASE ||
+    "http://localhost:3001";
+
+  const [sessionUser, setSessionUser] = useState(null);
+  const [sessionChecking, setSessionChecking] = useState(true);
+
+  const [signupIsOwner, setSignupIsOwner] = useState(false);
+
   function getToken() {
     if (typeof window === "undefined") return null;
     for (const k of TOKEN_KEYS_TO_SAVE) {
@@ -40,16 +50,6 @@ export default function App() {
     if (typeof window === "undefined") return;
     TOKEN_KEYS_TO_SAVE.forEach((k) => localStorage.removeItem(k));
   }
-
-  const API_BASE =
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_API_BASE ||
-    "http://localhost:3001";
-
-  const [sessionUser, setSessionUser] = useState(null);
-  const [sessionChecking, setSessionChecking] = useState(true);
-
-  const [signupIsOwner, setSignupIsOwner] = useState(false);
 
   function isValidEmail(v) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
@@ -281,7 +281,7 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
 
-    (async () => {
+    async function bootstrapSession() {
       try {
         const url = new URL(window.location.href);
         const tokenFromUrl = url.searchParams.get("token");
@@ -290,9 +290,11 @@ export default function App() {
         if (errorFromUrl) {
           if (!mounted) return;
           setErr(errorFromUrl);
+
           url.searchParams.delete("token");
           url.searchParams.delete("error");
           window.history.replaceState({}, "", url.pathname);
+
           setSessionChecking(false);
           return;
         }
@@ -305,7 +307,8 @@ export default function App() {
           window.history.replaceState({}, "", url.pathname);
 
           try {
-            const me = await api("/me", { token: tokenFromUrl });
+            const me = await api("/auth/me", { token: tokenFromUrl });
+
             if (!mounted) return;
             setSessionUser(me.user || null);
             setSessionChecking(false);
@@ -325,21 +328,31 @@ export default function App() {
         const t = getToken();
         if (!t) {
           if (!mounted) return;
+          setSessionUser(null);
           setSessionChecking(false);
           return;
         }
 
-        const me = await api("/me", { token: t });
-        if (!mounted) return;
-        setSessionUser(me.user || null);
+        try {
+          const me = await api("/auth/me", { token: t });
+          if (!mounted) return;
+          setSessionUser(me.user || null);
+        } catch (e) {
+          clearToken();
+          if (!mounted) return;
+          setSessionUser(null);
+        } finally {
+          if (mounted) setSessionChecking(false);
+        }
       } catch (e) {
         clearToken();
         if (!mounted) return;
         setSessionUser(null);
-      } finally {
-        if (mounted) setSessionChecking(false);
+        setSessionChecking(false);
       }
-    })();
+    }
+
+    bootstrapSession();
 
     return () => {
       mounted = false;
