@@ -85,9 +85,12 @@ async function apiFetch(path, { method = "GET", body } = {}) {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    const msg = data?.error
-      ? `${data?.message || "Error"}: ${data.error}`
-      : data?.message || `HTTP ${res.status}`;
+    const msg =
+      typeof data?.error === "string"
+        ? `${data?.message || "Error"}: ${data.error}`
+        : typeof data?.message === "string"
+        ? data.message
+        : `HTTP ${res.status}`;
     throw new Error(msg);
   }
 
@@ -97,16 +100,59 @@ async function apiFetch(path, { method = "GET", body } = {}) {
 /* =========================================================
    HELPERS
 ========================================================= */
+function isFirestoreTimestampObject(v) {
+  return (
+    v &&
+    typeof v === "object" &&
+    typeof v._seconds === "number" &&
+    typeof v._nanoseconds === "number"
+  );
+}
+
+function convertTimestampObject(v) {
+  if (isFirestoreTimestampObject(v)) {
+    return new Date(v._seconds * 1000).toISOString();
+  }
+
+  if (Array.isArray(v)) {
+    return v.map(convertTimestampObject);
+  }
+
+  if (v && typeof v === "object") {
+    return Object.fromEntries(
+      Object.entries(v).map(([k, val]) => [k, convertTimestampObject(val)])
+    );
+  }
+
+  return v;
+}
+
+function safeText(v, fallback = "") {
+  if (v === null || v === undefined) return fallback;
+
+  if (isFirestoreTimestampObject(v)) {
+    return new Date(v._seconds * 1000).toLocaleString("th-TH");
+  }
+
+  if (typeof v === "object") {
+    return fallback;
+  }
+
+  return String(v);
+}
+
 function isoToThai(iso) {
-  if (!iso) return "";
-  const [y, m, d] = String(iso).split("-");
+  const safeIso = safeText(iso, "");
+  if (!safeIso) return "";
+
+  const [y, m, d] = String(safeIso).split("-");
   const yy = Number(y);
-  if (!yy || !m || !d) return iso;
+  if (!yy || !m || !d) return safeIso;
   return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${yy + 543}`;
 }
 
 function normalizeCaretaker(v) {
-  const s = String(v || "").trim();
+  const s = safeText(v, "").trim();
   if (!s) return "";
   if (s === "0") return "";
   if (s.toLowerCase() === "null") return "";
@@ -115,10 +161,14 @@ function normalizeCaretaker(v) {
 }
 
 function normalizeTopicItem(item = {}, index = 0) {
+  const safeItem = convertTimestampObject(item || {});
+  const topicVal = safeItem.topic;
+  const contentVal = safeItem.description ?? safeItem.content;
+
   return {
-    id: String(item.id || item._id || `topic_${index}`),
-    topic: String(item.topic || "").trim(),
-    content: String(item.description || item.content || "").trim(),
+    id: String(safeItem.id || safeItem._id || `topic_${index}`),
+    topic: safeText(topicVal, "").trim(),
+    content: safeText(contentVal, "").trim(),
   };
 }
 
@@ -136,9 +186,10 @@ function normalizeCoordsToPairs(coords) {
 }
 
 function getPlotDisplayNameLocal(plot, fallback = "แปลง") {
-  return (
-    String(plot?.alias || plot?.plotName || plot?.name || "").trim() || fallback
-  );
+  return safeText(
+    plot?.alias || plot?.plotName || plot?.name || "",
+    fallback
+  ).trim() || fallback;
 }
 
 /* =========================================================
@@ -158,8 +209,8 @@ function PolyLayer({ leaflet, poly, onReady }) {
       ref={ref}
       positions={normalizeCoordsToPairs(poly?.coords || [])}
       pathOptions={{
-        color: poly?.color || "#2563eb",
-        fillColor: poly?.color || "#2563eb",
+        color: safeText(poly?.color, "#2563eb"),
+        fillColor: safeText(poly?.color, "#2563eb"),
         fillOpacity: 0.25,
       }}
     />
@@ -411,7 +462,7 @@ export default function AddPlantingPlotsPage() {
       const token = getToken();
       if (!token) return "";
 
-      const data = await apiFetch("/auth/me");
+      const data = convertTimestampObject(await apiFetch("/auth/me"));
       const user = data?.user || {};
       const nick = normalizeCaretaker(user?.nickname || "");
       if (nick) {
@@ -425,7 +476,7 @@ export default function AddPlantingPlotsPage() {
   }
 
   async function loadPlots() {
-    const r = await apiFetch("/api/plots");
+    const r = convertTimestampObject(await apiFetch("/api/plots"));
     const items = (r?.items || []).map((p) => ({ ...p, id: String(p.id || p._id) }));
 
     setPlots(items);
@@ -439,7 +490,7 @@ export default function AddPlantingPlotsPage() {
   async function loadPolygon(plotId) {
     if (!plotId) return;
 
-    const r = await apiFetch(`/api/plots/${plotId}/polygon`);
+    const r = convertTimestampObject(await apiFetch(`/api/plots/${plotId}/polygon`));
     const poly = r?.item || null;
 
     const items =
@@ -447,7 +498,7 @@ export default function AddPlantingPlotsPage() {
         ? [
             {
               id: String(poly.id || poly._id || plotId),
-              color: poly.color || "#2563eb",
+              color: safeText(poly.color, "#2563eb"),
               coords: normalizeCoordsToPairs(poly.coords || []),
             },
           ]
@@ -459,7 +510,7 @@ export default function AddPlantingPlotsPage() {
   async function loadTopics(plotId) {
     if (!plotId) return;
 
-    const r = await apiFetch(`/api/plots/${plotId}/topics`);
+    const r = convertTimestampObject(await apiFetch(`/api/plots/${plotId}/topics`));
     const items = (r?.items || []).map((x, i) => normalizeTopicItem(x, i));
     setExtraItemsByPlot((prev) => ({ ...prev, [plotId]: items }));
   }
@@ -476,7 +527,7 @@ export default function AddPlantingPlotsPage() {
         await Promise.all([loadPolygon(pid), loadTopics(pid)]);
       }
     } catch (e) {
-      setErr(e.message || String(e));
+      setErr(e?.message || String(e));
     } finally {
       setLoading(false);
     }
@@ -498,15 +549,15 @@ export default function AddPlantingPlotsPage() {
   useEffect(() => {
     if (!selectedPlot) return;
 
-    setPlotAlias(selectedPlot.alias || selectedPlot.plotName || selectedPlot.name || "");
-    setPlotName(selectedPlot.plotName || selectedPlot.name || "");
+    setPlotAlias(safeText(selectedPlot.alias || selectedPlot.plotName || selectedPlot.name || "", ""));
+    setPlotName(safeText(selectedPlot.plotName || selectedPlot.name || "", ""));
     setCaretaker(() => {
       const fromPlot = normalizeCaretaker(selectedPlot.caretaker || selectedPlot.ownerName || "");
       const fromLogin = normalizeCaretaker(currentNickname || "");
       return fromPlot || fromLogin || "";
     });
-    setPlantType(selectedPlot.plantType || selectedPlot.cropType || "");
-    setPlantedAt(selectedPlot.plantedAt || "");
+    setPlantType(safeText(selectedPlot.plantType || selectedPlot.cropType || "", ""));
+    setPlantedAt(safeText(selectedPlot.plantedAt || "", ""));
   }, [selectedPlot, currentNickname]);
 
   function addExtraItem() {
@@ -563,24 +614,26 @@ export default function AddPlantingPlotsPage() {
           ? `New Plot ${new Date().toISOString().slice(0, 10)}`
           : `แปลงใหม่ ${new Date().toISOString().slice(0, 10)}`;
 
-      const r = await apiFetch("/api/plots", {
-        method: "POST",
-        body: {
-          plotName: baseName,
-          name: baseName,
-          alias: baseName,
-          caretaker: nicknameToUse,
-          ownerName: nicknameToUse,
-          plantType: "",
-          plantedAt: "",
-          topics: [],
-          polygon: {
-            color: "#2563eb",
-            coords: [],
-            pins: [],
+      const r = convertTimestampObject(
+        await apiFetch("/api/plots", {
+          method: "POST",
+          body: {
+            plotName: baseName,
+            name: baseName,
+            alias: baseName,
+            caretaker: nicknameToUse,
+            ownerName: nicknameToUse,
+            plantType: "",
+            plantedAt: "",
+            topics: [],
+            polygon: {
+              color: "#2563eb",
+              coords: [],
+              pins: [],
+            },
           },
-        },
-      });
+        })
+      );
 
       const created = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
 
@@ -594,14 +647,14 @@ export default function AddPlantingPlotsPage() {
             nicknameToUse ||
             ""
         );
-        setPlotAlias(created.alias || created.plotName || created.name || "");
-        setPlotName(created.plotName || created.name || "");
-        setPlantType(created.plantType || created.cropType || "");
-        setPlantedAt(created.plantedAt || "");
+        setPlotAlias(safeText(created.alias || created.plotName || created.name || "", ""));
+        setPlotName(safeText(created.plotName || created.name || "", ""));
+        setPlantType(safeText(created.plantType || created.cropType || "", ""));
+        setPlantedAt(safeText(created.plantedAt || "", ""));
         setEditMode(true);
       }
     } catch (e) {
-      setErr(e.message || String(e));
+      setErr(e?.message || String(e));
     } finally {
       setBusy(false);
     }
@@ -629,18 +682,20 @@ export default function AddPlantingPlotsPage() {
         description: String(x.content || "").trim(),
       }));
 
-      const r = await apiFetch(`/api/plots/${selectedPlotId}`, {
-        method: "PATCH",
-        body: {
-          plotName: safePlotName,
-          name: safePlotName,
-          alias: safeAlias || safePlotName,
-          caretaker: safeCaretaker,
-          ownerName: safeCaretaker,
-          plantType: safePlantType,
-          plantedAt,
-        },
-      });
+      const r = convertTimestampObject(
+        await apiFetch(`/api/plots/${selectedPlotId}`, {
+          method: "PATCH",
+          body: {
+            plotName: safePlotName,
+            name: safePlotName,
+            alias: safeAlias || safePlotName,
+            caretaker: safeCaretaker,
+            ownerName: safeCaretaker,
+            plantType: safePlantType,
+            plantedAt,
+          },
+        })
+      );
 
       await apiFetch(`/api/plots/${selectedPlotId}/topics`, {
         method: "PUT",
@@ -656,11 +711,11 @@ export default function AddPlantingPlotsPage() {
           prev.map((p) => (String(p.id) === String(updated.id) ? updated : p))
         );
 
-        setPlotAlias(updated.alias || updated.plotName || updated.name || "");
-        setPlotName(updated.plotName || updated.name || "");
+        setPlotAlias(safeText(updated.alias || updated.plotName || updated.name || "", ""));
+        setPlotName(safeText(updated.plotName || updated.name || "", ""));
         setCaretaker(normalizeCaretaker(updated.caretaker || updated.ownerName || ""));
-        setPlantType(updated.plantType || updated.cropType || "");
-        setPlantedAt(updated.plantedAt || "");
+        setPlantType(safeText(updated.plantType || updated.cropType || "", ""));
+        setPlantedAt(safeText(updated.plantedAt || "", ""));
       } else {
         setPlots((prev) =>
           prev.map((p) =>
@@ -683,7 +738,7 @@ export default function AddPlantingPlotsPage() {
       await loadTopics(selectedPlotId);
       setEditMode(false);
     } catch (e) {
-      setErr(e.message || String(e));
+      setErr(e?.message || String(e));
     } finally {
       setBusy(false);
     }
@@ -728,7 +783,7 @@ export default function AddPlantingPlotsPage() {
       setSelectedPlotId(nextPlots?.[0]?.id || "");
       setEditMode(false);
     } catch (e) {
-      setErr(e.message || String(e));
+      setErr(e?.message || String(e));
     } finally {
       setBusy(false);
     }
@@ -770,7 +825,7 @@ export default function AddPlantingPlotsPage() {
 
       await loadPolygon(selectedPlotId);
     } catch (e) {
-      setErr(e.message || String(e));
+      setErr(e?.message || String(e));
     } finally {
       setBusy(false);
     }
@@ -803,7 +858,7 @@ export default function AddPlantingPlotsPage() {
 
       await loadPolygon(selectedPlotId);
     } catch (e) {
-      setErr(e.message || String(e));
+      setErr(e?.message || String(e));
     } finally {
       setBusy(false);
     }
@@ -908,8 +963,8 @@ export default function AddPlantingPlotsPage() {
   };
 
   const getPlotDisplayName = (p) => {
-    const nameText = (p?.alias || p?.plotName || p?.name || "").trim();
-    return nameText || txt.plotWord;
+    const raw = p?.alias ?? p?.plotName ?? p?.name ?? "";
+    return safeText(raw, txt.plotWord).trim() || txt.plotWord;
   };
 
   if (!mounted) return null;
@@ -976,7 +1031,7 @@ export default function AddPlantingPlotsPage() {
         {err && (
           <div className="pui-alert">
             <div className="pui-alert-title">{txt.alertTitle}</div>
-            <div className="pui-alert-msg">{err}</div>
+            <div className="pui-alert-msg">{safeText(err, "Unknown error")}</div>
             <div className="pui-alert-hint">
               <span>{txt.tokenHint.split("AUTH_TOKEN_V1")[0]}</span>
               <b>AUTH_TOKEN_V1</b>
@@ -1031,7 +1086,7 @@ export default function AddPlantingPlotsPage() {
                   📍 {txt.myLocation}
                 </button>
 
-                {locateStatus ? <div style={{ fontSize: 12 }}>{locateStatus}</div> : null}
+                {locateStatus ? <div style={{ fontSize: 12 }}>{safeText(locateStatus)}</div> : null}
               </div>
 
               <div className="pui-map pui-map-top">
@@ -1127,7 +1182,7 @@ export default function AddPlantingPlotsPage() {
                       <span className="pui-polynum"># polygon</span>
                       <span
                         className="pui-polychip"
-                        style={{ background: p.color || "#2563eb" }}
+                        style={{ background: safeText(p.color, "#2563eb") }}
                       />
                       <button
                         className="pui-danger small"
@@ -1225,7 +1280,7 @@ export default function AddPlantingPlotsPage() {
                         {extraItems.map((item) => (
                           <div key={item.id} className="pui-item-card">
                             <div className="pui-item-head">
-                              <div className="pui-item-title">{item.topic || "-"}</div>
+                              <div className="pui-item-title">{safeText(item.topic, "-")}</div>
                               <button
                                 className="pui-danger small"
                                 type="button"
@@ -1236,7 +1291,7 @@ export default function AddPlantingPlotsPage() {
                               </button>
                             </div>
 
-                            <div className="pui-item-content">{item.content || "-"}</div>
+                            <div className="pui-item-content">{safeText(item.content, "-")}</div>
                           </div>
                         ))}
                       </div>
