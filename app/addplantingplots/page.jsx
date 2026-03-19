@@ -281,21 +281,25 @@ function normalizePolygonItem(poly = {}, fallbackId = "") {
 
 function normalizeEmployeeOption(user = {}) {
   const safeUser = deepNormalize(user || {});
+  const role = safeText(safeUser.role, "").trim().toLowerCase();
+
   const label =
     normalizeCaretaker(
-      safeUser.fullName ||
+      safeUser.nickname ||
+        safeUser.fullName ||
         safeUser.name ||
         safeUser.displayName ||
-        safeUser.nickname ||
         safeUser.email ||
         ""
     ) || "";
+
+  if (role !== "employee" || !label) return null;
 
   return {
     value: label,
     label,
     email: safeText(safeUser.email, ""),
-    role: safeText(safeUser.role, ""),
+    role,
   };
 }
 
@@ -342,7 +346,9 @@ function CurrentLocationLayer({ leaflet, locateTick, onStatus, lang }) {
       return;
     }
 
-    onStatus?.(lang === "en" ? "Finding current location..." : "กำลังหาตำแหน่งปัจจุบัน...");
+    onStatus?.(
+      lang === "en" ? "Finding current location..." : "กำลังหาตำแหน่งปัจจุบัน..."
+    );
 
     navigator.geolocation.getCurrentPosition(
       (p) => {
@@ -449,24 +455,17 @@ export default function AddPlantingPlotsPage() {
     for (const item of employeeOptions || []) {
       const key = normalizeCaretaker(item?.value || item?.label || "");
       if (!key) continue;
+
       map.set(key, {
         value: key,
         label: normalizeCaretaker(item?.label || key) || key,
       });
     }
 
-    const current = normalizeCaretaker(currentNickname);
-    if (current && !map.has(current)) {
-      map.set(current, { value: current, label: current });
-    }
-
-    const selected = normalizeCaretaker(caretaker);
-    if (selected && !map.has(selected)) {
-      map.set(selected, { value: selected, label: selected });
-    }
-
-    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, "th"));
-  }, [employeeOptions, currentNickname, caretaker]);
+    return Array.from(map.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, "th")
+    );
+  }, [employeeOptions]);
 
   const txt = {
     polygons: t("polygons", "การจัดการ Polygons"),
@@ -578,9 +577,7 @@ export default function AddPlantingPlotsPage() {
         : "ยังไม่มีรายการ — กด + เพื่อเพิ่ม",
     plotWord: lang === "en" ? "Plot" : "แปลง",
     noCaretakerOptions:
-      lang === "en"
-        ? "No employee list found"
-        : "ยังไม่พบรายชื่อผู้ดูแล",
+      lang === "en" ? "No employee list found" : "ยังไม่พบรายชื่อผู้ดูแล",
   };
 
   const requireEditMode = (
@@ -601,53 +598,48 @@ export default function AddPlantingPlotsPage() {
 
       const data = deepNormalize(await apiFetch("/auth/me"));
       const user = data?.user || {};
+      const role = safeText(user?.role, "").trim().toLowerCase();
 
       const displayName = normalizeCaretaker(
-        user?.fullName ||
+        user?.nickname ||
+          user?.fullName ||
           user?.name ||
           user?.displayName ||
-          user?.nickname ||
           user?.email ||
           ""
       );
 
       if (displayName) {
         setCurrentNickname(displayName);
-        setEmployeeOptions((prev) => {
-          const exists = prev.some(
-            (x) => normalizeCaretaker(x?.value || x?.label) === displayName
-          );
-          if (exists) return prev;
-          return [...prev, { value: displayName, label: displayName }];
-        });
-        return displayName;
       }
+
+      return role === "employee" ? displayName : "";
     } catch {
-      // ignore
+      return "";
     }
-    return "";
   }
 
   async function loadEmployeeOptions() {
     try {
       const r = deepNormalize(await apiFetch("/api/users?role=employee"));
       const rawItems = Array.isArray(r?.items) ? r.items : [];
-      const normalized = rawItems
-        .map(normalizeEmployeeOption)
-        .filter((x) => normalizeCaretaker(x.value));
 
-      if (normalized.length) {
-        const uniqueMap = new Map();
-        for (const item of normalized) {
-          const key = normalizeCaretaker(item.value);
-          if (!key) continue;
-          uniqueMap.set(key, { value: key, label: item.label || key });
-        }
-        setEmployeeOptions(Array.from(uniqueMap.values()));
-        return;
+      const normalized = rawItems.map(normalizeEmployeeOption).filter(Boolean);
+
+      const uniqueMap = new Map();
+
+      for (const item of normalized) {
+        const key = normalizeCaretaker(item.value);
+        if (!key) continue;
+        uniqueMap.set(key, {
+          value: key,
+          label: item.label || key,
+        });
       }
+
+      setEmployeeOptions(Array.from(uniqueMap.values()));
     } catch {
-      // backend current version may not have /api/users
+      setEmployeeOptions([]);
     }
   }
 
@@ -715,22 +707,17 @@ export default function AddPlantingPlotsPage() {
   useEffect(() => {
     if (!selectedPlot) return;
 
-    setPlotAlias(safeText(selectedPlot.alias || selectedPlot.plotName || selectedPlot.name || "", ""));
+    setPlotAlias(
+      safeText(selectedPlot.alias || selectedPlot.plotName || selectedPlot.name || "", "")
+    );
     setPlotName(safeText(selectedPlot.plotName || selectedPlot.name || "", ""));
     setCaretaker(() => {
-      const fromPlot = normalizeCaretaker(
-        selectedPlot.caretaker ||
-          selectedPlot.ownerName ||
-          selectedPlot.fullName ||
-          selectedPlot.name ||
-          ""
-      );
-      const fromLogin = normalizeCaretaker(currentNickname || "");
-      return fromPlot || fromLogin || "";
+      const fromPlot = normalizeCaretaker(selectedPlot.caretaker || selectedPlot.ownerName || "");
+      return fromPlot || "";
     });
     setPlantType(safeText(selectedPlot.plantType || selectedPlot.cropType || "", ""));
     setPlantedAt(toInputDate(selectedPlot.plantedAt || ""));
-  }, [selectedPlot, currentNickname]);
+  }, [selectedPlot]);
 
   function addExtraItem() {
     if (!editMode) {
@@ -776,11 +763,6 @@ export default function AddPlantingPlotsPage() {
     setBusy(true);
 
     try {
-      let nicknameToUse = normalizeCaretaker(currentNickname);
-      if (!nicknameToUse) {
-        nicknameToUse = await loadCurrentUserNickname();
-      }
-
       const baseName =
         lang === "en"
           ? `New Plot ${new Date().toISOString().slice(0, 10)}`
@@ -793,8 +775,8 @@ export default function AddPlantingPlotsPage() {
             plotName: baseName,
             name: baseName,
             alias: baseName,
-            caretaker: nicknameToUse,
-            ownerName: nicknameToUse,
+            caretaker: "",
+            ownerName: "",
             plantType: "",
             plantedAt: "",
             topics: [],
@@ -814,11 +796,7 @@ export default function AddPlantingPlotsPage() {
         setSelectedPlotId(created.id);
         setPolygonsByPlot((prev) => ({ ...prev, [created.id]: [] }));
         setExtraItemsByPlot((prev) => ({ ...prev, [created.id]: [] }));
-        setCaretaker(
-          normalizeCaretaker(created.caretaker || created.ownerName || "") ||
-            nicknameToUse ||
-            ""
-        );
+        setCaretaker(normalizeCaretaker(created.caretaker || created.ownerName || ""));
         setPlotAlias(safeText(created.alias || created.plotName || created.name || "", ""));
         setPlotName(safeText(created.plotName || created.name || "", ""));
         setPlantType(safeText(created.plantType || created.cropType || "", ""));
@@ -1407,9 +1385,7 @@ export default function AddPlantingPlotsPage() {
                     onChange={(e) => setCaretaker(e.target.value)}
                     disabled={busy || isReadOnly || !mergedCaretakerOptions.length}
                   >
-                    {!caretaker && (
-                      <option value="">{txt.caretakerPlaceholder}</option>
-                    )}
+                    {!caretaker && <option value="">{txt.caretakerPlaceholder}</option>}
 
                     {mergedCaretakerOptions.length ? (
                       mergedCaretakerOptions.map((item) => (

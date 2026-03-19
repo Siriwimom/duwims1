@@ -219,15 +219,57 @@ const TOKEN_KEYS = [
 
 const SENSOR_TYPE_GROUPS = {
   air: [
-    { value: "temp_rh", label: "อุณหภูมิและความชื้น", unit: "C", name: "Temp", valueDefault: 5 },
-    { value: "wind_speed", label: "วัดความเร็วลม", unit: "m/s", name: "Wind Speed", valueDefault: 10 },
-    { value: "light", label: "ความเข้มแสง", unit: "lux", name: "Light Sensor", valueDefault: 50 },
-    { value: "rain", label: "ปริมาณน้ำฝน", unit: "mm", name: "Rainfall", valueDefault: 1 },
+    {
+      value: "temp_rh",
+      label: "อุณหภูมิและความชื้น",
+      unit: "C",
+      name: "Temp",
+      valueDefault: 5,
+    },
+    {
+      value: "wind_speed",
+      label: "วัดความเร็วลม",
+      unit: "m/s",
+      name: "Wind Speed",
+      valueDefault: 10,
+    },
+    {
+      value: "light",
+      label: "ความเข้มแสง",
+      unit: "lux",
+      name: "Light Sensor",
+      valueDefault: 50,
+    },
+    {
+      value: "rain",
+      label: "ปริมาณน้ำฝน",
+      unit: "mm",
+      name: "Rainfall",
+      valueDefault: 1,
+    },
   ],
   soil: [
-    { value: "soil_moisture", label: "ความชื้นในดิน", unit: "%", name: "Soil Moisture", valueDefault: 60 },
-    { value: "npk", label: "ความเข้มข้นธาตุอาหาร (N,P,K)", unit: "mg", name: "N Sensor", valueDefault: 20 },
-    { value: "water_level", label: "การให้น้ำ / ความพร้อมใช้น้ำ", unit: "%", name: "Water Level", valueDefault: 80 },
+    {
+      value: "soil_moisture",
+      label: "ความชื้นในดิน",
+      unit: "%",
+      name: "Soil Moisture",
+      valueDefault: 60,
+    },
+    {
+      value: "npk",
+      label: "ความเข้มข้นธาตุอาหาร (N,P,K)",
+      unit: "mg",
+      name: "N Sensor",
+      valueDefault: 20,
+    },
+    {
+      value: "water_level",
+      label: "การให้น้ำ / ความพร้อมใช้น้ำ",
+      unit: "%",
+      name: "Water Level",
+      valueDefault: 80,
+    },
   ],
 };
 
@@ -484,9 +526,7 @@ function normalizeSensor(sensor = {}, fallbackType = "air") {
 }
 
 function createNewSensor(nodeType = "air", sensorType = null) {
-  const type =
-    sensorType ||
-    (nodeType === "soil" ? "soil_moisture" : "temp_rh");
+  const type = sensorType || (nodeType === "soil" ? "soil_moisture" : "temp_rh");
 
   const preset = getSensorPreset(type, nodeType);
 
@@ -523,8 +563,12 @@ function ensureRequiredSensorsForNode(nodeType, sensors = []) {
 
   const orderMap = new Map(base.map((item, idx) => [String(item.value), idx]));
   merged.sort((a, b) => {
-    const ai = orderMap.has(String(a.sensorType)) ? orderMap.get(String(a.sensorType)) : 999;
-    const bi = orderMap.has(String(b.sensorType)) ? orderMap.get(String(b.sensorType)) : 999;
+    const ai = orderMap.has(String(a.sensorType))
+      ? orderMap.get(String(a.sensorType))
+      : 999;
+    const bi = orderMap.has(String(b.sensorType))
+      ? orderMap.get(String(b.sensorType))
+      : 999;
     return ai - bi;
   });
 
@@ -565,15 +609,15 @@ function normalizePinFromApi(p = {}, plotId = "") {
   };
 }
 
-function createLocalPin(plotId, number) {
+function createLocalPin(plotId, number, coords = null) {
   return {
     id: `tmp-pin-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     _tmp: true,
     plotId: String(plotId),
     number,
     pinName: `Pin ${number}`,
-    lat: null,
-    lng: null,
+    lat: coords?.lat ?? null,
+    lng: coords?.lng ?? null,
     node_air: [],
     node_soil: [],
     createdAt: new Date().toISOString(),
@@ -641,7 +685,9 @@ function prepareSensorsForSave(sensors = [], nodeType = "air") {
 
 function buildPolygonListFromPlotItem(item) {
   const polys = [];
-  const ring = normalizePolygonCoords(item?.polygon?.coords || item?.polygon?.coordinates || []);
+  const ring = normalizePolygonCoords(
+    item?.polygon?.coords || item?.polygon?.coordinates || []
+  );
   if (ring.length >= 3) polys.push(ring);
   return polys;
 }
@@ -664,6 +710,27 @@ function getNodeSummary(node) {
   const sensors = Array.isArray(node?.sensors) ? node.sensors : [];
   const okCount = sensors.filter((s) => String(s.status || "OK") === "OK").length;
   return `${sensors.length} sensors • OK ${okCount}`;
+}
+
+function getCurrentPositionPromise() {
+  return new Promise((resolve, reject) => {
+    if (typeof window === "undefined" || !("geolocation" in navigator)) {
+      reject(new Error("Geolocation not supported"));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        resolve({
+          lat: Number(pos.coords.latitude),
+          lng: Number(pos.coords.longitude),
+          accuracy: Number(pos.coords.accuracy || 0),
+        });
+      },
+      (err) => reject(err),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  });
 }
 
 /* =========================================================
@@ -758,7 +825,7 @@ export default function AddSensorPage() {
     if (selectedPlot === "all") return "ทุกแปลง";
     const p = plots.find((x) => String(x.id || x._id) === String(selectedPlot));
     return p
-      ? p.plotName || p.alias || p.name || `แปลง ${p.id || p._id}`
+      ? p.alias || p.plotName || p.name || `แปลง ${p.id || p._id}`
       : `แปลง ${selectedPlot}`;
   }, [selectedPlot, plots]);
 
@@ -809,13 +876,19 @@ export default function AddSensorPage() {
       nodes.push(...(activePin.node_soil || []).map((n) => ({ ...n, __nodeType: "soil" })));
     }
 
-    return nodes.map((node) => ({
-      ...node,
-      sensors: (node.sensors || []).filter((s) => {
-        if (selectedSensorType === "all") return true;
-        return String(s.sensorType) === String(selectedSensorType);
-      }),
-    }));
+    return nodes
+      .map((node) => ({
+        ...node,
+        sensors: (node.sensors || []).filter((s) => {
+          if (selectedSensorType === "all") return true;
+          return String(s.sensorType) === String(selectedSensorType);
+        }),
+      }))
+      .sort((a, b) => {
+        const ad = toDateSafe(a.updatedAt || a.createdAt)?.getTime?.() || 0;
+        const bd = toDateSafe(b.updatedAt || b.createdAt)?.getTime?.() || 0;
+        return bd - ad;
+      });
   }, [activePin, selectedNode, selectedSensorType]);
 
   useEffect(() => {
@@ -967,7 +1040,7 @@ export default function AddSensorPage() {
     return item;
   }
 
-  const addPin = () => {
+  const addPin = async () => {
     if (selectedPlot === "all") {
       alert(
         lang === "en"
@@ -981,13 +1054,38 @@ export default function AddSensorPage() {
       (p) => String(p.plotId) === String(selectedPlot)
     );
     const nextNumber = getNextAvailablePinNumber(scopedPins);
-    const localPin = createLocalPin(selectedPlot, nextNumber);
+
+    let currentCoords = null;
+
+    try {
+      currentCoords = await getCurrentPositionPromise();
+      setLocateStatus("พบตำแหน่งปัจจุบันแล้ว ✅");
+
+      if (
+        mapRef.current &&
+        Number.isFinite(currentCoords.lat) &&
+        Number.isFinite(currentCoords.lng)
+      ) {
+        mapRef.current.setView([currentCoords.lat, currentCoords.lng], 17, {
+          animate: true,
+        });
+      }
+    } catch (e) {
+      console.warn("[AddSensor] get current location failed:", e?.message || e);
+      setLocateStatus("ไม่สามารถใช้ตำแหน่งปัจจุบันได้ จะใช้ตำแหน่งเดิมบนแผนที่แทน");
+    }
+
+    const localPin = createLocalPin(selectedPlot, nextNumber, currentCoords);
 
     setPins((prev) => [...(prev || []), localPin]);
     setActivePinId(localPin.id);
 
     alert(
-      lang === "en"
+      currentCoords
+        ? lang === "en"
+          ? "Temporary pin created near your current location. Click the map once to confirm and save it."
+          : "สร้าง Pin ชั่วคราวใกล้ตำแหน่งปัจจุบันแล้ว คลิกแผนที่ 1 ครั้งเพื่อยืนยันและบันทึก"
+        : lang === "en"
         ? "Temporary pin created. Click on the map to place and save it."
         : "สร้าง Pin ชั่วคราวแล้ว ให้คลิกบนแผนที่เพื่อปักและบันทึก Pin"
     );
@@ -1195,6 +1293,22 @@ export default function AddSensorPage() {
     }
   };
 
+  const prependNodeToPin = (pinId, nodeType, newNode) => {
+    setPins((prev) =>
+      (prev || []).map((pin) => {
+        if (String(pin.id) !== String(pinId)) return pin;
+
+        const key = nodeType === "air" ? "node_air" : "node_soil";
+        const current = Array.isArray(pin[key]) ? pin[key] : [];
+
+        return {
+          ...pin,
+          [key]: [newNode, ...current],
+        };
+      })
+    );
+  };
+
   const addNodeToActivePin = async (nodeType) => {
     if (!activePinId) {
       alert(lang === "en" ? "Please select a pin first" : "กรุณาเลือก Pin ก่อน");
@@ -1229,7 +1343,8 @@ export default function AddSensorPage() {
       const created = res?.item || null;
       if (!created) throw new Error("ไม่สามารถสร้าง node ได้");
 
-      refreshPinFromServer(pin.id, pin.plotId || selectedPlot);
+      const normalizedCreated = normalizeNodeFromApi(created, nodeType);
+      prependNodeToPin(pin.id, nodeType, normalizedCreated);
     } catch (e) {
       console.warn("[AddSensor] add node failed:", e?.message || e);
       alert(`${lang === "en" ? "Add node failed" : "เพิ่ม node ไม่สำเร็จ"}: ${e?.message || e}`);
@@ -1372,13 +1487,10 @@ export default function AddSensorPage() {
 
     updateLocalNode(pinId, nodeType, nodeId, (node) => {
       const currentSensors = Array.isArray(node.sensors) ? node.sensors : [];
-      const existingTypes = new Set(
-        currentSensors.map((s) => String(s.sensorType || ""))
-      );
+      const existingTypes = new Set(currentSensors.map((s) => String(s.sensorType || "")));
 
       const nextPreset =
-        presets.find((item) => !existingTypes.has(String(item.value))) ||
-        presets[0];
+        presets.find((item) => !existingTypes.has(String(item.value))) || presets[0];
 
       const newSensor = createNewSensor(nodeType, nextPreset.value);
 
@@ -1606,14 +1718,13 @@ export default function AddSensorPage() {
       pinList: { marginTop: 10, display: "grid", gap: 10 },
       pinCard: (active, status) => ({
         borderRadius: 16,
-        background:
-          active
-            ? "#fee2e2"
-            : status === "READY"
-            ? "#dcfce7"
-            : status === "PARTIAL"
-            ? "#fef3c7"
-            : "#f1f5f9",
+        background: active
+          ? "#fee2e2"
+          : status === "READY"
+          ? "#dcfce7"
+          : status === "PARTIAL"
+          ? "#fef3c7"
+          : "#f1f5f9",
         padding: 10,
         border: active ? "2px solid #ef4444" : "1px solid rgba(15,23,42,0.10)",
         cursor: "pointer",
@@ -1927,7 +2038,7 @@ export default function AddSensorPage() {
                 <option value="all">ทุกแปลง</option>
                 {plots.map((p) => (
                   <option key={p.id || p._id} value={p.id || p._id}>
-                    {p.plotName || p.alias || p.name || p.id || p._id}
+                    {p.alias || p.plotName || p.name || p.id || p._id}
                   </option>
                 ))}
               </select>
@@ -1971,11 +2082,17 @@ export default function AddSensorPage() {
             <div style={styles.plotTitle}>
               {t("plotInformation")}: {plotLabel}
             </div>
-            <button style={styles.editBtn} type="button" onClick={() => setEditOpen((v) => !v)}>
+            <button
+              style={styles.editBtn}
+              type="button"
+              onClick={() => setEditOpen((v) => !v)}
+            >
               {t("editDelete")}
             </button>
           </div>
-          <div style={styles.plotSub}>จัดการ Pin และ Node ให้สอดคล้องกับ backend ปัจจุบัน</div>
+          <div style={styles.plotSub}>
+            จัดการ Pin และ Node ให้สอดคล้องกับ backend ปัจจุบัน
+          </div>
 
           <div style={styles.infoGrid}>
             <div>
@@ -1998,9 +2115,7 @@ export default function AddSensorPage() {
 
           <div style={styles.mapCard}>
             <div style={styles.mapTitle}>
-              {lang === "en"
-                ? "Pin positions for this plot"
-                : "ตำแหน่ง Pin ของแปลงนี้"}
+              {lang === "en" ? "Pin positions for this plot" : "ตำแหน่ง Pin ของแปลงนี้"}
             </div>
             <div style={styles.mapHelp}>
               {lang === "en"
@@ -2285,9 +2400,7 @@ export default function AddSensorPage() {
                     {activePinVisibleNodes.map((node) => {
                       const nodeType = node.__nodeType || node.nodeType || "air";
                       const options =
-                        nodeType === "air"
-                          ? SENSOR_TYPE_GROUPS.air
-                          : SENSOR_TYPE_GROUPS.soil;
+                        nodeType === "air" ? SENSOR_TYPE_GROUPS.air : SENSOR_TYPE_GROUPS.soil;
 
                       return (
                         <div key={node.id} style={styles.groupCard}>
@@ -2325,7 +2438,9 @@ export default function AddSensorPage() {
                                     uid: e.target.value,
                                   })
                                 }
-                                placeholder={nodeType === "air" ? "เช่น AIR-001" : "เช่น SOIL-001"}
+                                placeholder={
+                                  nodeType === "air" ? "เช่น AIR-001" : "เช่น SOIL-001"
+                                }
                               />
                             </div>
                           </div>
@@ -2333,7 +2448,9 @@ export default function AddSensorPage() {
                           <div style={styles.nodeEditGrid}>
                             <div>
                               <div style={styles.pinFieldLabel}>จำนวน Sensor</div>
-                              <div style={styles.infoNotice}>{(node.sensors || []).length} รายการ</div>
+                              <div style={styles.infoNotice}>
+                                {(node.sensors || []).length} รายการ
+                              </div>
                             </div>
 
                             <div>
@@ -2357,7 +2474,9 @@ export default function AddSensorPage() {
                               onClick={() => saveNode(activePin.id, nodeType, node)}
                               disabled={savingNodeId === String(node.id)}
                             >
-                              {savingNodeId === String(node.id) ? "กำลังบันทึก..." : "บันทึก Node"}
+                              {savingNodeId === String(node.id)
+                                ? "กำลังบันทึก..."
+                                : "บันทึก Node"}
                             </button>
 
                             <button
@@ -2376,12 +2495,11 @@ export default function AddSensorPage() {
                               {node.sensors.map((sensor) => (
                                 <div key={sensor.id} style={styles.itemCard}>
                                   <div style={styles.itemTitle}>
-                                    {sensor.name || getDefaultNameByType(sensor.sensorType, nodeType)}
+                                    {sensor.name ||
+                                      getDefaultNameByType(sensor.sensorType, nodeType)}
                                   </div>
 
-                                  <div style={styles.itemSub}>
-                                    ข้อมูลอุปกรณ์ใหม่
-                                  </div>
+                                  <div style={styles.itemSub}>ข้อมูลอุปกรณ์ใหม่</div>
 
                                   <div style={{ ...styles.itemMeta, marginBottom: 8 }}>
                                     <b>ประเภท</b>
@@ -2401,11 +2519,23 @@ export default function AddSensorPage() {
                                             sensor.id,
                                             {
                                               sensorType: e.target.value,
-                                              name: getDefaultNameByType(e.target.value, nodeType),
-                                              unit: getDefaultUnitByType(e.target.value, nodeType),
-                                              value: getDefaultValueByType(e.target.value, nodeType),
+                                              name: getDefaultNameByType(
+                                                e.target.value,
+                                                nodeType
+                                              ),
+                                              unit: getDefaultUnitByType(
+                                                e.target.value,
+                                                nodeType
+                                              ),
+                                              value: getDefaultValueByType(
+                                                e.target.value,
+                                                nodeType
+                                              ),
                                               lastReading: {
-                                                value: getDefaultValueByType(e.target.value, nodeType),
+                                                value: getDefaultValueByType(
+                                                  e.target.value,
+                                                  nodeType
+                                                ),
                                                 ts: null,
                                               },
                                             }
@@ -2463,7 +2593,9 @@ export default function AddSensorPage() {
                                   </div>
                                   <div style={styles.itemMeta}>
                                     <b>อ่านค่าล่าสุด:</b>{" "}
-                                    {formatDateTime(sensor.lastReadingAt || sensor?.lastReading?.ts)}
+                                    {formatDateTime(
+                                      sensor.lastReadingAt || sensor?.lastReading?.ts
+                                    )}
                                   </div>
 
                                   <div style={styles.sensorBtns}>
