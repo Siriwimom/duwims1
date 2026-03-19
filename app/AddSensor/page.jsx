@@ -146,7 +146,7 @@ const LeafletMap = dynamic(
             onReady?.();
           }}
           scrollWheelZoom
-          style={{ height: 260, width: "100%" }}
+          style={{ height: 280, width: "100%" }}
         >
           <RL.TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
@@ -167,7 +167,7 @@ const LeafletMap = dynamic(
               positions={poly}
               pathOptions={{
                 color: "#16a34a",
-                fillColor: "#86efac",
+                fillColor: "#bbf7d0",
                 fillOpacity: 0.28,
                 weight: 2,
               }}
@@ -203,7 +203,7 @@ const LeafletMap = dynamic(
 );
 
 /* =========================================================
-   API / HELPERS
+   CONFIG / HELPERS
 ========================================================= */
 const API_BASE =
   (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE_URL) ||
@@ -268,12 +268,6 @@ async function apiFetch(path, { method = "GET", body, token, signal } = {}) {
   }
 
   return json;
-}
-
-function numOrNull(v) {
-  if (v === undefined || v === null || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
 }
 
 function isFirestoreTimestampObject(v) {
@@ -544,42 +538,11 @@ function normalizeNodeFromApi(node = {}, fallbackType = "air") {
       String(node.id || node._id || "").trim() ||
       `tmp-node-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     uid: String(node.uid || node.UID || "").trim(),
-    templateId: node.templateId ? String(node.templateId) : null,
     nodeType,
     nodeName: String(node.nodeName || node.name || "").trim(),
     sensors: ensureRequiredSensorsForNode(nodeType, node.sensors || []),
     createdAt: node.createdAt ?? null,
     updatedAt: node.updatedAt ?? null,
-  };
-}
-
-function normalizeTemplateFromApi(tpl = {}) {
-  return {
-    ...tpl,
-    id: String(tpl.id || tpl._id || ""),
-    nodeName: String(tpl.nodeName || tpl.name || "").trim(),
-    node_air: tpl?.node_air
-      ? {
-          ...tpl.node_air,
-          uid: String(tpl?.node_air?.uid || tpl?.node_air?.UID || "").trim(),
-          nodeType: "air",
-          nodeName: String(
-            tpl?.node_air?.nodeName || tpl?.node_air?.name || tpl.nodeName || ""
-          ).trim(),
-          sensors: ensureRequiredSensorsForNode("air", tpl?.node_air?.sensors || []),
-        }
-      : null,
-    node_soil: tpl?.node_soil
-      ? {
-          ...tpl.node_soil,
-          uid: String(tpl?.node_soil?.uid || tpl?.node_soil?.UID || "").trim(),
-          nodeType: "soil",
-          nodeName: String(
-            tpl?.node_soil?.nodeName || tpl?.node_soil?.name || tpl.nodeName || ""
-          ).trim(),
-          sensors: ensureRequiredSensorsForNode("soil", tpl?.node_soil?.sensors || []),
-        }
-      : null,
   };
 }
 
@@ -697,6 +660,12 @@ function buildPinsFromAnySource(plotId, plotItem, pinsApiItems) {
   return ensureUniquePinNumbers(fromPlotPolygon);
 }
 
+function getNodeSummary(node) {
+  const sensors = Array.isArray(node?.sensors) ? node.sensors : [];
+  const okCount = sensors.filter((s) => String(s.status || "OK") === "OK").length;
+  return `${sensors.length} sensors • OK ${okCount}`;
+}
+
 /* =========================================================
    PAGE
 ========================================================= */
@@ -717,8 +686,6 @@ export default function AddSensorPage() {
   const [width, setWidth] = useState(1200);
   const [busy, setBusy] = useState(false);
   const [busyText, setBusyText] = useState("");
-  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
-  const [selectedTemplateIds, setSelectedTemplateIds] = useState([]);
   const [savingNodeId, setSavingNodeId] = useState("");
   const [savingAll, setSavingAll] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -728,7 +695,6 @@ export default function AddSensorPage() {
   const [selectedSensorType, setSelectedSensorType] = useState("all");
 
   const [plots, setPlots] = useState([]);
-  const [nodeTemplates, setNodeTemplates] = useState([]);
   const [plotMeta, setPlotMeta] = useState(null);
   const [plotPolygons, setPlotPolygons] = useState([]);
   const [pins, setPins] = useState([]);
@@ -786,14 +752,6 @@ export default function AddSensorPage() {
   const activePin = useMemo(
     () => pins.find((p) => String(p.id) === String(activePinId)) || null,
     [pins, activePinId]
-  );
-
-  const selectedTemplates = useMemo(
-    () =>
-      nodeTemplates.filter((tpl) =>
-        selectedTemplateIds.includes(String(tpl.id || tpl._id))
-      ),
-    [nodeTemplates, selectedTemplateIds]
   );
 
   const plotLabel = useMemo(() => {
@@ -861,11 +819,6 @@ export default function AddSensorPage() {
   }, [activePin, selectedNode, selectedSensorType]);
 
   useEffect(() => {
-    setTemplatePickerOpen(false);
-    setSelectedTemplateIds([]);
-  }, [activePinId]);
-
-  useEffect(() => {
     const allowedTypes =
       selectedNode === "soil"
         ? SENSOR_TYPE_GROUPS.soil
@@ -884,17 +837,8 @@ export default function AddSensorPage() {
 
   async function loadInitial() {
     const token = getToken();
-    const [plotsRes, nodesRes] = await Promise.all([
-      apiFetch("/api/plots", { token }),
-      apiFetch("/api/nodes", { token }),
-    ]);
-
+    const plotsRes = await apiFetch("/api/plots", { token });
     setPlots(Array.isArray(plotsRes?.items) ? plotsRes.items : []);
-    setNodeTemplates(
-      Array.isArray(nodesRes?.items)
-        ? nodesRes.items.map((tpl) => normalizeTemplateFromApi(tpl))
-        : []
-    );
   }
 
   async function loadPlotScope(plotId) {
@@ -1023,13 +967,6 @@ export default function AddSensorPage() {
     return item;
   }
 
-  const toggleTemplateId = (templateId) => {
-    const safeId = String(templateId || "");
-    setSelectedTemplateIds((prev) =>
-      prev.includes(safeId) ? prev.filter((x) => x !== safeId) : [...prev, safeId]
-    );
-  };
-
   const addPin = () => {
     if (selectedPlot === "all") {
       alert(
@@ -1141,7 +1078,7 @@ export default function AddSensorPage() {
         });
 
         setActivePinId(String(createdId));
-        await refreshPinFromServer(String(createdId), targetPlotId);
+        refreshPinFromServer(String(createdId), targetPlotId);
       } catch (e) {
         console.warn("[AddSensor] create pin failed:", e?.message || e);
         alert(
@@ -1166,7 +1103,7 @@ export default function AddSensorPage() {
         token,
         body: { lat, lng },
       });
-      await refreshPinFromServer(String(pin.id), pin.plotId || selectedPlot);
+      refreshPinFromServer(String(pin.id), pin.plotId || selectedPlot);
     } catch (e) {
       console.warn("[AddSensor] patch pin failed:", e?.message || e);
       alert(
@@ -1191,15 +1128,15 @@ export default function AddSensorPage() {
 
     try {
       const token = getToken();
-      const la = numOrNull(lat);
-      if (la === null) return;
+      const la = Number(lat);
+      if (!Number.isFinite(la)) return;
 
       await apiFetch(`/api/pins/${encodeURIComponent(String(pin.id))}`, {
         method: "PATCH",
         token,
         body: { lat: la },
       });
-      await refreshPinFromServer(pin.id, pin.plotId || selectedPlot);
+      refreshPinFromServer(pin.id, pin.plotId || selectedPlot);
     } catch (e) {
       console.warn("[AddSensor] patch pin lat failed:", e?.message || e);
     }
@@ -1219,15 +1156,15 @@ export default function AddSensorPage() {
 
     try {
       const token = getToken();
-      const lo = numOrNull(lng);
-      if (lo === null) return;
+      const lo = Number(lng);
+      if (!Number.isFinite(lo)) return;
 
       await apiFetch(`/api/pins/${encodeURIComponent(String(pin.id))}`, {
         method: "PATCH",
         token,
         body: { lng: lo },
       });
-      await refreshPinFromServer(pin.id, pin.plotId || selectedPlot);
+      refreshPinFromServer(pin.id, pin.plotId || selectedPlot);
     } catch (e) {
       console.warn("[AddSensor] patch pin lng failed:", e?.message || e);
     }
@@ -1252,7 +1189,7 @@ export default function AddSensorPage() {
         token,
         body: { pinName },
       });
-      await refreshPinFromServer(pin.id, pin.plotId || selectedPlot);
+      refreshPinFromServer(pin.id, pin.plotId || selectedPlot);
     } catch (e) {
       console.warn("[AddSensor] patch pin name failed:", e?.message || e);
     }
@@ -1292,7 +1229,7 @@ export default function AddSensorPage() {
       const created = res?.item || null;
       if (!created) throw new Error("ไม่สามารถสร้าง node ได้");
 
-      await refreshPinFromServer(pin.id, pin.plotId || selectedPlot);
+      refreshPinFromServer(pin.id, pin.plotId || selectedPlot);
     } catch (e) {
       console.warn("[AddSensor] add node failed:", e?.message || e);
       alert(`${lang === "en" ? "Add node failed" : "เพิ่ม node ไม่สำเร็จ"}: ${e?.message || e}`);
@@ -1338,7 +1275,7 @@ export default function AddSensorPage() {
         { method: "DELETE", token }
       );
 
-      await refreshPinFromServer(pinId, pin.plotId || selectedPlot);
+      refreshPinFromServer(pinId, pin.plotId || selectedPlot);
     } catch (e) {
       console.warn("[AddSensor] delete node failed:", e?.message || e);
       alert(`${lang === "en" ? "Delete node failed" : "ลบ node ไม่สำเร็จ"}: ${e?.message || e}`);
@@ -1357,7 +1294,6 @@ export default function AddSensorPage() {
         token,
         body: {
           uid: node.uid || "",
-          templateId: node.templateId || null,
           nodeName: node.nodeName || "",
           sensors: prepareSensorsForSave(node.sensors || [], node.nodeType || "air"),
         },
@@ -1431,18 +1367,24 @@ export default function AddSensorPage() {
   };
 
   const addSensorToNode = (pinId, nodeType, nodeId) => {
-    const base = nodeType === "soil" ? SENSOR_TYPE_GROUPS.soil : SENSOR_TYPE_GROUPS.air;
+    const presets =
+      nodeType === "soil" ? SENSOR_TYPE_GROUPS.soil : SENSOR_TYPE_GROUPS.air;
 
     updateLocalNode(pinId, nodeType, nodeId, (node) => {
-      const existing = new Set((node.sensors || []).map((s) => String(s.sensorType)));
-      const nextPreset = base.find((item) => !existing.has(String(item.value)));
+      const currentSensors = Array.isArray(node.sensors) ? node.sensors : [];
+      const existingTypes = new Set(
+        currentSensors.map((s) => String(s.sensorType || ""))
+      );
+
+      const nextPreset =
+        presets.find((item) => !existingTypes.has(String(item.value))) ||
+        presets[0];
+
+      const newSensor = createNewSensor(nodeType, nextPreset.value);
 
       return {
         ...node,
-        sensors: [
-          ...(node.sensors || []),
-          createNewSensor(nodeType, nextPreset?.value || base[0]?.value),
-        ],
+        sensors: [...currentSensors, newSensor],
         updatedAt: new Date().toISOString(),
       };
     });
@@ -1491,82 +1433,6 @@ export default function AddSensorPage() {
     }));
   };
 
-  const attachTemplateToActivePin = async () => {
-    if (!activePinId) {
-      alert(lang === "en" ? "Please select a pin first" : "กรุณาเลือก Pin ก่อน");
-      return;
-    }
-
-    const pin = pins.find((p) => String(p.id) === String(activePinId));
-    if (!pin || !isRealId(String(pin.id))) {
-      alert(
-        lang === "en"
-          ? "Please place/save the pin on the map first."
-          : "กรุณาปักและบันทึก Pin บนแผนที่ก่อน"
-      );
-      return;
-    }
-
-    if (!selectedTemplateIds.length) {
-      alert(
-        lang === "en"
-          ? "Please select at least one template"
-          : "กรุณาเลือก Template อย่างน้อย 1 รายการ"
-      );
-      return;
-    }
-
-    try {
-      const token = getToken();
-
-      for (const tpl of selectedTemplates) {
-        const tplId = String(tpl.id || tpl._id || "");
-
-        if (tpl?.node_air) {
-          await apiFetch(`/api/pins/${encodeURIComponent(String(pin.id))}/node-air`, {
-            method: "POST",
-            token,
-            body: {
-              uid: tpl.node_air.uid || "",
-              templateId: tplId || null,
-              nodeType: "air",
-              nodeName: tpl.node_air.nodeName || tpl.nodeName || "Node อากาศจาก Template",
-              sensors: prepareSensorsForSave(
-                ensureRequiredSensorsForNode("air", tpl.node_air.sensors || []),
-                "air"
-              ),
-            },
-          });
-        }
-
-        if (tpl?.node_soil) {
-          await apiFetch(`/api/pins/${encodeURIComponent(String(pin.id))}/node-soil`, {
-            method: "POST",
-            token,
-            body: {
-              uid: tpl.node_soil.uid || "",
-              templateId: tplId || null,
-              nodeType: "soil",
-              nodeName: tpl.node_soil.nodeName || tpl.nodeName || "Node ดินจาก Template",
-              sensors: prepareSensorsForSave(
-                ensureRequiredSensorsForNode("soil", tpl.node_soil.sensors || []),
-                "soil"
-              ),
-            },
-          });
-        }
-      }
-
-      await refreshPinFromServer(pin.id, pin.plotId || selectedPlot);
-      setTemplatePickerOpen(false);
-      setSelectedTemplateIds([]);
-      alert(lang === "en" ? "Template added successfully" : "เพิ่ม Template สำเร็จ");
-    } catch (e) {
-      console.warn("[AddSensor] assign template failed:", e?.message || e);
-      alert(`${lang === "en" ? "Assign template failed" : "เพิ่ม template ไม่สำเร็จ"}: ${e?.message || e}`);
-    }
-  };
-
   const styles = useMemo(
     () => ({
       page: {
@@ -1577,7 +1443,7 @@ export default function AddSensorPage() {
         color: "#111827",
         padding: "22px 0 30px",
       },
-      body: { maxWidth: 1120, margin: "0 auto", padding: "0 16px" },
+      body: { maxWidth: 1160, margin: "0 auto", padding: "0 16px" },
 
       topPanel: {
         borderRadius: 24,
@@ -1665,7 +1531,7 @@ export default function AddSensorPage() {
         gap: isMobile ? 6 : 0,
         marginBottom: 6,
       },
-      plotTitle: { fontSize: 14, fontWeight: 600 },
+      plotTitle: { fontSize: 14, fontWeight: 700 },
       plotSub: { fontSize: 11, color: "#6b7280", marginBottom: 10 },
 
       editBtn: {
@@ -1695,7 +1561,7 @@ export default function AddSensorPage() {
         borderRadius: 12,
         background: "#ffffff",
         border: "1px solid #c7f0df",
-        padding: "6px 10px",
+        padding: "8px 10px",
         fontSize: 12,
       },
 
@@ -1706,10 +1572,10 @@ export default function AddSensorPage() {
         boxShadow: "0 10px 24px rgba(15,23,42,0.15)",
         marginBottom: 10,
       },
-      mapTitle: { fontSize: 13, fontWeight: 600, padding: "10px 14px 4px" },
+      mapTitle: { fontSize: 13, fontWeight: 700, padding: "10px 14px 4px" },
       mapHelp: { fontSize: 11, color: "#64748b", padding: "0 14px 10px" },
       mapLoading: {
-        height: 260,
+        height: 280,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -1879,31 +1745,6 @@ export default function AddSensorPage() {
         color: "#334155",
       },
 
-      templateCard: {
-        borderRadius: 16,
-        background: "#ffffff",
-        border: "1px solid rgba(15,23,42,0.08)",
-        boxShadow: "0 10px 18px rgba(15,23,42,0.08)",
-        padding: "12px 14px",
-        display: "grid",
-        gap: 10,
-      },
-      templateActions: {
-        display: "flex",
-        gap: 8,
-        flexWrap: "wrap",
-      },
-      templateCheckItem: (checked) => ({
-        borderRadius: 14,
-        border: checked ? "2px solid #7c3aed" : "1px solid rgba(15,23,42,0.10)",
-        background: checked ? "#f5f3ff" : "#ffffff",
-        padding: "12px 14px",
-        cursor: "pointer",
-        display: "grid",
-        gap: 6,
-        marginBottom: 8,
-      }),
-
       nodeRow: {
         display: "flex",
         gap: 8,
@@ -1945,7 +1786,7 @@ export default function AddSensorPage() {
       groupCard: {
         borderRadius: 16,
         background: "#ffffff",
-        padding: "12px 12px",
+        padding: "14px 14px",
         border: "1px solid rgba(15,23,42,0.08)",
       },
       groupTitleRow: {
@@ -1957,7 +1798,7 @@ export default function AddSensorPage() {
         marginBottom: 10,
       },
       groupTitle: {
-        fontSize: 12,
+        fontSize: 13,
         fontWeight: 900,
         color: "#111827",
       },
@@ -2134,7 +1975,7 @@ export default function AddSensorPage() {
               {t("editDelete")}
             </button>
           </div>
-          <div style={styles.plotSub}>{t("plotDetail")}</div>
+          <div style={styles.plotSub}>จัดการ Pin และ Node ให้สอดคล้องกับ backend ปัจจุบัน</div>
 
           <div style={styles.infoGrid}>
             <div>
@@ -2158,13 +1999,13 @@ export default function AddSensorPage() {
           <div style={styles.mapCard}>
             <div style={styles.mapTitle}>
               {lang === "en"
-                ? "Sensor pin points for this plot (click the map to place the selected pin)"
-                : "จุด Pin เซนเซอร์ของแปลงนี้ (คลิกแผนที่เพื่อปักพิกัดให้ Pin ที่เลือก)"}
+                ? "Pin positions for this plot"
+                : "ตำแหน่ง Pin ของแปลงนี้"}
             </div>
             <div style={styles.mapHelp}>
               {lang === "en"
-                ? "Create/select a pin first, then click the map."
-                : "ให้สร้างหรือเลือก Pin ก่อน แล้วค่อยคลิกบนแผนที่"}
+                ? "Select or create a pin, then click the map to place or move it."
+                : "เลือกหรือสร้าง Pin ก่อน แล้วคลิกแผนที่เพื่อปักหรือย้ายตำแหน่ง"}
             </div>
 
             <div
@@ -2217,7 +2058,7 @@ export default function AddSensorPage() {
             {!mounted ? (
               <div style={styles.mapLoading}>{t("loadingMap")}</div>
             ) : (
-              <div style={{ height: 260, width: "100%" }}>
+              <div style={{ height: 280, width: "100%" }}>
                 <LeafletMap
                   center={[13.7563, 100.5018]}
                   zoom={11}
@@ -2410,71 +2251,6 @@ export default function AddSensorPage() {
             ) : (
               <>
                 <div>
-                  <div style={styles.sectionLabel}>เพิ่ม NodeTemplate เข้า Pin</div>
-                  <div style={styles.templateCard}>
-                    <div style={styles.templateActions}>
-                      <button
-                        type="button"
-                        style={styles.actionBtn}
-                        onClick={() => setTemplatePickerOpen((v) => !v)}
-                      >
-                        {templatePickerOpen
-                          ? "ปิดตัวเลือก Template"
-                          : "เลือก Template เพื่อเพิ่ม Node"}
-                      </button>
-                    </div>
-
-                    {templatePickerOpen ? (
-                      <>
-                        {nodeTemplates.length === 0 ? (
-                          <div style={styles.infoNotice}>ยังไม่มี NodeTemplate</div>
-                        ) : (
-                          nodeTemplates.map((tpl) => {
-                            const tplId = String(tpl.id || tpl._id);
-                            const checked = selectedTemplateIds.includes(tplId);
-
-                            return (
-                              <label key={tplId} style={styles.templateCheckItem(checked)}>
-                                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => toggleTemplateId(tplId)}
-                                  />
-                                  <div style={{ fontWeight: 800 }}>
-                                    {tpl.nodeName || tplId}
-                                  </div>
-                                </div>
-
-                                <div style={{ fontSize: 12, color: "#64748b" }}>
-                                  Air UID: {tpl?.node_air?.uid || "-"} | Soil UID:{" "}
-                                  {tpl?.node_soil?.uid || "-"}
-                                </div>
-
-                                <div style={{ fontSize: 12, color: "#64748b" }}>
-                                  Air sensors: {(tpl?.node_air?.sensors || []).length} | Soil sensors:{" "}
-                                  {(tpl?.node_soil?.sensors || []).length}
-                                </div>
-                              </label>
-                            );
-                          })
-                        )}
-
-                        <div style={styles.templateActions}>
-                          <button
-                            type="button"
-                            style={styles.actionBtn}
-                            onClick={attachTemplateToActivePin}
-                          >
-                            เพิ่ม Template ที่เลือกเข้า Pin นี้
-                          </button>
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div>
                   <div style={styles.sectionLabel}>จัดการ Node ของ Pin นี้</div>
                   <div style={styles.nodeRow}>
                     <button
@@ -2516,7 +2292,12 @@ export default function AddSensorPage() {
                       return (
                         <div key={node.id} style={styles.groupCard}>
                           <div style={styles.groupTitleRow}>
-                            <div style={styles.groupTitle}>{node.nodeName || "-"}</div>
+                            <div>
+                              <div style={styles.groupTitle}>{node.nodeName || "-"}</div>
+                              <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
+                                {getNodeSummary(node)}
+                              </div>
+                            </div>
                             <div style={styles.badge}>{getNodeTypeBadge(nodeType)}</div>
                           </div>
 
@@ -2551,13 +2332,13 @@ export default function AddSensorPage() {
 
                           <div style={styles.nodeEditGrid}>
                             <div>
-                              <div style={styles.pinFieldLabel}>Template ID</div>
-                              <div style={styles.infoNotice}>{node.templateId || "-"}</div>
+                              <div style={styles.pinFieldLabel}>จำนวน Sensor</div>
+                              <div style={styles.infoNotice}>{(node.sensors || []).length} รายการ</div>
                             </div>
 
                             <div>
-                              <div style={styles.pinFieldLabel}>จำนวน Sensor</div>
-                              <div style={styles.infoNotice}>{(node.sensors || []).length} รายการ</div>
+                              <div style={styles.pinFieldLabel}>สถานะ Node</div>
+                              <div style={styles.infoNotice}>{getNodeSummary(node)}</div>
                             </div>
                           </div>
 

@@ -12,6 +12,7 @@ import "leaflet/dist/leaflet.css";
 const LeafletBundle = dynamic(
   async () => {
     const RL = await import("react-leaflet");
+
     return function LeafletMapBundle(props) {
       const {
         center,
@@ -305,10 +306,47 @@ function safeNum(x, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function isFirestoreTimestampObject(v) {
+  return (
+    v &&
+    typeof v === "object" &&
+    (typeof v._seconds === "number" || typeof v.seconds === "number")
+  );
+}
+
+function toIsoFromAny(v) {
+  if (!v) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number") {
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+  }
+  if (v instanceof Date) {
+    return Number.isNaN(v.getTime()) ? "" : v.toISOString();
+  }
+  if (isFirestoreTimestampObject(v)) {
+    const sec = Number(v._seconds ?? v.seconds ?? 0);
+    const nano = Number(v._nanoseconds ?? v.nanoseconds ?? 0);
+    const ms = sec * 1000 + Math.floor(nano / 1000000);
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+  }
+  if (typeof v?.toDate === "function") {
+    try {
+      const d = v.toDate();
+      return Number.isNaN(d?.getTime?.()) ? "" : d.toISOString();
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
 function formatThaiDate(d) {
-  if (!d) return "-";
-  const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return String(d);
+  const iso = toIsoFromAny(d) || d;
+  if (!iso) return "-";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return String(iso);
   const dd = String(dt.getDate()).padStart(2, "0");
   const mm = String(dt.getMonth() + 1).padStart(2, "0");
   const yyyy = dt.getFullYear() + 543;
@@ -316,17 +354,19 @@ function formatThaiDate(d) {
 }
 
 function formatDateByLang(d, lang = "th") {
-  if (!d) return "-";
-  const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return String(d);
+  const iso = toIsoFromAny(d) || d;
+  if (!iso) return "-";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return String(iso);
   if (lang === "en") return dt.toLocaleDateString("en-GB");
-  return formatThaiDate(d);
+  return formatThaiDate(iso);
 }
 
 function prettyTs(ts, lang = "th") {
-  if (!ts) return "";
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return String(ts);
+  const iso = toIsoFromAny(ts) || ts;
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
 
   if (lang === "en") {
     return d.toLocaleString("en-GB", {
@@ -435,6 +475,16 @@ function normalizeText(v) {
     .trim()
     .replace(/\s+/g, " ")
     .replace(/[_-]+/g, " ");
+}
+
+function dedupeById(items = []) {
+  const map = new Map();
+  for (const item of items || []) {
+    const id = String(item?.id || "");
+    if (!id) continue;
+    if (!map.has(id)) map.set(id, item);
+  }
+  return [...map.values()];
 }
 
 // ============================
@@ -727,16 +777,6 @@ function extractActualReading(sensor = {}) {
   };
 }
 
-function extractLastReadingValue(sensor = {}) {
-  const reading = extractActualReading(sensor);
-  if (!reading) return null;
-
-  if (typeof reading.value === "number" && Number.isFinite(reading.value)) {
-    return reading.value;
-  }
-  return null;
-}
-
 function extractSensorUnit(sensor = {}, sensorTypeMeta = {}) {
   const reading = extractActualReading(sensor);
   if (reading?.unit) return reading.unit;
@@ -966,6 +1006,14 @@ async function apiFetch(path, { method = "GET", token = "", body } = {}) {
   return data;
 }
 
+async function safeApiFetch(path, options = {}) {
+  try {
+    return await apiFetch(path, options);
+  } catch {
+    return null;
+  }
+}
+
 // ============================
 // ✅ Weather
 // ============================
@@ -1164,7 +1212,12 @@ function flattenSensorsFromPin(pin = {}, plotId = "", plotName = "") {
       for (const sensor of node?.sensors || []) {
         items.push({
           ...sensor,
-          id: String(firstNonEmpty(sensor?.id, `sensor-${Math.random()}`)),
+          id: String(
+            firstNonEmpty(
+              sensor?.id,
+              `${nodeType}-sensor-${node?.id || "node"}-${sensor?.sensorType || "x"}`
+            )
+          ),
           pinId: String(pin?.id || ""),
           plotId: String(plotId || ""),
           plotName: String(plotName || ""),
@@ -1181,7 +1234,13 @@ function flattenSensorsFromPin(pin = {}, plotId = "", plotName = "") {
               ? sensor.lastReading
               : null,
           value: sensor?.value ?? null,
-          updatedAt: firstNonEmpty(sensor?.lastReadingAt, node?.updatedAt, pin?.updatedAt, ""),
+          updatedAt: firstNonEmpty(
+            sensor?.lastReadingAt,
+            sensor?.lastReading?.ts,
+            node?.updatedAt,
+            pin?.updatedAt,
+            ""
+          ),
         });
       }
     }
@@ -1259,7 +1318,7 @@ function buildGroupsFromSensors(
         typeof reading?.value === "number" ? Number(reading.value) : null,
       currentValueUnit: displayUnit,
       metric: evalResult.metric,
-      updatedAt: firstNonEmpty(s?.lastReadingAt, s?.updatedAt, ""),
+      updatedAt: firstNonEmpty(s?.updatedAt, s?.lastReadingAt, s?.lastReading?.ts, ""),
     });
   }
 
@@ -1324,6 +1383,41 @@ function buildOverallIssueSummary(
   }
 
   return [...new Set(summaries)];
+}
+
+function normalizePinFromAny(x = {}, fallbackPlot = {}) {
+  const merged = mergePlotMeta(fallbackPlot || {}, x || {});
+  const id = String(firstNonEmpty(x._id, x.id, ""));
+  const lat = Number(firstNonEmpty(x.lat, x.latitude));
+  const lng = Number(firstNonEmpty(x.lng, x.longitude));
+
+  if (!id || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  return {
+    ...x,
+    id,
+    plotId: String(
+      firstNonEmpty(x.plotId, x.plot_id, fallbackPlot?.id, merged.id, "")
+    ),
+    plotName: merged.plotName || "",
+    plotMetaMerged: merged,
+    number: safeNum(firstNonEmpty(x.number, x.pinNumber, x.no, 0), 0),
+    pinName: firstNonEmpty(x.pinName, x.name, ""),
+    lat,
+    lng,
+    node_air: Array.isArray(x?.node_air) ? x.node_air : [],
+    node_soil: Array.isArray(x?.node_soil) ? x.node_soil : [],
+    status: firstNonEmpty(
+      x.status,
+      x.deviceStatus,
+      x.connectionStatus,
+      x.powerStatus,
+      ""
+    ),
+    isOnline: firstNonEmpty(x.isOnline, x.online, ""),
+    createdAt: firstNonEmpty(x.createdAt, ""),
+    updatedAt: firstNonEmpty(x.updatedAt, ""),
+  };
 }
 
 export default function DashboardAllPlotsPage() {
@@ -1556,21 +1650,23 @@ export default function DashboardAllPlotsPage() {
 
         setPlots(plotItems);
 
-        const polygonPromises = plotItems.map((p) =>
-          apiFetch(`/api/plots/${p.id}/polygon`, { token }).then((res) => ({
+        const polygonPromises = plotItems.map(async (p) => {
+          const res = await safeApiFetch(`/api/plots/${p.id}/polygon`, { token });
+          return {
             plotId: p.id,
             plotName: p.plotName,
-            item: res?.item || null,
-          }))
-        );
+            item: res?.item || p?.polygon || null,
+          };
+        });
 
-        const pinPromises = plotItems.map((p) =>
-          apiFetch(`/api/plots/${p.id}/pins`, { token }).then((res) => ({
+        const pinPromises = plotItems.map(async (p) => {
+          const res = await safeApiFetch(`/api/plots/${p.id}/pins`, { token });
+          return {
             plotId: p.id,
             plotName: p.plotName,
-            items: res?.items || [],
-          }))
-        );
+            items: Array.isArray(res?.items) ? res.items : p?.polygon?.pins || [],
+          };
+        });
 
         const [polygonByPlot, pinsByPlot] = await Promise.all([
           Promise.all(polygonPromises),
@@ -1591,7 +1687,7 @@ export default function DashboardAllPlotsPage() {
           );
           allPolys.push(...normalized);
         }
-        setPolygonsAll(allPolys);
+        setPolygonsAll(dedupeById(allPolys));
 
         const allPins = [];
         const pinMap = {};
@@ -1601,37 +1697,8 @@ export default function DashboardAllPlotsPage() {
             plotItems.find((p) => String(p.id) === String(pr.plotId)) || null;
 
           const pinsNorm = (pr.items || [])
-            .map((x) => {
-              const merged = mergePlotMeta(plotMeta || {}, x || {});
-              return {
-                ...x,
-                id: String(firstNonEmpty(x._id, x.id, "")),
-                plotId: String(
-                  firstNonEmpty(pr.plotId, x.plotId, x.plot_id, merged.id, "")
-                ),
-                plotName: merged.plotName || pr.plotName || "",
-                plotMetaMerged: merged,
-                number: safeNum(
-                  firstNonEmpty(x.number, x.pinNumber, x.no, 0),
-                  0
-                ),
-                lat: Number(firstNonEmpty(x.lat, x.latitude)),
-                lng: Number(firstNonEmpty(x.lng, x.longitude)),
-                node_air: Array.isArray(x?.node_air) ? x.node_air : [],
-                node_soil: Array.isArray(x?.node_soil) ? x.node_soil : [],
-                status: firstNonEmpty(
-                  x.status,
-                  x.deviceStatus,
-                  x.connectionStatus,
-                  x.powerStatus,
-                  ""
-                ),
-                isOnline: firstNonEmpty(x.isOnline, x.online, ""),
-              };
-            })
-            .filter(
-              (p) => p.id && Number.isFinite(p.lat) && Number.isFinite(p.lng)
-            );
+            .map((x) => normalizePinFromAny(x, plotMeta || {}))
+            .filter(Boolean);
 
           allPins.push(...pinsNorm);
 
@@ -1644,7 +1711,11 @@ export default function DashboardAllPlotsPage() {
           }
         }
 
-        setPinsAll(allPins);
+        const dedupedPins = dedupeById(allPins)
+          .slice()
+          .sort((a, b) => safeNum(a.number, 0) - safeNum(b.number, 0));
+
+        setPinsAll(dedupedPins);
         setSensorsByPinId(pinMap);
         setCacheTs(new Date().toISOString());
       } catch (e) {
