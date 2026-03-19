@@ -53,10 +53,9 @@ function useLeafletBundle() {
 /* =========================================================
    CONFIG / API
 ========================================================= */
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001").replace(
-  /\/$/,
-  ""
-);
+const API_BASE = (
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001"
+).replace(/\/$/, "");
 
 function getToken() {
   if (typeof window === "undefined") return "";
@@ -100,55 +99,108 @@ async function apiFetch(path, { method = "GET", body } = {}) {
 /* =========================================================
    HELPERS
 ========================================================= */
-function isFirestoreTimestampObject(v) {
-  return (
-    v &&
-    typeof v === "object" &&
+function isTimestampLike(v) {
+  if (!v || typeof v !== "object") return false;
+
+  if (typeof v.toDate === "function") return true;
+
+  const hasUnderscore =
     typeof v._seconds === "number" &&
-    typeof v._nanoseconds === "number"
-  );
+    (typeof v._nanoseconds === "number" || typeof v._nanoseconds === "undefined");
+
+  const hasPlain =
+    typeof v.seconds === "number" &&
+    (typeof v.nanoseconds === "number" || typeof v.nanoseconds === "undefined");
+
+  return hasUnderscore || hasPlain;
 }
 
-function convertTimestampObject(v) {
-  if (isFirestoreTimestampObject(v)) {
-    return new Date(v._seconds * 1000).toISOString();
+function timestampLikeToIso(v) {
+  if (!v) return "";
+
+  if (typeof v?.toDate === "function") {
+    try {
+      return v.toDate().toISOString();
+    } catch {
+      return "";
+    }
   }
 
-  if (Array.isArray(v)) {
-    return v.map(convertTimestampObject);
+  const seconds =
+    typeof v._seconds === "number"
+      ? v._seconds
+      : typeof v.seconds === "number"
+      ? v.seconds
+      : null;
+
+  if (typeof seconds !== "number") return "";
+
+  return new Date(seconds * 1000).toISOString();
+}
+
+function deepNormalize(value) {
+  if (isTimestampLike(value)) {
+    return timestampLikeToIso(value);
   }
 
-  if (v && typeof v === "object") {
+  if (Array.isArray(value)) {
+    return value.map(deepNormalize);
+  }
+
+  if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(v).map(([k, val]) => [k, convertTimestampObject(val)])
+      Object.entries(value).map(([k, v]) => [k, deepNormalize(v)])
     );
   }
 
-  return v;
+  return value;
 }
 
 function safeText(v, fallback = "") {
   if (v === null || v === undefined) return fallback;
 
-  if (isFirestoreTimestampObject(v)) {
-    return new Date(v._seconds * 1000).toLocaleString("th-TH");
+  if (isTimestampLike(v)) {
+    const iso = timestampLikeToIso(v);
+    return iso ? new Date(iso).toLocaleString("th-TH") : fallback;
   }
 
-  if (typeof v === "object") {
-    return fallback;
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+
+  return fallback;
+}
+
+function toInputDate(value) {
+  if (!value) return "";
+  const normalized = deepNormalize(value);
+
+  if (typeof normalized === "string") {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized;
+    const d = new Date(normalized);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toISOString().slice(0, 10);
+    }
   }
 
-  return String(v);
+  return "";
 }
 
 function isoToThai(iso) {
   const safeIso = safeText(iso, "");
   if (!safeIso) return "";
 
-  const [y, m, d] = String(safeIso).split("-");
+  const d = new Date(safeIso);
+  if (!Number.isNaN(d.getTime())) {
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear() + 543;
+    return `${day}/${month}/${year}`;
+  }
+
+  const [y, m, dd] = String(safeIso).split("-");
   const yy = Number(y);
-  if (!yy || !m || !d) return safeIso;
-  return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${yy + 543}`;
+  if (!yy || !m || !dd) return safeIso;
+  return `${String(dd).padStart(2, "0")}/${String(m).padStart(2, "0")}/${yy + 543}`;
 }
 
 function normalizeCaretaker(v) {
@@ -161,7 +213,7 @@ function normalizeCaretaker(v) {
 }
 
 function normalizeTopicItem(item = {}, index = 0) {
-  const safeItem = convertTimestampObject(item || {});
+  const safeItem = deepNormalize(item || {});
   const topicVal = safeItem.topic;
   const contentVal = safeItem.description ?? safeItem.content;
 
@@ -174,22 +226,77 @@ function normalizeTopicItem(item = {}, index = 0) {
 
 function normalizeCoordsToPairs(coords) {
   if (!Array.isArray(coords)) return [];
+
   return coords
     .map((pair) => {
-      if (!Array.isArray(pair) || pair.length < 2) return null;
-      const lat = Number(pair[0]);
-      const lng = Number(pair[1]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-      return [lat, lng];
+      if (Array.isArray(pair) && pair.length >= 2) {
+        const lat = Number(pair[0]);
+        const lng = Number(pair[1]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return [lat, lng];
+      }
+
+      if (pair && typeof pair === "object") {
+        const lat = Number(pair.lat);
+        const lng = Number(pair.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return [lat, lng];
+      }
+
+      return null;
     })
     .filter(Boolean);
 }
 
-function getPlotDisplayNameLocal(plot, fallback = "แปลง") {
-  return safeText(
-    plot?.alias || plot?.plotName || plot?.name || "",
-    fallback
-  ).trim() || fallback;
+function normalizePlotItem(plot = {}) {
+  const p = deepNormalize(plot || {});
+  return {
+    ...p,
+    id: String(p.id || p._id || ""),
+    alias: safeText(p.alias, ""),
+    plotName: safeText(p.plotName || p.name, ""),
+    name: safeText(p.name || p.plotName, ""),
+    caretaker: normalizeCaretaker(p.caretaker || p.ownerName || ""),
+    ownerName: normalizeCaretaker(p.ownerName || p.caretaker || ""),
+    plantType: safeText(p.plantType || p.cropType, ""),
+    cropType: safeText(p.cropType || p.plantType, ""),
+    plantedAt: toInputDate(p.plantedAt),
+    createdAt: safeText(p.createdAt, ""),
+    updatedAt: safeText(p.updatedAt, ""),
+  };
+}
+
+function normalizePolygonItem(poly = {}, fallbackId = "") {
+  const p = deepNormalize(poly || {});
+  const coords = normalizeCoordsToPairs(p.coords || p.coordinates || []);
+
+  if (!coords.length) return null;
+
+  return {
+    id: String(p.id || p._id || fallbackId || "polygon"),
+    color: safeText(p.color, "#2563eb"),
+    coords,
+  };
+}
+
+function normalizeEmployeeOption(user = {}) {
+  const safeUser = deepNormalize(user || {});
+  const label =
+    normalizeCaretaker(
+      safeUser.fullName ||
+        safeUser.name ||
+        safeUser.displayName ||
+        safeUser.nickname ||
+        safeUser.email ||
+        ""
+    ) || "";
+
+  return {
+    value: label,
+    label,
+    email: safeText(safeUser.email, ""),
+    role: safeText(safeUser.role, ""),
+  };
 }
 
 /* =========================================================
@@ -318,6 +425,7 @@ export default function AddPlantingPlotsPage() {
   const [plotName, setPlotName] = useState("");
   const [caretaker, setCaretaker] = useState("");
   const [currentNickname, setCurrentNickname] = useState("");
+  const [employeeOptions, setEmployeeOptions] = useState([]);
   const [plantType, setPlantType] = useState("");
   const [plantedAt, setPlantedAt] = useState("");
 
@@ -334,6 +442,31 @@ export default function AddPlantingPlotsPage() {
   const isReadOnly = !editMode;
   const plotPolygons = polygonsByPlot[selectedPlotId] || [];
   const extraItems = extraItemsByPlot[selectedPlotId] || [];
+
+  const mergedCaretakerOptions = useMemo(() => {
+    const map = new Map();
+
+    for (const item of employeeOptions || []) {
+      const key = normalizeCaretaker(item?.value || item?.label || "");
+      if (!key) continue;
+      map.set(key, {
+        value: key,
+        label: normalizeCaretaker(item?.label || key) || key,
+      });
+    }
+
+    const current = normalizeCaretaker(currentNickname);
+    if (current && !map.has(current)) {
+      map.set(current, { value: current, label: current });
+    }
+
+    const selected = normalizeCaretaker(caretaker);
+    if (selected && !map.has(selected)) {
+      map.set(selected, { value: selected, label: selected });
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, "th"));
+  }, [employeeOptions, currentNickname, caretaker]);
 
   const txt = {
     polygons: t("polygons", "การจัดการ Polygons"),
@@ -379,7 +512,7 @@ export default function AddPlantingPlotsPage() {
         : "* token ใช้ key: AUTH_TOKEN_V1",
     displayNamePlaceholder: lang === "en" ? "Display name" : "ชื่อแสดง",
     plotNamePlaceholder: lang === "en" ? "Plot name" : "ชื่อแปลง",
-    caretakerPlaceholder: lang === "en" ? "Caretaker name" : "ชื่อผู้ดูแล",
+    caretakerPlaceholder: lang === "en" ? "Select caretaker" : "เลือกผู้ดูแล",
     plantTypePlaceholder: lang === "en" ? "Plant type" : "ประเภทพืช",
     topicPlaceholder: lang === "en" ? "Topic" : "หัวข้อ",
     contentPlaceholder: lang === "en" ? "Type details..." : "พิมพ์รายละเอียด...",
@@ -444,6 +577,10 @@ export default function AddPlantingPlotsPage() {
         ? "No items yet — click + to add"
         : "ยังไม่มีรายการ — กด + เพื่อเพิ่ม",
     plotWord: lang === "en" ? "Plot" : "แปลง",
+    noCaretakerOptions:
+      lang === "en"
+        ? "No employee list found"
+        : "ยังไม่พบรายชื่อผู้ดูแล",
   };
 
   const requireEditMode = (
@@ -462,12 +599,28 @@ export default function AddPlantingPlotsPage() {
       const token = getToken();
       if (!token) return "";
 
-      const data = convertTimestampObject(await apiFetch("/auth/me"));
+      const data = deepNormalize(await apiFetch("/auth/me"));
       const user = data?.user || {};
-      const nick = normalizeCaretaker(user?.nickname || "");
-      if (nick) {
-        setCurrentNickname(nick);
-        return nick;
+
+      const displayName = normalizeCaretaker(
+        user?.fullName ||
+          user?.name ||
+          user?.displayName ||
+          user?.nickname ||
+          user?.email ||
+          ""
+      );
+
+      if (displayName) {
+        setCurrentNickname(displayName);
+        setEmployeeOptions((prev) => {
+          const exists = prev.some(
+            (x) => normalizeCaretaker(x?.value || x?.label) === displayName
+          );
+          if (exists) return prev;
+          return [...prev, { value: displayName, label: displayName }];
+        });
+        return displayName;
       }
     } catch {
       // ignore
@@ -475,9 +628,32 @@ export default function AddPlantingPlotsPage() {
     return "";
   }
 
+  async function loadEmployeeOptions() {
+    try {
+      const r = deepNormalize(await apiFetch("/api/users?role=employee"));
+      const rawItems = Array.isArray(r?.items) ? r.items : [];
+      const normalized = rawItems
+        .map(normalizeEmployeeOption)
+        .filter((x) => normalizeCaretaker(x.value));
+
+      if (normalized.length) {
+        const uniqueMap = new Map();
+        for (const item of normalized) {
+          const key = normalizeCaretaker(item.value);
+          if (!key) continue;
+          uniqueMap.set(key, { value: key, label: item.label || key });
+        }
+        setEmployeeOptions(Array.from(uniqueMap.values()));
+        return;
+      }
+    } catch {
+      // backend current version may not have /api/users
+    }
+  }
+
   async function loadPlots() {
-    const r = convertTimestampObject(await apiFetch("/api/plots"));
-    const items = (r?.items || []).map((p) => ({ ...p, id: String(p.id || p._id) }));
+    const r = deepNormalize(await apiFetch("/api/plots"));
+    const items = (r?.items || []).map(normalizePlotItem);
 
     setPlots(items);
 
@@ -490,19 +666,9 @@ export default function AddPlantingPlotsPage() {
   async function loadPolygon(plotId) {
     if (!plotId) return;
 
-    const r = convertTimestampObject(await apiFetch(`/api/plots/${plotId}/polygon`));
-    const poly = r?.item || null;
-
-    const items =
-      poly && Array.isArray(poly.coords) && poly.coords.length
-        ? [
-            {
-              id: String(poly.id || poly._id || plotId),
-              color: safeText(poly.color, "#2563eb"),
-              coords: normalizeCoordsToPairs(poly.coords || []),
-            },
-          ]
-        : [];
+    const r = deepNormalize(await apiFetch(`/api/plots/${plotId}/polygon`));
+    const poly = normalizePolygonItem(r?.item || null, plotId);
+    const items = poly ? [poly] : [];
 
     setPolygonsByPlot((prev) => ({ ...prev, [plotId]: items }));
   }
@@ -510,7 +676,7 @@ export default function AddPlantingPlotsPage() {
   async function loadTopics(plotId) {
     if (!plotId) return;
 
-    const r = convertTimestampObject(await apiFetch(`/api/plots/${plotId}/topics`));
+    const r = deepNormalize(await apiFetch(`/api/plots/${plotId}/topics`));
     const items = (r?.items || []).map((x, i) => normalizeTopicItem(x, i));
     setExtraItemsByPlot((prev) => ({ ...prev, [plotId]: items }));
   }
@@ -520,7 +686,7 @@ export default function AddPlantingPlotsPage() {
     setLoading(true);
 
     try {
-      await loadCurrentUserNickname();
+      await Promise.all([loadCurrentUserNickname(), loadEmployeeOptions()]);
       const first = await loadPlots();
       const pid = first || selectedPlotId;
       if (pid) {
@@ -552,12 +718,18 @@ export default function AddPlantingPlotsPage() {
     setPlotAlias(safeText(selectedPlot.alias || selectedPlot.plotName || selectedPlot.name || "", ""));
     setPlotName(safeText(selectedPlot.plotName || selectedPlot.name || "", ""));
     setCaretaker(() => {
-      const fromPlot = normalizeCaretaker(selectedPlot.caretaker || selectedPlot.ownerName || "");
+      const fromPlot = normalizeCaretaker(
+        selectedPlot.caretaker ||
+          selectedPlot.ownerName ||
+          selectedPlot.fullName ||
+          selectedPlot.name ||
+          ""
+      );
       const fromLogin = normalizeCaretaker(currentNickname || "");
       return fromPlot || fromLogin || "";
     });
     setPlantType(safeText(selectedPlot.plantType || selectedPlot.cropType || "", ""));
-    setPlantedAt(safeText(selectedPlot.plantedAt || "", ""));
+    setPlantedAt(toInputDate(selectedPlot.plantedAt || ""));
   }, [selectedPlot, currentNickname]);
 
   function addExtraItem() {
@@ -614,7 +786,7 @@ export default function AddPlantingPlotsPage() {
           ? `New Plot ${new Date().toISOString().slice(0, 10)}`
           : `แปลงใหม่ ${new Date().toISOString().slice(0, 10)}`;
 
-      const r = convertTimestampObject(
+      const r = deepNormalize(
         await apiFetch("/api/plots", {
           method: "POST",
           body: {
@@ -635,7 +807,7 @@ export default function AddPlantingPlotsPage() {
         })
       );
 
-      const created = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
+      const created = r?.item ? normalizePlotItem(r.item) : null;
 
       if (created) {
         setPlots((prev) => [created, ...prev]);
@@ -650,7 +822,7 @@ export default function AddPlantingPlotsPage() {
         setPlotAlias(safeText(created.alias || created.plotName || created.name || "", ""));
         setPlotName(safeText(created.plotName || created.name || "", ""));
         setPlantType(safeText(created.plantType || created.cropType || "", ""));
-        setPlantedAt(safeText(created.plantedAt || "", ""));
+        setPlantedAt(toInputDate(created.plantedAt || ""));
         setEditMode(true);
       }
     } catch (e) {
@@ -682,7 +854,7 @@ export default function AddPlantingPlotsPage() {
         description: String(x.content || "").trim(),
       }));
 
-      const r = convertTimestampObject(
+      const r = deepNormalize(
         await apiFetch(`/api/plots/${selectedPlotId}`, {
           method: "PATCH",
           body: {
@@ -692,7 +864,7 @@ export default function AddPlantingPlotsPage() {
             caretaker: safeCaretaker,
             ownerName: safeCaretaker,
             plantType: safePlantType,
-            plantedAt,
+            plantedAt: plantedAt || "",
           },
         })
       );
@@ -704,7 +876,7 @@ export default function AddPlantingPlotsPage() {
         },
       });
 
-      const updated = r?.item ? { ...r.item, id: String(r.item.id || r.item._id) } : null;
+      const updated = r?.item ? normalizePlotItem(r.item) : null;
 
       if (updated) {
         setPlots((prev) =>
@@ -715,7 +887,7 @@ export default function AddPlantingPlotsPage() {
         setPlotName(safeText(updated.plotName || updated.name || "", ""));
         setCaretaker(normalizeCaretaker(updated.caretaker || updated.ownerName || ""));
         setPlantType(safeText(updated.plantType || updated.cropType || "", ""));
-        setPlantedAt(safeText(updated.plantedAt || "", ""));
+        setPlantedAt(toInputDate(updated.plantedAt || ""));
       } else {
         setPlots((prev) =>
           prev.map((p) =>
@@ -728,7 +900,7 @@ export default function AddPlantingPlotsPage() {
                   caretaker: safeCaretaker,
                   ownerName: safeCaretaker,
                   plantType: safePlantType,
-                  plantedAt,
+                  plantedAt: plantedAt || "",
                 }
               : p
           )
@@ -810,8 +982,8 @@ export default function AddPlantingPlotsPage() {
 
       const ring =
         safeCoords.length >= 3 &&
-        (safeCoords[0][0] !== safeCoords.at(-1)[0] ||
-          safeCoords[0][1] !== safeCoords.at(-1)[1])
+        (safeCoords[0][0] !== safeCoords.at(-1)?.[0] ||
+          safeCoords[0][1] !== safeCoords.at(-1)?.[1])
           ? [...safeCoords, safeCoords[0]]
           : safeCoords;
 
@@ -958,9 +1130,7 @@ export default function AddPlantingPlotsPage() {
     await clearPolygon();
   };
 
-  const handlePolyLayerReady = () => {
-    // backend currently uses one embedded polygon per plot
-  };
+  const handlePolyLayerReady = () => {};
 
   const getPlotDisplayName = (p) => {
     const raw = p?.alias ?? p?.plotName ?? p?.name ?? "";
@@ -1231,14 +1401,26 @@ export default function AddPlantingPlotsPage() {
 
                 <div className="pui-field">
                   <div className="pui-label-dark">{txt.caretaker}</div>
-                  <input
-                    className="pui-input pui-input-short"
+                  <select
+                    className="pui-select pui-input-short"
                     value={caretaker}
                     onChange={(e) => setCaretaker(e.target.value)}
-                    placeholder={txt.caretakerPlaceholder}
-                    readOnly={isReadOnly}
-                    disabled={busy}
-                  />
+                    disabled={busy || isReadOnly || !mergedCaretakerOptions.length}
+                  >
+                    {!caretaker && (
+                      <option value="">{txt.caretakerPlaceholder}</option>
+                    )}
+
+                    {mergedCaretakerOptions.length ? (
+                      mergedCaretakerOptions.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {safeText(item.label, "")}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">{txt.noCaretakerOptions}</option>
+                    )}
+                  </select>
                 </div>
 
                 <div className="pui-field">
@@ -1569,7 +1751,8 @@ export default function AddPlantingPlotsPage() {
         }
 
         .pui-input:focus,
-        .pui-textarea:focus {
+        .pui-textarea:focus,
+        .pui-select:focus {
           border-color: rgba(76, 99, 255, 0.55);
           box-shadow: 0 0 0 3px rgba(76, 99, 255, 0.14);
         }

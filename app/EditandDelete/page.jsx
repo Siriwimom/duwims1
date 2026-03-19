@@ -83,6 +83,88 @@ function normalizeText(v) {
   return String(v || "").trim().toLowerCase();
 }
 
+function formatDateValue(v) {
+  if (v == null || v === "") return "-";
+
+  if (typeof v === "string" || typeof v === "number") {
+    const d = new Date(v);
+    if (!Number.isNaN(d.getTime())) return d.toLocaleDateString("th-TH");
+    return String(v);
+  }
+
+  if (v instanceof Date) {
+    if (!Number.isNaN(v.getTime())) return v.toLocaleDateString("th-TH");
+    return "-";
+  }
+
+  if (typeof v === "object") {
+    if (typeof v._seconds === "number" || typeof v.seconds === "number") {
+      const seconds = Number(v._seconds ?? v.seconds ?? 0);
+      const nanos = Number(v._nanoseconds ?? v.nanoseconds ?? 0);
+      const d = new Date(seconds * 1000 + Math.floor(nanos / 1e6));
+      if (!Number.isNaN(d.getTime())) return d.toLocaleDateString("th-TH");
+    }
+
+    if (typeof v.toDate === "function") {
+      try {
+        const d = v.toDate();
+        if (d instanceof Date && !Number.isNaN(d.getTime())) {
+          return d.toLocaleDateString("th-TH");
+        }
+      } catch {}
+    }
+
+    if (
+      Number.isFinite(Number(v.year)) &&
+      Number.isFinite(Number(v.month)) &&
+      Number.isFinite(Number(v.day))
+    ) {
+      const d = new Date(Number(v.year), Number(v.month) - 1, Number(v.day));
+      if (!Number.isNaN(d.getTime())) return d.toLocaleDateString("th-TH");
+    }
+  }
+
+  return String(v);
+}
+
+function normalizeLatLngPair(p) {
+  if (Array.isArray(p) && p.length >= 2) {
+    const lat = Number(p[0]);
+    const lng = Number(p[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
+  }
+
+  if (p && typeof p === "object") {
+    const lat = Number(p.lat);
+    const lng = Number(p.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
+  }
+
+  return null;
+}
+
+function normalizePolygonCoords(coords) {
+  if (!Array.isArray(coords)) return [];
+  return coords.map(normalizeLatLngPair).filter(Boolean);
+}
+
+function normalizePlotItem(p = {}) {
+  return {
+    ...p,
+    id: String(p.id || "").trim(),
+    plotName: String(p.plotName || p.name || p.alias || "").trim(),
+    name: String(p.name || p.plotName || "").trim(),
+    alias: String(p.alias || "").trim(),
+    caretaker: String(p.caretaker || p.ownerName || "").trim(),
+    ownerName: String(p.ownerName || p.caretaker || "").trim(),
+    plantType: String(p.plantType || p.cropType || "").trim(),
+    cropType: String(p.cropType || p.plantType || "").trim(),
+    plantedAtRaw: p.plantedAt ?? null,
+    plantedAt: formatDateValue(p.plantedAt),
+    polygon: p?.polygon && typeof p.polygon === "object" ? p.polygon : {},
+  };
+}
+
 function getPinNodes(pin, category = "all") {
   const air = Array.isArray(pin?.node_air) ? pin.node_air : [];
   const soil = Array.isArray(pin?.node_soil) ? pin.node_soil : [];
@@ -142,11 +224,7 @@ function sensorMatches(sensor, sensorType) {
   }
 
   if (sensorType === "rain") {
-    return (
-      type === "rain" ||
-      name.includes("rain") ||
-      name.includes("ฝน")
-    );
+    return type === "rain" || name.includes("rain") || name.includes("ฝน");
   }
 
   if (sensorType === "npk") {
@@ -177,7 +255,6 @@ function sensorMatches(sensor, sensorType) {
 function hasSensorInNode(pin, nodeCategory, sensorType) {
   const nodes = getPinNodes(pin, nodeCategory);
   if (!nodes.length) return false;
-
   if (sensorType === "all") return true;
 
   return nodes.some((node) => {
@@ -197,6 +274,25 @@ function getPinDisplayNodeName(pin, category = "all") {
   if (firstUid?.uid) return firstUid.uid;
 
   return "-";
+}
+
+function getFilteredNodeNameForDisplay(pin, nodeCategory, sensorType) {
+  const nodes = getPinNodes(pin, nodeCategory);
+  if (!nodes.length) return "-";
+
+  if (sensorType === "all") {
+    return getPinDisplayNodeName(pin, nodeCategory);
+  }
+
+  const nodeMatch = nodes.find((node) => {
+    const sensors = Array.isArray(node?.sensors) ? node.sensors : [];
+    return sensors.some((s) => sensorMatches(s, sensorType));
+  });
+
+  if (nodeMatch?.nodeName) return nodeMatch.nodeName;
+  if (nodeMatch?.uid) return nodeMatch.uid;
+
+  return getPinDisplayNodeName(pin, nodeCategory);
 }
 
 /* =========================
@@ -219,28 +315,6 @@ const LeafletClient = dynamic(
       });
     }
 
-    function normalizeLatLngPair(p) {
-      if (Array.isArray(p) && p.length >= 2) {
-        const lat = Number(p[0]);
-        const lng = Number(p[1]);
-        if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
-      }
-
-      if (p && typeof p === "object") {
-        const lat = Number(p.lat);
-        const lng = Number(p.lng);
-        if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
-      }
-
-      return null;
-    }
-
-    function normalizePolygonCoords(coords) {
-      if (!Array.isArray(coords)) return null;
-      const out = coords.map(normalizeLatLngPair).filter(Boolean);
-      return out.length >= 3 ? out : null;
-    }
-
     function computeCenter(pins, polygons) {
       if (Array.isArray(pins) && pins.length) {
         const pts = pins
@@ -259,7 +333,7 @@ const LeafletClient = dynamic(
         const pts = [];
         for (const poly of polygons) {
           const coords = normalizePolygonCoords(poly?.coords);
-          if (!coords) continue;
+          if (!coords.length) continue;
           for (const p of coords) pts.push(p);
         }
 
@@ -279,7 +353,7 @@ const LeafletClient = dynamic(
       const safePolys = (polygons || [])
         .map((p) => {
           const coords = normalizePolygonCoords(p?.coords);
-          if (!coords) return null;
+          if (coords.length < 3) return null;
           return { key: p.key, coords, color: p.color || "#16a34a" };
         })
         .filter(Boolean);
@@ -700,7 +774,7 @@ export default function EditAndDeletePage() {
       name: p.plotName || p.name || p.alias || "-",
       caretaker: p.caretaker || p.ownerName || "-",
       plantType: p.plantType || p.cropType || "-",
-      plantedAt: p.plantedAt || "-",
+      plantedAt: formatDateValue(p.plantedAtRaw ?? p.plantedAt),
     };
   }, [selectedPlot, plots, t]);
 
@@ -715,7 +789,7 @@ export default function EditAndDeletePage() {
   };
 
   const polyToUi = (polygonDoc, plotLabel, plotId) => {
-    const coords = Array.isArray(polygonDoc?.coords) ? polygonDoc.coords : [];
+    const coords = normalizePolygonCoords(polygonDoc?.coords);
     if (coords.length < 3) return null;
 
     const pid =
@@ -731,7 +805,7 @@ export default function EditAndDeletePage() {
     };
   };
 
-  const pinToUi = (pinDoc, plotLabel, plotId, filterCategory = "all") => {
+  const pinToUi = (pinDoc, plotLabel, plotId, currentNodeCategory, currentSensorType) => {
     const lat = Number(pinDoc?.lat);
     const lng = Number(pinDoc?.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
@@ -751,7 +825,11 @@ export default function EditAndDeletePage() {
       pinName: pinDoc?.pinName || "",
       node_air: Array.isArray(pinDoc?.node_air) ? pinDoc.node_air : [],
       node_soil: Array.isArray(pinDoc?.node_soil) ? pinDoc.node_soil : [],
-      nodeName: getPinDisplayNodeName(pinDoc, filterCategory),
+      nodeName: getFilteredNodeNameForDisplay(
+        pinDoc,
+        currentNodeCategory,
+        currentSensorType
+      ),
     };
   };
 
@@ -766,7 +844,7 @@ export default function EditAndDeletePage() {
     try {
       const j = await apiFetchJson("/api/plots");
       const items = normalizeList(j)
-        .map((p) => ({ ...p, id: String(p.id || "") }))
+        .map(normalizePlotItem)
         .filter((p) => p.id);
       setPlots(items);
     } catch (e) {
@@ -788,7 +866,7 @@ export default function EditAndDeletePage() {
       if (!plotItems?.length) {
         const j = await apiFetchJson("/api/plots");
         plotItems = normalizeList(j)
-          .map((p) => ({ ...p, id: String(p.id || "") }))
+          .map(normalizePlotItem)
           .filter((p) => p.id);
         setPlots(plotItems);
       }
@@ -803,25 +881,37 @@ export default function EditAndDeletePage() {
           const plotId = String(plot.id);
           const plotLabel = makePlotLabel(plot);
 
-          const [polygonRes, fullRes] = await Promise.all([
+          const [polygonRes, pinsRes] = await Promise.all([
             apiFetchJson(`/api/plots/${encodeURIComponent(plotId)}/polygon`),
-            apiFetchJson(`/api/plots/${encodeURIComponent(plotId)}/full`),
+            apiFetchJson(`/api/plots/${encodeURIComponent(plotId)}/pins`),
           ]);
 
-          const polyItem = polygonRes?.item || null;
-          const fullItem = fullRes?.item || null;
+          const polyItem =
+            polygonRes?.item && typeof polygonRes.item === "object"
+              ? polygonRes.item
+              : null;
 
-          const fullPins = Array.isArray(fullItem?.polygon?.pins)
-            ? fullItem.polygon.pins
-            : [];
+          const rawPins = normalizeList(pinsRes);
 
           const polys = [];
           const mappedPoly = polyToUi(polyItem, plotLabel, plotId);
           if (mappedPoly) polys.push(mappedPoly);
 
-          const pinItems = fullPins
-            .filter((pin) => hasSensorInNode(pin, nodeCategory, selectedSensorType))
-            .map((pin) => pinToUi(pin, plotLabel, plotId, nodeCategory))
+          const pinItems = rawPins
+            .map((pin) => ({
+              ...pin,
+              node_air: Array.isArray(pin?.node_air) ? pin.node_air : [],
+              node_soil: Array.isArray(pin?.node_soil) ? pin.node_soil : [],
+            }))
+            .map((pin) =>
+              pinToUi(
+                pin,
+                plotLabel,
+                plotId,
+                nodeCategory,
+                selectedSensorType
+              )
+            )
             .filter(Boolean);
 
           return { polys, pinItems };
@@ -843,7 +933,7 @@ export default function EditAndDeletePage() {
     } finally {
       setLoading(false);
     }
-  }, [plots, selectedPlot, nodeCategory, selectedSensorType, router, t]);
+  }, [plots, selectedPlot, nodeCategory, selectedSensorType, router]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -865,6 +955,7 @@ export default function EditAndDeletePage() {
         method: "DELETE",
       });
       await loadMapData();
+      await loadPlots();
     } catch (e) {
       setErrMsg(String(e.message || e));
       await loadMapData();
@@ -872,8 +963,11 @@ export default function EditAndDeletePage() {
   };
 
   const clearOnePlotPolygonAndPins = async (plotId) => {
-    const currentPlot = plots.find((p) => String(p.id) === String(plotId));
-    const currentPolygon = currentPlot?.polygon || {};
+    const latest = await apiFetchJson(
+      `/api/plots/${encodeURIComponent(plotId)}/polygon`
+    );
+    const currentPolygon =
+      latest?.item && typeof latest.item === "object" ? latest.item : {};
 
     await apiFetchJson(`/api/plots/${encodeURIComponent(plotId)}/polygon`, {
       method: "PUT",

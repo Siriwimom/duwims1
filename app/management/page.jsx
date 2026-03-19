@@ -4,6 +4,9 @@ import { useDuwimsT } from "@/app/TopBar";
 import "leaflet/dist/leaflet.css";
 import React, { useEffect, useMemo, useState } from "react";
 
+/* =========================
+   UI STYLES
+========================= */
 const pageStyle = {
   fontFamily:
     '"Prompt", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -391,36 +394,45 @@ const styles = {
   },
 };
 
+/* =========================
+   CONFIG / API
+========================= */
+const TOKEN_KEYS = [
+  "AUTH_TOKEN_V1",
+  "token",
+  "authToken",
+  "pmtool_token",
+  "duwims_token",
+];
+
 function getToken() {
   if (typeof window === "undefined") return "";
-  return (
-    window.localStorage.getItem("AUTH_TOKEN_V1") ||
-    window.localStorage.getItem("token") ||
-    window.localStorage.getItem("authToken") ||
-    window.localStorage.getItem("pmtool_token") ||
-    window.localStorage.getItem("duwims_token") ||
-    ""
-  );
+  for (const key of TOKEN_KEYS) {
+    const token = window.localStorage.getItem(key);
+    if (token && String(token).trim()) return String(token).trim();
+  }
+  return "";
 }
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  process.env.NEXT_PUBLIC_API_BASE ||
-  "http://localhost:3001/api";
+  (process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_BASE ||
+    "http://localhost:3001/api").replace(/\/$/, "");
 
 async function apiFetch(path, { method = "GET", body } = {}) {
   const token = getToken();
-  const cleanBase = String(API_BASE).replace(/\/$/, "");
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  const url = `${cleanBase}${cleanPath}`;
+  const url = `${API_BASE}${cleanPath}`;
 
   const res = await fetch(url, {
     method,
     headers: {
+      Accept: "application/json",
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    cache: "no-store",
   });
 
   const text = await res.text();
@@ -443,20 +455,61 @@ async function apiFetch(path, { method = "GET", body } = {}) {
   return data;
 }
 
-function fmtTs(ts, lang = "th") {
-  if (!ts) return "-";
-  try {
-    const d = new Date(ts);
-    if (Number.isNaN(d.getTime())) return String(ts);
-    return d.toLocaleString(lang === "en" ? "en-US" : "th-TH");
-  } catch {
-    return String(ts);
-  }
-}
-
+/* =========================
+   HELPERS
+========================= */
 function safeNum(v) {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+function parseAnyDate(value) {
+  if (!value) return null;
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  if (typeof value === "object") {
+    if (typeof value.toDate === "function") {
+      try {
+        const d = value.toDate();
+        return Number.isNaN(d.getTime()) ? null : d;
+      } catch {}
+    }
+
+    if (
+      Number.isFinite(value._seconds) ||
+      Number.isFinite(value.seconds)
+    ) {
+      const seconds = Number(value._seconds ?? value.seconds ?? 0);
+      const nanoseconds = Number(value._nanoseconds ?? value.nanoseconds ?? 0);
+      const ms = seconds * 1000 + Math.floor(nanoseconds / 1e6);
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
+
+  return null;
+}
+
+function fmtTs(ts, lang = "th") {
+  const d = parseAnyDate(ts);
+  if (!d) {
+    if (ts === undefined || ts === null || ts === "") return "-";
+    return String(ts);
+  }
+
+  try {
+    return d.toLocaleString(lang === "en" ? "en-US" : "th-TH");
+  } catch {
+    return d.toISOString();
+  }
 }
 
 function normalizeCoords(coords) {
@@ -496,7 +549,10 @@ function sensorValueDisplay(sensor) {
   ];
 
   for (const c of candidates) {
-    if (c !== undefined && c !== null && String(c).trim() !== "") return String(c);
+    if (c !== undefined && c !== null && String(c).trim() !== "") {
+      if (typeof c === "object") return JSON.stringify(c);
+      return String(c);
+    }
   }
   return "-";
 }
@@ -712,7 +768,10 @@ function expandSensorForDisplay(sensor) {
     {
       ...sensor,
       baseId,
-      displayName: sensor?.name || sensor?.sensorName || String(sensor?.sensorType || "-"),
+      displayName:
+        sensor?.name ||
+        sensor?.sensorName ||
+        String(sensor?.sensorType || "-"),
       displaySubName: String(sensor?.sensorType || "-"),
       displayValue: sensorValueDisplay(sensor),
     },
@@ -787,6 +846,115 @@ function buildSensorCardsForRender(sensors) {
   return cards;
 }
 
+function normalizePlotSummaryItem(p, t) {
+  const id = String(p?.id || "");
+  const plotName = p?.plotName || p?.name || "-";
+  const alias = p?.alias || plotName || `${t("plot", "แปลง")} ${id}`;
+  const caretaker = p?.caretaker || p?.ownerName || "-";
+  const plantType = p?.plantType || p?.cropType || "-";
+  const plantedAt = p?.plantedAt || "-";
+
+  return {
+    value: id,
+    label: alias,
+    raw: p,
+    meta: {
+      farmer: caretaker,
+      plant: plantType,
+      plantedAt: fmtTs(plantedAt),
+    },
+  };
+}
+
+function normalizePlotFull(item, plotId) {
+  const polygonObj = item?.polygon || {};
+  const pins = Array.isArray(polygonObj?.pins) ? polygonObj.pins : [];
+  const coords = normalizeCoords(polygonObj?.coords || []);
+
+  const normalizedPins = pins
+    .map((pin, index) => {
+      const airNodes = Array.isArray(pin?.node_air) ? pin.node_air : [];
+      const soilNodes = Array.isArray(pin?.node_soil) ? pin.node_soil : [];
+
+      const allNodes = [...airNodes, ...soilNodes];
+      const firstNode = allNodes.find((n) => n?.nodeName || n?.id || n?.uid) || null;
+
+      return {
+        ...pin,
+        id: String(pin?.id || `pin-${plotId}-${index}`),
+        plotId: String(item?.id || plotId),
+        plotLabel: item?.alias || item?.plotName || item?.name || "-",
+        number: safeNum(pin?.number) ?? index + 1,
+        displayNumber: index + 1,
+        pinName: pin?.pinName || pin?.name || "",
+        lat: safeNum(pin?.lat),
+        lng: safeNum(pin?.lng),
+        nodeId: firstNode?.id ? String(firstNode.id) : null,
+        nodeUid: firstNode?.uid ? String(firstNode.uid) : null,
+        nodeName: firstNode?.nodeName || "",
+        node_air: airNodes,
+        node_soil: soilNodes,
+        createdAt: pin?.createdAt || null,
+        updatedAt: pin?.updatedAt || null,
+      };
+    })
+    .filter(
+      (p) =>
+        Number.isFinite(p.lat) &&
+        Number.isFinite(p.lng) &&
+        p.lat >= -90 &&
+        p.lat <= 90 &&
+        p.lng >= -180 &&
+        p.lng <= 180
+    )
+    .sort((a, b) => {
+      if ((a.number || 0) !== (b.number || 0)) return (a.number || 0) - (b.number || 0);
+      return String(a.id).localeCompare(String(b.id));
+    })
+    .map((pin, index) => ({
+      ...pin,
+      displayNumber: index + 1,
+    }));
+
+  return {
+    item,
+    polygon: {
+      id: String(polygonObj?.id || `polygon-${plotId}`),
+      color: polygonObj?.color || "#2563eb",
+      coords,
+    },
+    pins: normalizedPins,
+  };
+}
+
+function matchSelectedSensorType(sensor, selectedSensorType) {
+  if (selectedSensorType === "all") return true;
+
+  const sensorType = String(sensor?.sensorType || "").toLowerCase();
+  const originalSensorType = String(sensor?.originalSensorType || "").toLowerCase();
+
+  if (selectedSensorType === "npk") {
+    return ["npk", "npk_n", "npk_p", "npk_k"].includes(sensorType) || originalSensorType === "npk";
+  }
+
+  if (selectedSensorType === "wind") {
+    return sensorType === "wind_speed" || originalSensorType === "wind_speed";
+  }
+
+  if (selectedSensorType === "ppfd") {
+    return sensorType === "light" || originalSensorType === "light";
+  }
+
+  if (selectedSensorType === "irrigation") {
+    return sensorType === "water_level" || originalSensorType === "water_level";
+  }
+
+  return sensorType === String(selectedSensorType).toLowerCase();
+}
+
+/* =========================
+   LEAFLET BUNDLE
+========================= */
 function useLeafletBundle() {
   const [bundle, setBundle] = useState(null);
 
@@ -842,31 +1010,9 @@ function useLeafletBundle() {
   return bundle;
 }
 
-function matchSelectedSensorType(sensor, selectedSensorType) {
-  if (selectedSensorType === "all") return true;
-
-  const sensorType = String(sensor?.sensorType || "").toLowerCase();
-  const originalSensorType = String(sensor?.originalSensorType || "").toLowerCase();
-
-  if (selectedSensorType === "npk") {
-    return ["npk", "npk_n", "npk_p", "npk_k"].includes(sensorType) || originalSensorType === "npk";
-  }
-
-  if (selectedSensorType === "wind") {
-    return sensorType === "wind_speed" || originalSensorType === "wind_speed";
-  }
-
-  if (selectedSensorType === "ppfd") {
-    return sensorType === "light" || originalSensorType === "light";
-  }
-
-  if (selectedSensorType === "irrigation") {
-    return sensorType === "water_level" || originalSensorType === "water_level";
-  }
-
-  return sensorType === String(selectedSensorType).toLowerCase();
-}
-
+/* =========================
+   PAGE
+========================= */
 export default function ManagementPage() {
   const { t, lang } = useDuwimsT();
   const leafletBundle = useLeafletBundle();
@@ -952,25 +1098,9 @@ export default function ManagementPage() {
         const data = await apiFetch("/plots");
         const items = Array.isArray(data?.items) ? data.items : [];
 
-        const mapped = items.map((p) => {
-          const id = String(p?.id || "");
-          const plotName = p?.plotName || p?.name || "-";
-          const alias = p?.alias || plotName || `${t("plot", "แปลง")} ${id}`;
-          const caretaker = p?.caretaker || p?.ownerName || "-";
-          const plantType = p?.plantType || p?.cropType || "-";
-          const plantedAt = p?.plantedAt || "-";
-
-          return {
-            value: id,
-            label: alias,
-            raw: p,
-            meta: {
-              farmer: caretaker,
-              plant: plantType,
-              plantedAt,
-            },
-          };
-        });
+        const mapped = items
+          .map((p) => normalizePlotSummaryItem(p, t))
+          .filter((p) => p.value);
 
         if (!cancelled) {
           setPlots([
@@ -1012,9 +1142,7 @@ export default function ManagementPage() {
       const targetPlotIds =
         selectedPlot === "all"
           ? plots.filter((p) => p.value !== "all").map((p) => p.value)
-          : plots
-              .filter((p) => p.value !== "all" && p.value === selectedPlot)
-              .map((p) => p.value);
+          : plots.filter((p) => p.value === selectedPlot).map((p) => p.value);
 
       if (!targetPlotIds.length) {
         if (!cancelled) {
@@ -1030,9 +1158,16 @@ export default function ManagementPage() {
       try {
         const resultEntries = await Promise.all(
           targetPlotIds.map(async (plotId) => {
-            const res = await apiFetch(`/plots/${encodeURIComponent(plotId)}/full`);
-            const item = res?.item || null;
-            return [plotId, item];
+            const [fullRes, summaryRes] = await Promise.all([
+              apiFetch(`/plots/${encodeURIComponent(plotId)}/full`),
+              apiFetch(`/plots/${encodeURIComponent(plotId)}/summary`),
+            ]);
+
+            return {
+              plotId,
+              item: fullRes?.item || null,
+              summary: summaryRes?.item || null,
+            };
           })
         );
 
@@ -1041,77 +1176,22 @@ export default function ManagementPage() {
         const nextDetails = {};
         const nextSummary = {};
 
-        for (const [plotId, item] of resultEntries) {
-          const polygonObj = item?.polygon || {};
-          const pins = Array.isArray(polygonObj?.pins) ? polygonObj.pins : [];
-          const coords = normalizeCoords(polygonObj?.coords || []);
+        for (const entry of resultEntries) {
+          const { plotId, item, summary } = entry;
+          const normalized = normalizePlotFull(item, plotId);
 
-          const normalizedPins = pins
-            .map((pin, index) => {
-              const airNodes = Array.isArray(pin?.node_air) ? pin.node_air : [];
-              const soilNodes = Array.isArray(pin?.node_soil) ? pin.node_soil : [];
+          nextDetails[plotId] = normalized;
 
-              const firstNodeName =
-                airNodes.find((n) => n?.nodeName)?.nodeName ||
-                soilNodes.find((n) => n?.nodeName)?.nodeName ||
-                "";
-
-              const firstNodeId =
-                airNodes.find((n) => n?.id)?.id ||
-                soilNodes.find((n) => n?.id)?.id ||
-                null;
-
-              return {
-                ...pin,
-                id: String(pin?.id || `pin-${plotId}-${index}`),
-                plotId: String(item?.id || plotId),
-                plotLabel: item?.alias || item?.plotName || item?.name || "-",
-                number: safeNum(pin?.number) ?? index + 1,
-                displayNumber: index + 1,
-                lat: safeNum(pin?.lat),
-                lng: safeNum(pin?.lng),
-                nodeId: firstNodeId ? String(firstNodeId) : null,
-                nodeName: firstNodeName || "",
-                node_air: airNodes,
-                node_soil: soilNodes,
-              };
-            })
-            .filter(
-              (p) =>
-                Number.isFinite(p.lat) &&
-                Number.isFinite(p.lng) &&
-                p.lat >= -90 &&
-                p.lat <= 90 &&
-                p.lng >= -180 &&
-                p.lng <= 180
-            )
-            .sort((a, b) => {
-              if ((a.number || 0) !== (b.number || 0)) return (a.number || 0) - (b.number || 0);
-              return String(a.id).localeCompare(String(b.id));
-            })
-            .map((pin, index) => ({
-              ...pin,
-              displayNumber: index + 1,
-            }));
-
-          nextDetails[plotId] = {
-            item,
-            polygon: {
-              id: String(polygonObj?.id || `polygon-${plotId}`),
-              color: polygonObj?.color || "#2563eb",
-              coords,
-            },
-            pins: normalizedPins,
-          };
-
-          const totalSensors = normalizedPins.reduce(
+          const fallbackSensorCount = normalized.pins.reduce(
             (sum, pin) => sum + collectSensorsFromPin(pin).length,
             0
           );
 
           nextSummary[plotId] = {
-            pinCount: normalizedPins.length,
-            sensorCount: totalSensors,
+            pinCount: Number(summary?.pinCount ?? normalized.pins.length ?? 0),
+            sensorCount: Number(summary?.sensorCount ?? fallbackSensorCount ?? 0),
+            nodeAirCount: Number(summary?.nodeAirCount ?? 0),
+            nodeSoilCount: Number(summary?.nodeSoilCount ?? 0),
           };
         }
 
@@ -1222,9 +1302,26 @@ export default function ManagementPage() {
         (sum, pid) => sum + Number(plotSummaryMap[pid]?.sensorCount || 0),
         0
       );
-      return { pinCount, sensorCount };
+      const nodeAirCount = visiblePlotIds.reduce(
+        (sum, pid) => sum + Number(plotSummaryMap[pid]?.nodeAirCount || 0),
+        0
+      );
+      const nodeSoilCount = visiblePlotIds.reduce(
+        (sum, pid) => sum + Number(plotSummaryMap[pid]?.nodeSoilCount || 0),
+        0
+      );
+
+      return { pinCount, sensorCount, nodeAirCount, nodeSoilCount };
     }
-    return plotSummaryMap[selectedPlot] || { pinCount: 0, sensorCount: 0 };
+
+    return (
+      plotSummaryMap[selectedPlot] || {
+        pinCount: 0,
+        sensorCount: 0,
+        nodeAirCount: 0,
+        nodeSoilCount: 0,
+      }
+    );
   }, [selectedPlot, visiblePlotIds, plotSummaryMap]);
 
   const mapCenter = useMemo(() => {
@@ -1406,24 +1503,28 @@ export default function ManagementPage() {
                       color: poly.color || "#2563eb",
                       fillColor: poly.color || "#2563eb",
                       fillOpacity: 0.22,
+                      weight: 2,
                     }}
                   />
                 ))}
 
                 {pinIcon &&
                   pinCards.map((p) => {
-                    const nodeNames = [
+                    const allNodes = [
                       ...(Array.isArray(p.node_air) ? p.node_air : []),
                       ...(Array.isArray(p.node_soil) ? p.node_soil : []),
-                    ]
+                    ];
+
+                    const nodeNames = allNodes
                       .map((n) => n?.nodeName)
                       .filter(Boolean);
 
-                    const nodeIds = [
-                      ...(Array.isArray(p.node_air) ? p.node_air : []),
-                      ...(Array.isArray(p.node_soil) ? p.node_soil : []),
-                    ]
+                    const nodeIds = allNodes
                       .map((n) => n?.id)
+                      .filter(Boolean);
+
+                    const nodeUids = allNodes
+                      .map((n) => n?.uid)
                       .filter(Boolean);
 
                     return (
@@ -1448,6 +1549,9 @@ export default function ManagementPage() {
                             <div>
                               Node IDs: {nodeIds.length ? nodeIds.join(", ") : "-"}
                             </div>
+                            <div>
+                              Node UIDs: {nodeUids.length ? nodeUids.join(", ") : "-"}
+                            </div>
                           </div>
                         </Popup>
                       </Marker>
@@ -1464,6 +1568,7 @@ export default function ManagementPage() {
               {lang === "en" ? "Plot Information" : "ข้อมูลแปลง"}:{" "}
               {selectedPlotObj?.label || `${t("plot", "แปลง")} ${selectedPlot}`}
             </div>
+
             <button style={styles.chipBtn} type="button">
               Node:{" "}
               {nodeCategory === "all"
@@ -1487,6 +1592,10 @@ export default function ManagementPage() {
             PIN: {pinCountText}
             {" • "}
             {lang === "en" ? "Sensor Items" : "รายการเซนเซอร์"}: {sensorCountText}
+            {" • "}
+            {lang === "en" ? "Air Nodes" : "Node อากาศ"}: {selectedSummary.nodeAirCount}
+            {" • "}
+            {lang === "en" ? "Soil Nodes" : "Node ดิน"}: {selectedSummary.nodeSoilCount}
             {loadingData ? ` • ${t("loading", "กำลังโหลด...")}` : ""}
           </div>
 
@@ -1548,6 +1657,10 @@ export default function ManagementPage() {
                   .map((n) => n?.id)
                   .filter(Boolean);
 
+                const allNodeUids = allNodes
+                  .map((n) => n?.uid)
+                  .filter(Boolean);
+
                 return (
                   <div key={`${pin.plotId}-${pin.id}`} style={styles.pinCard}>
                     <div style={styles.pinCardTop}>
@@ -1583,6 +1696,13 @@ export default function ManagementPage() {
                         <div style={styles.pinInfoItemLabel}>Node ID</div>
                         <div style={styles.pinInfoItemValue}>
                           {allNodeIds.length ? allNodeIds.join(", ") : "-"}
+                        </div>
+                      </div>
+
+                      <div style={styles.pinInfoItemFull}>
+                        <div style={styles.pinInfoItemLabel}>Node UID</div>
+                        <div style={styles.pinInfoItemValue}>
+                          {allNodeUids.length ? allNodeUids.join(", ") : "-"}
                         </div>
                       </div>
                     </div>

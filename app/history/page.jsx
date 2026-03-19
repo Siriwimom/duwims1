@@ -143,19 +143,28 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ||
   "http://localhost:3001";
 
+const TOKEN_KEYS = [
+  "AUTH_TOKEN_V1",
+  "token",
+  "access_token",
+  "jwt",
+  "pmtool_token",
+  "duwims_token",
+];
+
+function getToken() {
+  if (typeof window === "undefined") return "";
+  for (const key of TOKEN_KEYS) {
+    const value = localStorage.getItem(key);
+    if (value && String(value).trim()) return String(value).trim();
+  }
+  return "";
+}
+
 async function apiFetch(path, opts = {}) {
   const method = opts.method || "GET";
   const body = opts.body;
-  const token =
-    opts.token ||
-    (typeof window !== "undefined" &&
-      (localStorage.getItem("AUTH_TOKEN_V1") ||
-        localStorage.getItem("token") ||
-        localStorage.getItem("access_token") ||
-        localStorage.getItem("jwt") ||
-        localStorage.getItem("pmtool_token") ||
-        localStorage.getItem("duwims_token"))) ||
-    null;
+  const token = opts.token ?? getToken();
 
   const res = await fetch(`${API_BASE}${path}`, {
     method,
@@ -319,7 +328,6 @@ function sensorMetaToKey(meta) {
     ) {
       return "rh";
     }
-
     if (
       (name.includes("อุณหภูมิ") && !name.includes("ความชื้น")) ||
       unit === "°c"
@@ -332,7 +340,6 @@ function sensorMetaToKey(meta) {
     ) {
       return "rh";
     }
-
     return "temp_rh";
   }
 
@@ -491,15 +498,6 @@ export default function HistoryPage() {
     [t]
   );
 
-  const defaultPlotOptionsI18n = useMemo(
-    () => [
-      { id: "1", name: `${t("plot", "แปลง")} 1` },
-      { id: "2", name: `${t("plot", "แปลง")} 2` },
-      { id: "3", name: `${t("plot", "แปลง")} 3` },
-    ],
-    [t]
-  );
-
   const [vw, setVw] = useState(1280);
 
   useEffect(() => {
@@ -559,10 +557,6 @@ export default function HistoryPage() {
   const [plotsLoading, setPlotsLoading] = useState(false);
   const [plotsError, setPlotsError] = useState("");
 
-  const plotList = useMemo(() => {
-    return plotOptions.length ? plotOptions : defaultPlotOptionsI18n;
-  }, [plotOptions, defaultPlotOptionsI18n]);
-
   const [selectedPlots, setSelectedPlots] = useState([]);
 
   useEffect(() => {
@@ -573,25 +567,34 @@ export default function HistoryPage() {
         setPlotsLoading(true);
         setPlotsError("");
 
-        const data = await apiFetch("/api/plots");
+        const token = getToken();
+        if (!token) {
+          if (!cancelled) {
+            setPlotOptions([]);
+            setSelectedPlots([]);
+            setPlotsError("Missing token กรุณา login ก่อน");
+          }
+          return;
+        }
+
+        const data = await apiFetch("/api/plots", { token });
         const items = Array.isArray(data?.items) ? data.items : [];
 
         const mapped = items.map((p, i) => ({
-          id: String(p.id || p._id || i + 1),
+          id: String(p.id || p._id || ""),
           name: getPlotDisplayName(p, i, t),
           raw: p,
-        }));
+        })).filter((x) => x.id);
 
         if (!cancelled) {
-          const nextList = mapped.length ? mapped : defaultPlotOptionsI18n;
           setPlotOptions(mapped);
-          setSelectedPlots(nextList.map((x) => x.id));
+          setSelectedPlots(mapped.map((x) => x.id));
         }
       } catch (e) {
         if (!cancelled) {
           setPlotsError(String(e?.message || e));
           setPlotOptions([]);
-          setSelectedPlots(defaultPlotOptionsI18n.map((p) => p.id));
+          setSelectedPlots([]);
         }
       } finally {
         if (!cancelled) setPlotsLoading(false);
@@ -601,7 +604,7 @@ export default function HistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [t, defaultPlotOptionsI18n]);
+  }, [t]);
 
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
@@ -632,29 +635,41 @@ export default function HistoryPage() {
           return;
         }
 
-        setHistoryLoading(true);
-        setHistoryError("");
-
-        const plots = (selectedPlots.length ? selectedPlots : plotList.map((p) => p.id))
-          .filter(Boolean);
-
-        if (!plots.length) {
-          if (!cancelled) {
-            setSummaryByPlot({});
-            setReadingsByPlot({});
-            setSensorsByPlot({});
-            setFullPlotById({});
-          }
+        const token = getToken();
+        if (!token) {
+          setHistoryError("Missing token กรุณา login ก่อน");
+          setSummaryByPlot({});
+          setReadingsByPlot({});
+          setSensorsByPlot({});
+          setFullPlotById({});
           return;
         }
 
+        const plots = selectedPlots.filter(Boolean);
+
+        if (!plots.length) {
+          setHistoryError("");
+          setSummaryByPlot({});
+          setReadingsByPlot({});
+          setSensorsByPlot({});
+          setFullPlotById({});
+          return;
+        }
+
+        setHistoryLoading(true);
+        setHistoryError("");
+
         const [allReadingsRes, fullPlotsRes, summariesRes] = await Promise.all([
-          apiFetch("/api/readings"),
+          apiFetch("/api/readings", { token }),
           Promise.all(
-            plots.map((pid) => apiFetch(`/api/plots/${encodeURIComponent(pid)}/full`))
+            plots.map((pid) =>
+              apiFetch(`/api/plots/${encodeURIComponent(pid)}/full`, { token })
+            )
           ),
           Promise.all(
-            plots.map((pid) => apiFetch(`/api/plots/${encodeURIComponent(pid)}/summary`))
+            plots.map((pid) =>
+              apiFetch(`/api/plots/${encodeURIComponent(pid)}/summary`, { token })
+            )
           ),
         ]);
 
@@ -671,7 +686,8 @@ export default function HistoryPage() {
 
         plots.forEach((pid, i) => {
           const fullPlot = fullPlotsRes[i]?.item || null;
-          const summaryItem = summariesRes[i]?.item || buildSummaryFallbackFromPlot(fullPlot || {});
+          const summaryItem =
+            summariesRes[i]?.item || buildSummaryFallbackFromPlot(fullPlot || {});
           const sensors = fullPlot ? flattenSensorsFromPlot(fullPlot) : [];
 
           const filteredReadings = allReadings.filter((r) => {
@@ -705,7 +721,7 @@ export default function HistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedPlots, plotList, startDate, endDate, hasDateError, t]);
+  }, [selectedPlots, startDate, endDate, hasDateError, t]);
 
   const toggleSensor = (key) => {
     setSelectedSensors((prev) => {
@@ -716,11 +732,11 @@ export default function HistoryPage() {
 
   const togglePlot = (id) => {
     setSelectedPlots((prev) => {
-      const next = prev.includes(id)
-        ? prev.filter((p) => p !== id)
-        : [...prev, id];
-      if (next.length === 0) return plotList.map((p) => p.id);
-      return next;
+      if (prev.includes(id)) {
+        const next = prev.filter((p) => p !== id);
+        return next.length ? next : prev;
+      }
+      return [...prev, id];
     });
   };
 
@@ -758,16 +774,17 @@ export default function HistoryPage() {
 
   const selectedPlotNames = useMemo(() => {
     return selectedPlots
-      .map((id) => plotList.find((p) => p.id === id)?.name)
+      .map((id) => plotOptions.find((p) => p.id === id)?.name)
       .filter(Boolean);
-  }, [selectedPlots, plotList]);
+  }, [selectedPlots, plotOptions]);
 
   const plotDropdownLabel = useMemo(() => {
-    if (selectedPlots.length === plotList.length) return t("allPlots", "ทุกแปลง");
+    if (!plotOptions.length) return t("noPlots", "ยังไม่มีแปลง");
+    if (selectedPlots.length === plotOptions.length) return t("allPlots", "ทุกแปลง");
     if (selectedPlotNames.length === 0) return t("allPlots", "ทุกแปลง");
     if (selectedPlotNames.length === 1) return selectedPlotNames[0];
     return `${selectedPlotNames[0]} +${selectedPlotNames.length - 1}`;
-  }, [selectedPlots, selectedPlotNames, plotList.length, t]);
+  }, [selectedPlots, selectedPlotNames, plotOptions.length, t]);
 
   const cardPad = isMobile ? 14 : isTablet ? 16 : 20;
   const cardRadius = isMobile ? 18 : 24;
@@ -866,8 +883,8 @@ export default function HistoryPage() {
   }, [startDate, endDate, lang]);
 
   const selectedPlotIdsResolved = useMemo(() => {
-    return selectedPlots.length ? selectedPlots : plotList.map((p) => p.id);
-  }, [selectedPlots, plotList]);
+    return selectedPlots.filter(Boolean);
+  }, [selectedPlots]);
 
   const seriesByPlot = useMemo(() => {
     const plots = selectedPlotIdsResolved;
@@ -959,12 +976,12 @@ export default function HistoryPage() {
       return {
         plotId: pid,
         plotName:
-          plotList.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${pid}`,
+          plotOptions.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${idx + 1}`,
         color: PLOT_COLORS[idx % PLOT_COLORS.length],
         points: pts,
       };
     });
-  }, [selectedPlotIdsResolved, plotList, seriesByPlot, activeSensorKey, t]);
+  }, [selectedPlotIdsResolved, plotOptions, seriesByPlot, activeSensorKey, t]);
 
   const allValidValues = useMemo(() => {
     return compareSeries.flatMap((s) =>
@@ -1081,7 +1098,7 @@ export default function HistoryPage() {
 
     for (const pid of plots) {
       const plotName =
-        plotList.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${pid}`;
+        plotOptions.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${pid}`;
 
       for (const sk of sensors) {
         const meta = sensorOptionsI18n.find((s) => s.key === sk);
@@ -1157,7 +1174,7 @@ export default function HistoryPage() {
 
     return selectedPlotIdsResolved.map((pid, i) => {
       const plotName =
-        plotList.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${pid}`;
+        plotOptions.find((p) => p.id === pid)?.name || `${t("plot", "แปลง")} ${i + 1}`;
 
       return {
         plotId: String(pid),
@@ -1173,7 +1190,7 @@ export default function HistoryPage() {
         bg: i % 2 === 0 ? "#f9fafb" : "#eef2ff",
       };
     });
-  }, [selectedPlotIdsResolved, plotList, readingsByPlot, sensorsByPlot, t]);
+  }, [selectedPlotIdsResolved, plotOptions, readingsByPlot, sensorsByPlot, t]);
 
   const statusMessage = hasDateError
     ? t("dateRangeInvalid", "วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด")
@@ -1556,7 +1573,7 @@ export default function HistoryPage() {
 
                         <button
                           type="button"
-                          onClick={() => setSelectedPlots(plotList.map((p) => p.id))}
+                          onClick={() => setSelectedPlots(plotOptions.map((p) => p.id))}
                           style={{
                             border: "none",
                             background: "transparent",
@@ -1572,7 +1589,7 @@ export default function HistoryPage() {
                       </div>
 
                       <div style={{ display: "grid", gap: 8 }}>
-                        {plotList.map((p, idx) => {
+                        {plotOptions.map((p, idx) => {
                           const checked = selectedPlots.includes(p.id);
                           const c = PLOT_COLORS[idx % PLOT_COLORS.length];
 
@@ -1645,7 +1662,9 @@ export default function HistoryPage() {
                   {t("selected", "เลือกแล้ว")}:{" "}
                   {selectedPlotNames.length
                     ? selectedPlotNames.join(", ")
-                    : t("allPlots", "ทุกแปลง")}
+                    : plotOptions.length
+                    ? t("allPlots", "ทุกแปลง")
+                    : t("noPlots", "ยังไม่มีแปลง")}
                 </div>
               </div>
             </div>
@@ -2231,6 +2250,22 @@ export default function HistoryPage() {
                       ))}
                     </tr>
                   ))}
+
+                  {!tableRows.length && (
+                    <tr>
+                      <td
+                        colSpan={9}
+                        style={{
+                          padding: "16px",
+                          textAlign: "center",
+                          color: "#64748b",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {t("noPlots", "ยังไม่มีแปลง")}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
