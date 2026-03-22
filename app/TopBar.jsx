@@ -5,12 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const LOGIN_PATH = "/login";
+const ADD_NODE_PATH = "/AddSensor"; // <- ถ้าหน้าจริงไม่ใช่ route นี้ ให้เปลี่ยนตรงนี้
 const TOKEN_KEYS = ["AUTH_TOKEN_V1", "token", "pmtool_token", "duwims_token"];
 const LANG_KEY = "duwims_lang";
 
-// =========================
-// auth helpers
-// =========================
 function getToken() {
   if (typeof window === "undefined") return null;
   for (const key of TOKEN_KEYS) {
@@ -27,349 +25,33 @@ function clearToken() {
   }
 }
 
-// =========================
-// i18n dictionary
-// =========================
 export const DUWIMS_DICT = {
   th: {
     dashboard: "แดชบอร์ด",
-    history: "ประวัติ & วิเคราะห์",
+    history: "ประวัติ",
+    heatMap: "Heat Map",
     management: "จัดการ",
+    addPlantingPlots: "จัดการแปลงปลูก",
+    addNode: "เพิ่ม Node",
+    editAndDelete: "การจัดการผลผลิต",
     login: "เข้าสู่ระบบ",
     logout: "ออกจากระบบ",
     langBtn: "TH / EN",
-
-    weather7days: "พยากรณ์อากาศ 7 วันข้างหน้า",
-    todayTemperature: "อุณหภูมิปัจจุบัน (วันนี้)",
-    basedOnDailyForecast: "อิงจากพยากรณ์รายวันของพื้นที่แปลง",
-    todayRainChance: "โอกาสฝนตก (วันนี้)",
-    basedOnDailyPrecipitation: "อิงจาก precipitation probability (รายวัน)",
-    advice: "คำแนะนำ",
-    rain7days: "ปริมาณน้ำฝน (7 วัน)",
-    sumFromDailyPrecipitation: "รวมจาก precipitation_sum รายวัน",
-    mapAndResourcesAllPlots: "แผนที่และทรัพยากร (ทุกแปลง)",
-    overallStatusAllPlots: "สถานะรวม (ทุกแปลง)",
-    overallIssuesAllPlots: "ปัญหารวม (ทุกแปลง)",
-    loadingForecast: "กำลังโหลดข้อมูลพยากรณ์อากาศ...",
-    loadingAllPlots: "กำลังโหลดข้อมูลทุกแปลง...",
-    loadingWeatherAdvice: "กำลังโหลดพยากรณ์อากาศ...",
-    ready: "พร้อมใช้งาน",
-    noIssueFound: "ยังไม่พบปัญหา (ทุกเซนเซอร์สถานะ OK)",
-    loadFailed: "โหลดข้อมูลไม่สำเร็จ",
-    noPinsInSystem: "ยังไม่มี Pin ในระบบ",
-    sensorGroupPrefix: "เซนเซอร์",
-    valuePrefix: "ค่า",
-    noSensorData: "ยังไม่มีข้อมูลเซนเซอร์",
-    plot: "แปลง",
-    coordinates: "พิกัด",
-    sensorTypes: "ชนิดเซนเซอร์",
-    plots: "แปลง",
-    plantType: "ประเภทพืช",
-    plantedAt: "วันที่เริ่มปลูก",
-
-    addPlantingPlots: "จัดการแปลงปลูก",
-    addplantingplots: "จัดการแปลงปลูก",
-    addSensor: "เพิ่ม Sensor",
-    editAndDelete: "แก้ไข / ลบ",
-    polygons: "การจัดการ Polygons",
-    back: "ย้อนกลับ",
-    addPlot: "+ เพิ่มแปลง",
-    deletePlot: "ลบแปลง",
-    selectPlot: "แปลง",
-    viewMode: "โหมดดูข้อมูล: ต้องกด “ลบ / แก้ไข” ก่อน",
-    editMode: "โหมดแก้ไข: สามารถวาด/แก้/ลบ polygon และจัดการข้อมูลได้",
-    loading: "กำลังโหลด...",
-    save: "บันทึก",
-    done: "เสร็จสิ้น",
-    plotInfo: "กรอกการจัดการข้อมูลแปลงปลูกพืช",
-    caretaker: "ชื่อผู้ดูแล",
-    notes: "เพิ่มข้อมูล (หัวข้อเรื่อง + เนื้อหา)",
-    noItems: "ยังไม่มีรายการ",
-    myLocation: "ตำแหน่งฉัน",
-    drawOnMap: "Draw Polygons on a Map",
-    delete: "ลบ",
-    editDelete: "ลบ / แก้ไข",
-    plotDropdownName: "ชื่อที่แสดงในรายการแปลง (Dropdown)",
-    plotDetail: "ข้อมูลแปลงปลูก",
-    polygonsOfPlot: "Polygons ของแปลง",
-    deleteAll: "ลบทั้งหมด",
-    noPolygon: "ยังไม่มี polygon — เปิด “ลบ / แก้ไข” แล้ววาดบนแผนที่",
-    noteTopic: "หัวข้อเรื่อง",
-    noteContent: "เนื้อหา",
-    addInfo: "เพิ่มข้อมูล",
-    noList: "ยังไม่มีรายการ",
-    pleaseEditFirst: "ต้องกด “ลบ / แก้ไข” ก่อน",
-    historyAnalytics: "ประวัติ & วิเคราะห์",
-    sensorManagement: "จัดการ PIN และ Sensor",
-    plotManagement: "จัดการแปลง",
-    loadingMap: "กำลังโหลดแผนที่...",
-
-    // History page
-    historyFilters: "ฟิลเตอร์ข้อมูลย้อนหลัง",
-    historyFiltersDesc: "เลือกช่วงวันที่ / เซนเซอร์ / แปลง เพื่อดูข้อมูลย้อนหลังและกราฟ",
-    quickRange: "ช่วงเวลาเร็ว",
-    today: "วันนี้",
-    last7Days: "7 วันล่าสุด",
-    last30Days: "30 วันล่าสุด",
-    startDate: "วันที่เริ่มต้น",
-    endDate: "วันที่สิ้นสุด",
-    sensorType: "ประเภทเซนเซอร์",
-    selectSensorType: "เลือกประเภทเซนเซอร์",
-    multiSelectAllowed: "เลือกได้หลายตัว",
-    clear: "ล้าง",
-    selected: "เลือกแล้ว",
-    plotsMulti: "แปลง (เลือกได้หลายแปลง)",
-    allPlots: "ทุกแปลง",
-    selectMultiplePlotsToCompare: "เลือกหลายแปลงเพื่อเทียบกราฟ",
-    selectAll: "เลือกทั้งหมด",
-    currentValueFirstSelectedPlot: "ค่าปัจจุบัน (แปลงแรกที่เลือก)",
-    latestUpdate: "อัปเดตล่าสุด",
-    averageAllSelectedPlots: "ค่าเฉลี่ย (รวมทุกแปลงที่เลือก)",
-    minimumValue: "ค่าต่ำสุด",
-    minimumOfAllSelectedPlots: "ต่ำสุดของทุกแปลงที่เลือก",
-    maximumValue: "ค่าสูงสุด",
-    maximumOfAllSelectedPlots: "สูงสุดของทุกแปลงที่เลือก",
-    weatherHeatMapThailand: "Weather Heat Map (Thailand)",
-    weatherHeatMapDesc: "ตัวอย่างแผนที่ประเทศไทย + จุดข้อมูล (rain intensity)",
-    range: "ช่วง",
-    to: "ถึง",
-    legendRainIntensity: "Legend (Rain Intensity)",
-    low: "น้อย",
-    high: "มาก",
-    samplePoints: "จุดข้อมูลตัวอย่าง",
-    plotComparisonGraph: "กราฟเปรียบเทียบแปลง",
-    plotComparisonLabel: "แปลง",
-    graphCompareNote:
-      "กราฟนี้เทียบ “แปลง” ด้วย sensor ตัวแรกที่เลือก (เพื่ออ่านง่าย) • แต่ CSV จะ export ทุก sensor ที่เลือก",
-    measurementSummarySelectedRange: "สรุปการวัดข้อมูล (เฉลี่ยช่วงที่เลือก)",
-    summaryApiNote:
-      "แสดงค่าจริงจาก API (ช่วงวันที่ที่เลือก ถ้าไม่มี reading จะ fallback เป็นค่า avg/last จาก summary)",
-    soilMoisture: "ความชื้นในดิน",
-    temperature: "อุณหภูมิ",
-    relativeHumidity: "ความชื้นสัมพัทธ์",
-    lightIntensity: "ความเข้มแสง",
-    rainAmount: "ปริมาณน้ำฝน",
-    windSpeed: "ความเร็วลม",
-    irrigation: "การให้น้ำ",
-    intensity: "ความเข้ม",
-
-    // Management page / AddSensor / EditAndDelete
-    allSensors: "ทุกเซนเซอร์",
-    allSensorTypes: "ทุกชนิดเซนเซอร์",
-    points: "จุด",
-    items: "รายการ",
-    airTempHumidity: "อุณหภูมิและความชื้น",
-    windMeasure: "วัดความเร็วลม",
-    npkConcentration: "ความเข้มข้นธาตุอาหาร (N,P,K)",
-    irrigationReady: "การให้น้ำ / ความพร้อมใช้น้ำ",
-    auth401: "401: ยังไม่ได้ล็อกอิน หรือ token ไม่ถูกต้อง (กรุณา login ก่อน)",
-    loadPlotFailed: "โหลดแปลงไม่สำเร็จ",
-    loadDataFailed: "โหลดข้อมูลไม่สำเร็จ",
-    selectNode: "เลือก Node",
-    allNodes: "ทุก Node",
-    airNode: "Node อากาศ",
-    soilNode: "Node ดิน",
-    pinAndSensorManagement: "จัดการ PIN และ Sensor",
-    addPinAndSensor: "+ เพิ่ม PIN และ Sensor",
-    plotInformation: "ข้อมูลแปลง",
-    sensorLabel: "เซนเซอร์",
-    sensorItemsLabel: "รายการเซนเซอร์",
-    caretakerLabel: "ผู้ปลูก",
-    pinSensorCountLabel: "จำนวน PIN / เซนเซอร์",
-    latestLabel: "ล่าสุด",
-    timeLabel: "เวลา",
-    statusLabel: "สถานะ",
-    noSensorInFilter: "ยังไม่มีข้อมูลเซนเซอร์ในเงื่อนไขที่เลือก",
-    airShort: "อากาศ",
-    soilShort: "ดิน",
-
-    // EditAndDelete page
-    editDeleteTitle: "ลบและแก้ไขข้อมูล",
-    plotPolygons: "Polygon แปลง",
-    sensorPins: "Pin เซนเซอร์",
-    plotName: "ชื่อแปลง",
-    deletePin: "ลบ PIN",
-    editDeleteDescription: "ปรับแก้ Polygon และลบ / เพิ่มตำแหน่ง PIN ของแปลงนี้",
-    loadingData: "กำลังโหลดข้อมูล...",
-    numberLabel: "number",
-    latitude: "ละติจูด",
-    longitude: "ลองจิจูด",
-    allPlotsLabel: "ทุกแปลง",
-    noPinsSystem: "ยังไม่มี PIN ในระบบ",
   },
-
   en: {
     dashboard: "Dashboard",
-    history: "History & Analytics",
+    history: "History",
+    heatMap: "Heat Map",
     management: "Management",
+    addPlantingPlots: "Add Planting Plots",
+    addNode: "Add Node",
+    editAndDelete: "Edit / Delete",
     login: "Login",
     logout: "Logout",
     langBtn: "TH / EN",
-
-    weather7days: "7-Day Weather Forecast",
-    todayTemperature: "Current Temperature (Today)",
-    basedOnDailyForecast: "Based on the plot area's daily forecast",
-    todayRainChance: "Rain Chance (Today)",
-    basedOnDailyPrecipitation: "Based on daily precipitation probability",
-    advice: "Advice",
-    rain7days: "Rainfall (7 Days)",
-    sumFromDailyPrecipitation: "Sum from daily precipitation_sum",
-    mapAndResourcesAllPlots: "Map and Resources (All Plots)",
-    overallStatusAllPlots: "Overall Status (All Plots)",
-    overallIssuesAllPlots: "Overall Issues (All Plots)",
-    loadingForecast: "Loading weather forecast...",
-    loadingAllPlots: "Loading all plot data...",
-    loadingWeatherAdvice: "Loading weather forecast...",
-    ready: "Ready",
-    noIssueFound: "No issues found (all sensors are OK)",
-    loadFailed: "Failed to load data",
-    noPinsInSystem: "No pins in the system",
-    sensorGroupPrefix: "Sensor",
-    valuePrefix: "Value",
-    noSensorData: "No sensor data yet",
-    plot: "Plot",
-    coordinates: "Coordinates",
-    sensorTypes: "Sensor Types",
-    plots: "Plots",
-    plantType: "Plant Type",
-    plantedAt: "Planting Date",
-
-    addPlantingPlots: "Add Planting Plots",
-    addplantingplots: "Add Planting Plots",
-    addSensor: "Add Sensor",
-    editAndDelete: "Edit / Delete",
-    polygons: "Polygon Management",
-    back: "Back",
-    addPlot: "+ Add Plot",
-    deletePlot: "Delete Plot",
-    selectPlot: "Plot",
-    viewMode: 'View mode: click "Edit / Delete" first',
-    editMode: "Edit mode: you can draw, edit, delete polygons, and manage data",
-    loading: "Loading...",
-    save: "Save",
-    done: "Done",
-    plotInfo: "Planting Plot Management",
-    caretaker: "Caretaker",
-    notes: "Add Information (Topic + Content)",
-    noItems: "No items yet",
-    myLocation: "My Location",
-    drawOnMap: "Draw Polygons on a Map",
-    delete: "Delete",
-    editDelete: "Edit / Delete",
-    plotDropdownName: "Plot Name Shown in Dropdown",
-    plotDetail: "Plot Information",
-    polygonsOfPlot: "Plot Polygons",
-    deleteAll: "Delete All",
-    noPolygon: 'No polygon yet — turn on "Edit / Delete" and draw on the map',
-    noteTopic: "Topic",
-    noteContent: "Content",
-    addInfo: "Add Information",
-    noList: "No items yet",
-    pleaseEditFirst: 'Please click "Edit / Delete" first',
-    historyAnalytics: "History & Analytics",
-    sensorManagement: "PIN & Sensor Management",
-    plotManagement: "Plot Management",
-    loadingMap: "Loading map...",
-
-    // History page
-    historyFilters: "History Filters",
-    historyFiltersDesc:
-      "Choose date range, sensors, and plots to view historical data and graphs",
-    quickRange: "Quick Range",
-    today: "Today",
-    last7Days: "Last 7 Days",
-    last30Days: "Last 30 Days",
-    startDate: "Start Date",
-    endDate: "End Date",
-    sensorType: "Sensor Type",
-    selectSensorType: "Select Sensor Type",
-    multiSelectAllowed: "Multiple selection allowed",
-    clear: "Clear",
-    selected: "Selected",
-    plotsMulti: "Plots (multiple selection)",
-    allPlots: "All Plots",
-    selectMultiplePlotsToCompare: "Select multiple plots to compare",
-    selectAll: "Select All",
-    currentValueFirstSelectedPlot: "Current Value (First Selected Plot)",
-    latestUpdate: "Latest Update",
-    averageAllSelectedPlots: "Average (All Selected Plots)",
-    minimumValue: "Minimum Value",
-    minimumOfAllSelectedPlots: "Minimum across selected plots",
-    maximumValue: "Maximum Value",
-    maximumOfAllSelectedPlots: "Maximum across selected plots",
-    weatherHeatMapThailand: "Weather Heat Map (Thailand)",
-    weatherHeatMapDesc: "Thailand map example with sample data points (rain intensity)",
-    range: "Range",
-    to: "to",
-    legendRainIntensity: "Legend (Rain Intensity)",
-    low: "Low",
-    high: "High",
-    samplePoints: "Sample Points",
-    plotComparisonGraph: "Plot Comparison Graph",
-    plotComparisonLabel: "Plots",
-    graphCompareNote:
-      "This graph compares plots using the first selected sensor for readability • CSV exports all selected sensors",
-    measurementSummarySelectedRange: "Measurement Summary (Average in Selected Range)",
-    summaryApiNote:
-      "Shows real values from API. If there are no readings in the selected range, it falls back to avg/last from summary",
-    soilMoisture: "Soil Moisture",
-    temperature: "Temperature",
-    relativeHumidity: "Relative Humidity",
-    lightIntensity: "Light Intensity",
-    rainAmount: "Rainfall",
-    windSpeed: "Wind Speed",
-    irrigation: "Irrigation",
-    intensity: "Intensity",
-
-    // Management page / AddSensor / EditAndDelete
-    allSensors: "All Sensors",
-    allSensorTypes: "All Sensor Types",
-    points: "points",
-    items: "items",
-    airTempHumidity: "Temperature and Humidity",
-    windMeasure: "Wind Speed",
-    npkConcentration: "Nutrient Concentration (N,P,K)",
-    irrigationReady: "Irrigation / Water Availability",
-    auth401: "401: Not logged in or token is invalid (please login first)",
-    loadPlotFailed: "Failed to load plots",
-    loadDataFailed: "Failed to load data",
-    selectNode: "Select Node",
-    allNodes: "All Nodes",
-    airNode: "Air Node",
-    soilNode: "Soil Node",
-    pinAndSensorManagement: "PIN & Sensor Management",
-    addPinAndSensor: "+ Add PIN & Sensor",
-    plotInformation: "Plot Information",
-    sensorLabel: "Sensor",
-    sensorItemsLabel: "Sensor Items",
-    caretakerLabel: "Caretaker",
-    pinSensorCountLabel: "PIN / Sensor Count",
-    latestLabel: "Latest",
-    timeLabel: "Time",
-    statusLabel: "Status",
-    noSensorInFilter: "No sensor data for the selected conditions",
-    airShort: "Air",
-    soilShort: "Soil",
-
-    // EditAndDelete page
-    editDeleteTitle: "Edit / Delete Data",
-    plotPolygons: "Plot Polygons",
-    sensorPins: "Sensor Pins",
-    plotName: "Plot",
-    deletePin: "Delete PIN",
-    editDeleteDescription: "Adjust polygons and delete / add PIN positions for this plot",
-    loadingData: "Loading data...",
-    numberLabel: "number",
-    latitude: "Latitude",
-    longitude: "Longitude",
-    allPlotsLabel: "All Plots",
-    noPinsSystem: "No PIN in the system",
   },
 };
 
-// =========================
-// i18n helpers
-// =========================
 export function getDuwimsLang() {
   if (typeof window === "undefined") return "th";
   return localStorage.getItem(LANG_KEY) === "en" ? "en" : "th";
@@ -388,7 +70,11 @@ export function setDuwimsLang(lang) {
   } catch {}
 
   try {
-    window.dispatchEvent(new CustomEvent("duwims:lang", { detail: { lang: next } }));
+    window.dispatchEvent(
+      new CustomEvent("duwims:lang", {
+        detail: { lang: next },
+      })
+    );
   } catch {}
 
   return next;
@@ -414,9 +100,7 @@ export function useDuwimsT() {
     };
 
     const onStorage = (e) => {
-      if (e.key === LANG_KEY) {
-        setLang(getDuwimsLang());
-      }
+      if (e.key === LANG_KEY) setLang(getDuwimsLang());
     };
 
     window.addEventListener("duwims:lang", onLang);
@@ -435,29 +119,36 @@ export function useDuwimsT() {
   return { lang, setLang, t };
 }
 
-// =========================
-// TopBar component
-// =========================
 export default function TopBar() {
   const pathname = usePathname();
   const router = useRouter();
   const { lang, t } = useDuwimsT();
+
+  const isManagementPath =
+    pathname.startsWith("/management") ||
+    pathname.startsWith("/addplantingplots") ||
+    pathname.startsWith(ADD_NODE_PATH) ||
+    pathname.startsWith("/editanddelete");
 
   const activeTab =
     pathname === "/"
       ? "dashboard"
       : pathname.startsWith("/history")
       ? "history"
-      : pathname.startsWith("/management")
+      : pathname.startsWith("/heatmap")
+      ? "heatmap"
+      : isManagementPath
       ? "management"
       : "";
 
   const [isMobile, setIsMobile] = useState(false);
   const [isTablet, setIsTablet] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [managementOpen, setManagementOpen] = useState(false);
   const [authed, setAuthed] = useState(false);
 
   const menuRef = useRef(null);
+  const managementRef = useRef(null);
 
   useEffect(() => {
     setAuthed(!!getToken());
@@ -478,69 +169,70 @@ export default function TopBar() {
       setIsTablet(w >= 768 && w < 1024);
       if (w >= 768) setMenuOpen(false);
     };
+
     calc();
     window.addEventListener("resize", calc);
     return () => window.removeEventListener("resize", calc);
   }, []);
 
-  useEffect(() => setMenuOpen(false), [pathname]);
+  useEffect(() => {
+    setMenuOpen(false);
+    setManagementOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (!menuOpen) return;
+
     const onDoc = (e) => {
       if (!menuRef.current) return;
       if (!menuRef.current.contains(e.target)) setMenuOpen(false);
     };
+
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen]);
 
+  useEffect(() => {
+    if (!managementOpen) return;
+
+    const onDoc = (e) => {
+      if (!managementRef.current) return;
+      if (!managementRef.current.contains(e.target)) setManagementOpen(false);
+    };
+
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [managementOpen]);
+
   const tabs = useMemo(
     () => [
-      { key: "dashboard", href: "/", icon: "🏠", label: t("dashboard") },
-      { key: "history", href: "/history", icon: "📚", label: t("history") },
-      { key: "management", href: "/management", icon: "🛠", label: t("management") },
+      { key: "dashboard", href: "/", label: t("dashboard") },
+      { key: "history", href: "/history", label: t("history") },
+      { key: "heatmap", href: "/heatmap", label: `🌡 ${t("heatMap")}` },
     ],
     [t]
   );
 
-  const pillStyle = (active) => ({
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    padding: isTablet ? "8px 14px" : "8px 22px",
-    borderRadius: 999,
-    fontSize: 14,
-    cursor: "pointer",
-    background: active ? "#ffffff" : "transparent",
-    color: active ? "#166534" : "rgba(255,255,255,0.9)",
-    boxShadow: active ? "0 6px 14px rgba(0,0,0,0.18)" : "none",
-    whiteSpace: "nowrap",
-    userSelect: "none",
-  });
-
-  const actionBtnStyle = {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    border: "none",
-    borderRadius: 999,
-    padding: isTablet ? "8px 12px" : "8px 16px",
-    fontSize: 13,
-    cursor: "pointer",
-    background: "rgba(255,255,255,0.16)",
-    color: "#fff",
-    whiteSpace: "nowrap",
-    userSelect: "none",
-  };
-
-  const actionBtnSolidStyle = {
-    ...actionBtnStyle,
-    background: "#ffffff",
-    color: "#166534",
-    boxShadow: "0 6px 14px rgba(0,0,0,0.18)",
-    fontWeight: 800,
-  };
+  const managementItems = useMemo(
+    () => [
+      {
+        key: "addplantingplots",
+        href: "/addplantingplots",
+        label: t("addPlantingPlots"),
+      },
+      {
+        key: "addnode",
+        href: ADD_NODE_PATH,
+        label: t("addNode"),
+      },
+      {
+        key: "editanddelete",
+        href: "/editanddelete",
+        label: t("editAndDelete"),
+      },
+    ],
+    [t]
+  );
 
   const toggleLang = () => {
     const next = lang === "th" ? "en" : "th";
@@ -551,7 +243,57 @@ export default function TopBar() {
     clearToken();
     setAuthed(false);
     setMenuOpen(false);
+    setManagementOpen(false);
     router.push(LOGIN_PATH);
+  };
+
+  const navTabStyle = (active) => ({
+    padding: isTablet ? "8px 14px" : "8px 18px",
+    borderRadius: 999,
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: "pointer",
+    border: "none",
+    background: active ? "#ffffff" : "transparent",
+    color: active ? "#166534" : "rgba(255,255,255,0.96)",
+    boxShadow: active ? "0 6px 14px rgba(0,0,0,0.16)" : "none",
+    transition: "all .18s ease",
+    whiteSpace: "nowrap",
+    textDecoration: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 38,
+    lineHeight: 1,
+    fontFamily: "inherit",
+  });
+
+  const actionBtnStyle = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    border: "none",
+    borderRadius: 999,
+    padding: isTablet ? "8px 12px" : "8px 16px",
+    minHeight: 38,
+    fontSize: 13,
+    cursor: "pointer",
+    background: "rgba(255,255,255,0.16)",
+    color: "#ffffff",
+    whiteSpace: "nowrap",
+    userSelect: "none",
+    textDecoration: "none",
+    fontWeight: 700,
+    lineHeight: 1,
+  };
+
+  const actionBtnSolidStyle = {
+    ...actionBtnStyle,
+    background: "#ffffff",
+    color: "#166534",
+    boxShadow: "0 6px 14px rgba(0,0,0,0.18)",
+    fontWeight: 800,
   };
 
   return (
@@ -587,65 +329,150 @@ export default function TopBar() {
               justifyContent: "center",
               fontSize: 18,
               color: "#16a34a",
+              flexShrink: 0,
             }}
           >
             🌱
           </div>
-          <span style={{ fontWeight: 700, fontSize: isMobile ? 18 : 20 }}>DuWIMS</span>
+          <span
+            style={{
+              fontWeight: 700,
+              fontSize: isMobile ? 18 : 20,
+              whiteSpace: "nowrap",
+            }}
+          >
+            DUWIMS
+          </span>
         </div>
 
-        {!isMobile && (
+        {!isMobile ? (
           <>
             <nav
               style={{
                 marginLeft: "auto",
                 display: "flex",
-                gap: isTablet ? 10 : 16,
+                gap: isTablet ? 8 : 12,
                 alignItems: "center",
               }}
             >
-              {tabs.map((tItem) => {
-                const active = activeTab === tItem.key;
-                return (
-                  <Link key={tItem.key} href={tItem.href} style={{ textDecoration: "none" }}>
-                    <div style={pillStyle(active)}>
-                      <span style={{ fontSize: 16 }}>{tItem.icon}</span>
-                      <span
-                        style={{
-                          maxWidth: isTablet ? 170 : "none",
-                          overflow: isTablet ? "hidden" : "visible",
-                          textOverflow: isTablet ? "ellipsis" : "clip",
-                        }}
-                      >
-                        {tItem.label}
-                      </span>
-                    </div>
-                  </Link>
-                );
-              })}
+              {tabs.map((item) => (
+                <Link key={item.key} href={item.href} style={{ textDecoration: "none" }}>
+                  <div style={navTabStyle(activeTab === item.key)}>{item.label}</div>
+                </Link>
+              ))}
+
+              <div style={{ position: "relative" }} ref={managementRef}>
+                <button
+                  type="button"
+                  onClick={() => setManagementOpen((v) => !v)}
+                  style={{
+                    ...navTabStyle(activeTab === "management" || managementOpen),
+                    gap: 8,
+                    transform: managementOpen ? "translateY(-1px)" : "translateY(0)",
+                    boxShadow: managementOpen
+                      ? "0 8px 18px rgba(0,0,0,0.18)"
+                      : activeTab === "management"
+                      ? "0 6px 14px rgba(0,0,0,0.16)"
+                      : "none",
+                  }}
+                >
+                  <span>{t("management")}</span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      transition: "transform .18s ease",
+                      transform: managementOpen ? "rotate(180deg)" : "rotate(0deg)",
+                    }}
+                  >
+                    ▾
+                  </span>
+                </button>
+
+                {managementOpen && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 10px)",
+                      left: 0,
+                      minWidth: 240,
+                      background: "#ffffff",
+                      borderRadius: 16,
+                      boxShadow: "0 18px 40px rgba(0,0,0,0.22)",
+                      padding: 10,
+                      zIndex: 120,
+                    }}
+                  >
+                    {managementItems.map((item) => {
+                      const active =
+                        pathname === item.href || pathname.startsWith(item.href);
+
+                      return (
+                        <Link
+                          key={item.key}
+                          href={item.href}
+                          style={{ textDecoration: "none" }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              padding: "11px 12px",
+                              borderRadius: 12,
+                              background: active ? "#dcfce7" : "#ffffff",
+                              color: active ? "#166534" : "#0f172a",
+                              fontWeight: active ? 900 : 700,
+                              marginBottom: 6,
+                              border: active
+                                ? "1px solid #86efac"
+                                : "1px solid transparent",
+                              boxShadow: active
+                                ? "0 6px 14px rgba(34,197,94,0.14)"
+                                : "none",
+                              transition: "all .18s ease",
+                              cursor: "pointer",
+                            }}
+                            onMouseEnter={(e) => {
+                              if (active) return;
+                              e.currentTarget.style.background = "#f0fdf4";
+                              e.currentTarget.style.color = "#166534";
+                              e.currentTarget.style.transform = "translateX(2px)";
+                            }}
+                            onMouseLeave={(e) => {
+                              if (active) return;
+                              e.currentTarget.style.background = "#ffffff";
+                              e.currentTarget.style.color = "#0f172a";
+                              e.currentTarget.style.transform = "translateX(0px)";
+                            }}
+                          >
+                            {item.label}
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </nav>
 
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <button type="button" onClick={toggleLang} style={actionBtnStyle} title="Change language">
+              <button type="button" onClick={toggleLang} style={actionBtnStyle}>
                 🌐 <span>{t("langBtn")}</span>
               </button>
 
               {authed ? (
-                <button type="button" onClick={handleLogout} style={actionBtnSolidStyle} title="Logout">
+                <button type="button" onClick={handleLogout} style={actionBtnSolidStyle}>
                   🚪 <span>{t("logout")}</span>
                 </button>
               ) : (
                 <Link href={LOGIN_PATH} style={{ textDecoration: "none" }}>
-                  <div style={actionBtnSolidStyle} title="Login">
+                  <div style={actionBtnSolidStyle}>
                     🔐 <span>{t("login")}</span>
                   </div>
                 </Link>
               )}
             </div>
           </>
-        )}
-
-        {isMobile && (
+        ) : (
           <div style={{ marginLeft: "auto", position: "relative" }} ref={menuRef}>
             <button
               onClick={() => setMenuOpen((v) => !v)}
@@ -656,6 +483,8 @@ export default function TopBar() {
                 borderRadius: 12,
                 padding: "8px 10px",
                 cursor: "pointer",
+                fontSize: 16,
+                fontWeight: 700,
               }}
             >
               {menuOpen ? "✖" : "☰"}
@@ -667,7 +496,7 @@ export default function TopBar() {
                   position: "absolute",
                   right: 0,
                   top: "calc(100% + 10px)",
-                  width: 270,
+                  width: 280,
                   background: "#ffffff",
                   borderRadius: 16,
                   boxShadow: "0 18px 40px rgba(0,0,0,0.22)",
@@ -729,24 +558,67 @@ export default function TopBar() {
                   )}
                 </div>
 
-                {tabs.map((tItem) => {
-                  const active = activeTab === tItem.key;
+                {tabs.map((item) => {
+                  const active = activeTab === item.key;
                   return (
-                    <Link key={tItem.key} href={tItem.href} style={{ textDecoration: "none" }}>
+                    <Link key={item.key} href={item.href} style={{ textDecoration: "none" }}>
                       <div
                         style={{
                           display: "flex",
                           alignItems: "center",
-                          gap: 10,
                           padding: "10px 12px",
                           borderRadius: 12,
-                          background: active ? "#eef2ff" : "#fff",
-                          color: "#0f172a",
+                          background: active ? "#eefbf3" : "#fff",
+                          color: active ? "#166534" : "#0f172a",
                           fontWeight: active ? 900 : 700,
+                          marginBottom: 6,
                         }}
                       >
-                        <span>{tItem.icon}</span>
-                        <span>{tItem.label}</span>
+                        {item.label}
+                      </div>
+                    </Link>
+                  );
+                })}
+
+                <div
+                  style={{
+                    marginTop: 8,
+                    marginBottom: 6,
+                    padding: "8px 10px",
+                    fontSize: 12,
+                    fontWeight: 800,
+                    color: "#166534",
+                  }}
+                >
+                  {t("management")}
+                </div>
+
+                {managementItems.map((item) => {
+                  const active =
+                    pathname === item.href || pathname.startsWith(item.href);
+
+                  return (
+                    <Link key={item.key} href={item.href} style={{ textDecoration: "none" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          padding: "11px 12px",
+                          borderRadius: 12,
+                          background: active ? "#dcfce7" : "#fff",
+                          color: active ? "#166534" : "#0f172a",
+                          fontWeight: active ? 900 : 700,
+                          marginBottom: 6,
+                          border: active
+                            ? "1px solid #86efac"
+                            : "1px solid transparent",
+                          boxShadow: active
+                            ? "0 6px 14px rgba(34,197,94,0.12)"
+                            : "none",
+                          transition: "all .18s ease",
+                        }}
+                      >
+                        {item.label}
                       </div>
                     </Link>
                   );

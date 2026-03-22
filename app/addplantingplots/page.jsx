@@ -170,39 +170,6 @@ function safeText(v, fallback = "") {
   return fallback;
 }
 
-function toInputDate(value) {
-  if (!value) return "";
-  const normalized = deepNormalize(value);
-
-  if (typeof normalized === "string") {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized;
-    const d = new Date(normalized);
-    if (!Number.isNaN(d.getTime())) {
-      return d.toISOString().slice(0, 10);
-    }
-  }
-
-  return "";
-}
-
-function isoToThai(iso) {
-  const safeIso = safeText(iso, "");
-  if (!safeIso) return "";
-
-  const d = new Date(safeIso);
-  if (!Number.isNaN(d.getTime())) {
-    const day = String(d.getDate()).padStart(2, "0");
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const year = d.getFullYear() + 543;
-    return `${day}/${month}/${year}`;
-  }
-
-  const [y, m, dd] = String(safeIso).split("-");
-  const yy = Number(y);
-  if (!yy || !m || !dd) return safeIso;
-  return `${String(dd).padStart(2, "0")}/${String(m).padStart(2, "0")}/${yy + 543}`;
-}
-
 function normalizeCaretaker(v) {
   const s = safeText(v, "").trim();
   if (!s) return "";
@@ -210,18 +177,6 @@ function normalizeCaretaker(v) {
   if (s.toLowerCase() === "null") return "";
   if (s.toLowerCase() === "undefined") return "";
   return s;
-}
-
-function normalizeTopicItem(item = {}, index = 0) {
-  const safeItem = deepNormalize(item || {});
-  const topicVal = safeItem.topic;
-  const contentVal = safeItem.description ?? safeItem.content;
-
-  return {
-    id: String(safeItem.id || safeItem._id || `topic_${index}`),
-    topic: safeText(topicVal, "").trim(),
-    content: safeText(contentVal, "").trim(),
-  };
 }
 
 function normalizeCoordsToPairs(coords) {
@@ -258,9 +213,6 @@ function normalizePlotItem(plot = {}) {
     name: safeText(p.name || p.plotName, ""),
     caretaker: normalizeCaretaker(p.caretaker || p.ownerName || ""),
     ownerName: normalizeCaretaker(p.ownerName || p.caretaker || ""),
-    plantType: safeText(p.plantType || p.cropType, ""),
-    cropType: safeText(p.cropType || p.plantType, ""),
-    plantedAt: toInputDate(p.plantedAt),
     createdAt: safeText(p.createdAt, ""),
     updatedAt: safeText(p.updatedAt, ""),
   };
@@ -425,18 +377,11 @@ export default function AddPlantingPlotsPage() {
   const [editMode, setEditMode] = useState(false);
 
   const [polygonsByPlot, setPolygonsByPlot] = useState({});
-  const [extraItemsByPlot, setExtraItemsByPlot] = useState({});
 
   const [plotAlias, setPlotAlias] = useState("");
   const [plotName, setPlotName] = useState("");
   const [caretaker, setCaretaker] = useState("");
-  const [currentNickname, setCurrentNickname] = useState("");
   const [employeeOptions, setEmployeeOptions] = useState([]);
-  const [plantType, setPlantType] = useState("");
-  const [plantedAt, setPlantedAt] = useState("");
-
-  const [newTopic, setNewTopic] = useState("");
-  const [newContent, setNewContent] = useState("");
 
   useEffect(() => setMounted(true), []);
 
@@ -447,7 +392,6 @@ export default function AddPlantingPlotsPage() {
 
   const isReadOnly = !editMode;
   const plotPolygons = polygonsByPlot[selectedPlotId] || [];
-  const extraItems = extraItemsByPlot[selectedPlotId] || [];
 
   const mergedCaretakerOptions = useMemo(() => {
     const map = new Map();
@@ -480,13 +424,12 @@ export default function AddPlantingPlotsPage() {
     ),
     viewMode: t("viewMode", "โหมดดูข้อมูล: ต้องกด “ลบ / แก้ไข” ก่อน"),
     loading: t("loading", "กำลังโหลด..."),
-    plotInfo: t("plotInfo", "กรอกการจัดการข้อมูลแปลงปลูกพืช"),
+    plotInfo: t("plotInfo", "ข้อมูลแปลงปลูก"),
     editDelete: t("editDelete", "ลบ / แก้ไข"),
     done: t("done", "เสร็จสิ้น"),
     drawOnMap: t("drawOnMap", "Draw Polygons on a Map"),
     myLocation: t("myLocation", "ตำแหน่งฉัน"),
     loadingMap: t("loadingMap", "กำลังโหลดแผนที่..."),
-    deleteAll: t("deleteAll", "ลบทั้งหมด"),
     noPolygon: t(
       "noPolygon",
       "ยังไม่มี polygon — เปิด “ลบ / แก้ไข” แล้ววาดบนแผนที่"
@@ -494,10 +437,6 @@ export default function AddPlantingPlotsPage() {
     plotDropdownName: t("plotDropdownName", "ชื่อที่แสดงในรายการแปลง (Dropdown)"),
     plotDetail: t("plotDetail", "ข้อมูลแปลงปลูก"),
     caretaker: t("caretaker", "ชื่อผู้ดูแล"),
-    plantType: t("plantType", "ประเภทพืช"),
-    plantedAt: t("plantedAt", "วันที่เริ่มปลูก"),
-    topic: lang === "en" ? "Topic" : "หัวข้อ",
-    content: lang === "en" ? "Details" : "รายละเอียด",
     save: t("save", "บันทึก"),
     delete: t("delete", "ลบ"),
     noPlotYet:
@@ -509,25 +448,17 @@ export default function AddPlantingPlotsPage() {
       lang === "en"
         ? "* token key used: AUTH_TOKEN_V1"
         : "* token ใช้ key: AUTH_TOKEN_V1",
-    displayNamePlaceholder: lang === "en" ? "Display name" : "ชื่อแสดง",
+    displayNamePlaceholder: lang === "en" ? "Display name" : "ชื่อที่แสดง",
     plotNamePlaceholder: lang === "en" ? "Plot name" : "ชื่อแปลง",
     caretakerPlaceholder: lang === "en" ? "Select caretaker" : "เลือกผู้ดูแล",
     plantTypePlaceholder: lang === "en" ? "Plant type" : "ประเภทพืช",
     topicPlaceholder: lang === "en" ? "Topic" : "หัวข้อ",
     contentPlaceholder: lang === "en" ? "Type details..." : "พิมพ์รายละเอียด...",
-    allCount:
-      lang === "en"
-        ? `Plot Polygon ${plotPolygons.length ? "(1)" : "(0)"}`
-        : `Polygon ของแปลง ${plotPolygons.length ? "(1)" : "(0)"}`,
     confirmDeletePlot:
       lang === "en"
         ? "Do you want to delete this plot completely?"
         : "ต้องการลบแปลงนี้ทั้งหมดใช่ไหม?",
     confirmDeletePolygon: lang === "en" ? "Delete this polygon?" : "ลบ polygon นี้?",
-    confirmDeleteAllPolygons:
-      lang === "en"
-        ? "Delete the polygon of this plot?"
-        : "ลบ polygon ของแปลงนี้?",
     lockDraw:
       lang === "en"
         ? '* Click "Edit / Delete" first to draw/edit/delete polygon'
@@ -540,14 +471,6 @@ export default function AddPlantingPlotsPage() {
         : lang === "en"
         ? "Delete this plot from the system"
         : "ลบแปลงนี้ออกจากระบบ",
-    deleteAllTitle:
-      !editMode
-        ? lang === "en"
-          ? 'Click "Edit / Delete" first'
-          : "กด “ลบ / แก้ไข” ก่อน"
-        : lang === "en"
-        ? "Delete polygon in this plot"
-        : "ลบ polygon ของแปลงนี้",
     deleteOneTitle:
       !editMode
         ? lang === "en"
@@ -568,13 +491,7 @@ export default function AddPlantingPlotsPage() {
       lang === "en"
         ? "Get current location and zoom to it"
         : "ขอตำแหน่งปัจจุบันและซูมไปยังจุดนั้น",
-    dateDisplayPrefix: lang === "en" ? "Display:" : "แสดงผล:",
     saveUpper: "SAVE",
-    miniAddTitle: lang === "en" ? "Add item" : "เพิ่มรายการ",
-    miniEmpty:
-      lang === "en"
-        ? "No items yet — click + to add"
-        : "ยังไม่มีรายการ — กด + เพื่อเพิ่ม",
     plotWord: lang === "en" ? "Plot" : "แปลง",
     noCaretakerOptions:
       lang === "en" ? "No employee list found" : "ยังไม่พบรายชื่อผู้ดูแล",
@@ -590,34 +507,6 @@ export default function AddPlantingPlotsPage() {
     setErr(msg);
     return false;
   };
-
-  async function loadCurrentUserNickname() {
-    try {
-      const token = getToken();
-      if (!token) return "";
-
-      const data = deepNormalize(await apiFetch("/auth/me"));
-      const user = data?.user || {};
-      const role = safeText(user?.role, "").trim().toLowerCase();
-
-      const displayName = normalizeCaretaker(
-        user?.nickname ||
-          user?.fullName ||
-          user?.name ||
-          user?.displayName ||
-          user?.email ||
-          ""
-      );
-
-      if (displayName) {
-        setCurrentNickname(displayName);
-      }
-
-      return role === "employee" ? displayName : "";
-    } catch {
-      return "";
-    }
-  }
 
   async function loadEmployeeOptions() {
     try {
@@ -665,24 +554,16 @@ export default function AddPlantingPlotsPage() {
     setPolygonsByPlot((prev) => ({ ...prev, [plotId]: items }));
   }
 
-  async function loadTopics(plotId) {
-    if (!plotId) return;
-
-    const r = deepNormalize(await apiFetch(`/api/plots/${plotId}/topics`));
-    const items = (r?.items || []).map((x, i) => normalizeTopicItem(x, i));
-    setExtraItemsByPlot((prev) => ({ ...prev, [plotId]: items }));
-  }
-
   async function loadAll() {
     setErr("");
     setLoading(true);
 
     try {
-      await Promise.all([loadCurrentUserNickname(), loadEmployeeOptions()]);
+      await loadEmployeeOptions();
       const first = await loadPlots();
       const pid = first || selectedPlotId;
       if (pid) {
-        await Promise.all([loadPolygon(pid), loadTopics(pid)]);
+        await loadPolygon(pid);
       }
     } catch (e) {
       setErr(e?.message || String(e));
@@ -699,9 +580,7 @@ export default function AddPlantingPlotsPage() {
   useEffect(() => {
     if (!selectedPlotId) return;
     setEditMode(false);
-    setNewTopic("");
-    setNewContent("");
-    Promise.all([loadPolygon(selectedPlotId), loadTopics(selectedPlotId)]).catch(() => {});
+    loadPolygon(selectedPlotId).catch(() => {});
   }, [selectedPlotId]);
 
   useEffect(() => {
@@ -715,48 +594,7 @@ export default function AddPlantingPlotsPage() {
       const fromPlot = normalizeCaretaker(selectedPlot.caretaker || selectedPlot.ownerName || "");
       return fromPlot || "";
     });
-    setPlantType(safeText(selectedPlot.plantType || selectedPlot.cropType || "", ""));
-    setPlantedAt(toInputDate(selectedPlot.plantedAt || ""));
   }, [selectedPlot]);
-
-  function addExtraItem() {
-    if (!editMode) {
-      setErr(lang === "en" ? 'Please click "Edit / Delete" first' : "ต้องกด “ลบ / แก้ไข” ก่อน");
-      return;
-    }
-
-    if (!selectedPlotId) return;
-    if (!newTopic.trim() && !newContent.trim()) return;
-
-    setExtraItemsByPlot((prev) => ({
-      ...prev,
-      [selectedPlotId]: [
-        {
-          id: `tmp_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-          topic: newTopic.trim(),
-          content: newContent.trim(),
-        },
-        ...(prev[selectedPlotId] || []),
-      ],
-    }));
-
-    setNewTopic("");
-    setNewContent("");
-  }
-
-  function deleteExtraItem(itemId) {
-    if (!editMode) {
-      setErr(lang === "en" ? 'Please click "Edit / Delete" first' : "ต้องกด “ลบ / แก้ไข” ก่อน");
-      return;
-    }
-
-    setExtraItemsByPlot((prev) => ({
-      ...prev,
-      [selectedPlotId]: (prev[selectedPlotId] || []).filter(
-        (x) => String(x.id) !== String(itemId)
-      ),
-    }));
-  }
 
   async function addPlot() {
     setErr("");
@@ -778,8 +616,6 @@ export default function AddPlantingPlotsPage() {
             caretaker: "",
             ownerName: "",
             plantType: "",
-            plantedAt: "",
-            topics: [],
             polygon: {
               color: "#2563eb",
               coords: [],
@@ -795,12 +631,9 @@ export default function AddPlantingPlotsPage() {
         setPlots((prev) => [created, ...prev]);
         setSelectedPlotId(created.id);
         setPolygonsByPlot((prev) => ({ ...prev, [created.id]: [] }));
-        setExtraItemsByPlot((prev) => ({ ...prev, [created.id]: [] }));
         setCaretaker(normalizeCaretaker(created.caretaker || created.ownerName || ""));
         setPlotAlias(safeText(created.alias || created.plotName || created.name || "", ""));
         setPlotName(safeText(created.plotName || created.name || "", ""));
-        setPlantType(safeText(created.plantType || created.cropType || "", ""));
-        setPlantedAt(toInputDate(created.plantedAt || ""));
         setEditMode(true);
       }
     } catch (e) {
@@ -822,37 +655,18 @@ export default function AddPlantingPlotsPage() {
 
     try {
       const safeAlias = String(plotAlias || "").trim();
-      const safePlotName = String(plotName || "").trim();
       const safeCaretaker = String(caretaker || "").trim();
-      const safePlantType = String(plantType || "").trim();
-
-      const safeTopics = extraItems.map((x) => ({
-        id: x.id,
-        topic: String(x.topic || "").trim(),
-        description: String(x.content || "").trim(),
-      }));
 
       const r = deepNormalize(
         await apiFetch(`/api/plots/${selectedPlotId}`, {
           method: "PATCH",
           body: {
-            plotName: safePlotName,
-            name: safePlotName,
-            alias: safeAlias || safePlotName,
+            alias: safeAlias,
             caretaker: safeCaretaker,
             ownerName: safeCaretaker,
-            plantType: safePlantType,
-            plantedAt: plantedAt || "",
           },
         })
       );
-
-      await apiFetch(`/api/plots/${selectedPlotId}/topics`, {
-        method: "PUT",
-        body: {
-          topics: safeTopics,
-        },
-      });
 
       const updated = r?.item ? normalizePlotItem(r.item) : null;
 
@@ -862,30 +676,22 @@ export default function AddPlantingPlotsPage() {
         );
 
         setPlotAlias(safeText(updated.alias || updated.plotName || updated.name || "", ""));
-        setPlotName(safeText(updated.plotName || updated.name || "", ""));
         setCaretaker(normalizeCaretaker(updated.caretaker || updated.ownerName || ""));
-        setPlantType(safeText(updated.plantType || updated.cropType || "", ""));
-        setPlantedAt(toInputDate(updated.plantedAt || ""));
       } else {
         setPlots((prev) =>
           prev.map((p) =>
             String(p.id) === String(selectedPlotId)
               ? {
                   ...p,
-                  alias: safeAlias || safePlotName,
-                  plotName: safePlotName,
-                  name: safePlotName,
+                  alias: safeAlias,
                   caretaker: safeCaretaker,
                   ownerName: safeCaretaker,
-                  plantType: safePlantType,
-                  plantedAt: plantedAt || "",
                 }
               : p
           )
         );
       }
 
-      await loadTopics(selectedPlotId);
       setEditMode(false);
     } catch (e) {
       setErr(e?.message || String(e));
@@ -919,12 +725,6 @@ export default function AddPlantingPlotsPage() {
       setPlots(nextPlots);
 
       setPolygonsByPlot((prev) => {
-        const next = { ...prev };
-        delete next[pid];
-        return next;
-      });
-
-      setExtraItemsByPlot((prev) => {
         const next = { ...prev };
         delete next[pid];
         return next;
@@ -1029,23 +829,6 @@ export default function AddPlantingPlotsPage() {
     await clearPolygon();
   }
 
-  async function deleteAllPolygonsOfPlot() {
-    if (
-      !requireEditMode(
-        lang === "en"
-          ? 'Please click "Edit / Delete" first before deleting all polygons'
-          : "ต้องกด “ลบ / แก้ไข” ก่อนถึงจะลบ Polygon ทั้งหมดได้"
-      )
-    ) {
-      return;
-    }
-
-    if (!selectedPlotId) return;
-    if (!confirm(txt.confirmDeleteAllPolygons)) return;
-
-    await clearPolygon();
-  }
-
   const onCreated = async (e) => {
     if (!editMode) {
       setErr(
@@ -1137,22 +920,6 @@ export default function AddPlantingPlotsPage() {
               </button>
               <div className="pui-hero-title">{txt.polygons}</div>
             </div>
-
-            <div style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-              <button className="pui-hero-btn" type="button" onClick={addPlot} disabled={busy}>
-                {txt.addPlot}
-              </button>
-
-              <button
-                className="pui-hero-btn pui-hero-btn-danger"
-                type="button"
-                onClick={() => deletePlot(selectedPlotId)}
-                disabled={busy || !selectedPlotId || !plots.length || !editMode}
-                title={txt.deletePlotTitle}
-              >
-                🗑️ {txt.deletePlot}
-              </button>
-            </div>
           </div>
 
           <div className="pui-hero-grid">
@@ -1193,33 +960,6 @@ export default function AddPlantingPlotsPage() {
           <div className="pui-empty">{txt.noPlotYet}</div>
         ) : (
           <section className="pui-card">
-            <div className="pui-card-top">
-              <div className="pui-card-title">{txt.plotInfo}</div>
-
-              {!editMode ? (
-                <button
-                  className="pui-pill"
-                  type="button"
-                  onClick={() => {
-                    setErr("");
-                    setEditMode(true);
-                  }}
-                  disabled={busy}
-                >
-                  {txt.editDelete}
-                </button>
-              ) : (
-                <button
-                  className="pui-pill done"
-                  type="button"
-                  onClick={savePlotInfo}
-                  disabled={busy}
-                >
-                  {txt.done}
-                </button>
-              )}
-            </div>
-
             <div className="pui-mapbox pui-mapbox-top">
               <div className="pui-map-title">{txt.drawOnMap}</div>
 
@@ -1303,28 +1043,64 @@ export default function AddPlantingPlotsPage() {
               {!editMode && <div className="pui-lockhint">{txt.lockDraw}</div>}
             </div>
 
-            <div
-              className="pui-notes-add"
-              style={{ marginTop: 0, paddingTop: 0, borderTop: "none" }}
-            >
-              <div className="pui-notes-head">
-                <div className="pui-notes-title">{txt.allCount}</div>
+            <div className="pui-inline-section">
+              <div className="pui-card-top pui-card-top-inline">
+                <div className="pui-card-title">{txt.plotInfo}</div>
 
-                <button
-                  className="pui-danger small"
-                  type="button"
-                  onClick={deleteAllPolygonsOfPlot}
-                  disabled={busy || !selectedPlotId || !editMode || !plotPolygons.length}
-                  title={txt.deleteAllTitle}
-                >
-                  {txt.deleteAll}
-                </button>
+                <div className="pui-action-group">
+                  <button
+                    className="pui-hero-btn"
+                    type="button"
+                    onClick={addPlot}
+                    disabled={busy}
+                  >
+                    {txt.addPlot}
+                  </button>
+
+                  <button
+                    className="pui-hero-btn pui-hero-btn-danger"
+                    type="button"
+                    onClick={() => deletePlot(selectedPlotId)}
+                    disabled={busy || !selectedPlotId || !plots.length || !editMode}
+                    title={txt.deletePlotTitle}
+                  >
+                    🗑️ {txt.deletePlot}
+                  </button>
+
+                  {!editMode ? (
+                    <button
+                      className="pui-pill"
+                      type="button"
+                      onClick={() => {
+                        setErr("");
+                        setEditMode(true);
+                      }}
+                      disabled={busy}
+                    >
+                      {txt.editDelete}
+                    </button>
+                  ) : (
+                    <button
+                      className="pui-pill done"
+                      type="button"
+                      onClick={() => {
+                        setErr("");
+                        setEditMode(false);
+                      }}
+                      disabled={busy}
+                    >
+                      {txt.done}
+                    </button>
+                  )}
+                </div>
               </div>
 
               {!plotPolygons.length ? (
-                <div className="pui-empty">{txt.noPolygon}</div>
+                <div className="pui-empty" style={{ marginBottom: 12 }}>
+                  {txt.noPolygon}
+                </div>
               ) : (
-                <div className="pui-polylist">
+                <div className="pui-polylist" style={{ marginBottom: 12 }}>
                   {plotPolygons.map((p) => (
                     <div className="pui-polyrow" key={p.id}>
                       <span className="pui-polynum"># polygon</span>
@@ -1345,14 +1121,8 @@ export default function AddPlantingPlotsPage() {
                   ))}
                 </div>
               )}
-            </div>
 
-            <div className="pui-formbox">
-              <div className="pui-card-title" style={{ marginBottom: 12 }}>
-                {txt.plotDetail}
-              </div>
-
-              <div className="pui-form-grid">
+              <div className="pui-form-grid pui-form-grid-inline">
                 <div className="pui-field">
                   <div className="pui-label-dark">{txt.plotDropdownName}</div>
                   <input
@@ -1362,18 +1132,6 @@ export default function AddPlantingPlotsPage() {
                     placeholder={txt.displayNamePlaceholder}
                     disabled={busy}
                     readOnly={!editMode}
-                  />
-                </div>
-
-                <div className="pui-field">
-                  <div className="pui-label-dark">{txt.plotDetail}</div>
-                  <input
-                    className="pui-input pui-input-short"
-                    value={plotName}
-                    onChange={(e) => setPlotName(e.target.value)}
-                    placeholder={txt.plotNamePlaceholder}
-                    readOnly={isReadOnly}
-                    disabled={busy}
                   />
                 </div>
 
@@ -1398,112 +1156,21 @@ export default function AddPlantingPlotsPage() {
                     )}
                   </select>
                 </div>
+              </div>
 
-                <div className="pui-field">
-                  <div className="pui-label-dark">{txt.plantType}</div>
-                  <input
-                    className="pui-input pui-input-short"
-                    value={plantType}
-                    onChange={(e) => setPlantType(e.target.value)}
-                    placeholder={txt.plantTypePlaceholder}
-                    readOnly={isReadOnly}
+              {editMode && (
+                <div className="pui-savewrap">
+                  <button
+                    className="pui-save"
+                    type="button"
                     disabled={busy}
-                  />
+                    onClick={savePlotInfo}
+                    title={txt.savePlotTitle}
+                  >
+                    {txt.saveUpper}
+                  </button>
                 </div>
-
-                <div className="pui-field">
-                  <div className="pui-label-dark">{txt.plantedAt}</div>
-                  <input
-                    className="pui-input pui-input-short"
-                    type="date"
-                    value={plantedAt || ""}
-                    onChange={(e) => setPlantedAt(e.target.value)}
-                    readOnly={isReadOnly}
-                    disabled={busy || isReadOnly}
-                  />
-
-                  {plantedAt && (
-                    <div className="pui-datehint">
-                      {txt.dateDisplayPrefix} {isoToThai(plantedAt)}
-                    </div>
-                  )}
-
-                  <div className="pui-after-date-block">
-                    {!extraItems.length ? (
-                      <div className="pui-empty" style={{ marginBottom: 12 }}>
-                        {txt.miniEmpty}
-                      </div>
-                    ) : (
-                      <div className="pui-mini-list" style={{ marginBottom: 12 }}>
-                        {extraItems.map((item) => (
-                          <div key={item.id} className="pui-item-card">
-                            <div className="pui-item-head">
-                              <div className="pui-item-title">{safeText(item.topic, "-")}</div>
-                              <button
-                                className="pui-danger small"
-                                type="button"
-                                onClick={() => deleteExtraItem(item.id)}
-                                disabled={busy || !editMode}
-                              >
-                                {txt.delete}
-                              </button>
-                            </div>
-
-                            <div className="pui-item-content">{safeText(item.content, "-")}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="pui-label-dark">{txt.topic}</div>
-                    <input
-                      className="pui-input"
-                      value={newTopic}
-                      onChange={(e) => setNewTopic(e.target.value)}
-                      placeholder={txt.topicPlaceholder}
-                      readOnly={!editMode}
-                      disabled={busy || !editMode}
-                    />
-
-                    <div className="pui-label-dark" style={{ marginTop: 8 }}>
-                      {txt.content}
-                    </div>
-                    <textarea
-                      className="pui-textarea"
-                      rows={3}
-                      value={newContent}
-                      onChange={(e) => setNewContent(e.target.value)}
-                      placeholder={txt.contentPlaceholder}
-                      readOnly={!editMode}
-                      disabled={busy || !editMode}
-                    />
-
-                    <div className="pui-mini-head" style={{ marginTop: 10 }}>
-                      <button
-                        className="pui-plus"
-                        type="button"
-                        onClick={addExtraItem}
-                        disabled={busy || !editMode}
-                        title={txt.miniAddTitle}
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pui-savewrap">
-                <button
-                  className="pui-save"
-                  type="button"
-                  disabled={!editMode || busy}
-                  onClick={savePlotInfo}
-                  title={txt.savePlotTitle}
-                >
-                  {txt.saveUpper}
-                </button>
-              </div>
+              )}
             </div>
           </section>
         )}
@@ -1638,6 +1305,14 @@ export default function AddPlantingPlotsPage() {
           color: rgba(0, 0, 0, 0.7);
         }
 
+        .pui-action-group {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
         .pui-pill {
           border: none;
           background: rgba(255, 255, 255, 0.75);
@@ -1669,12 +1344,19 @@ export default function AddPlantingPlotsPage() {
           padding-left: 6px;
         }
 
-        .pui-formbox {
-          background: #fff1d8;
-          border-radius: 14px;
-          padding: 12px;
-          border: 1px solid rgba(0, 0, 0, 0.06);
+        .pui-inline-section {
+          margin-top: 12px;
+        }
+
+        .pui-card-top-inline {
           margin-bottom: 12px;
+        }
+
+        .pui-form-grid-inline {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          align-items: end;
         }
 
         .pui-form-grid {
@@ -1964,6 +1646,10 @@ export default function AddPlantingPlotsPage() {
 
         @media (max-width: 860px) {
           .pui-form-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .pui-form-grid-inline {
             grid-template-columns: 1fr;
           }
 

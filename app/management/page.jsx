@@ -414,10 +414,14 @@ function getToken() {
   return "";
 }
 
-const API_BASE =
-  (process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_API_BASE ||
-    "http://localhost:3001/api").replace(/\/$/, "");
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "http://localhost:3001";
+
+const API_BASE = RAW_API_BASE.replace(/\/$/, "").endsWith("/api")
+  ? RAW_API_BASE.replace(/\/$/, "")
+  : `${RAW_API_BASE.replace(/\/$/, "")}/api`;
 
 async function apiFetch(path, { method = "GET", body } = {}) {
   const token = getToken();
@@ -483,10 +487,7 @@ function parseAnyDate(value) {
       } catch {}
     }
 
-    if (
-      Number.isFinite(value._seconds) ||
-      Number.isFinite(value.seconds)
-    ) {
+    if (Number.isFinite(value._seconds) || Number.isFinite(value.seconds)) {
       const seconds = Number(value._seconds ?? value.seconds ?? 0);
       const nanoseconds = Number(value._nanoseconds ?? value.nanoseconds ?? 0);
       const ms = seconds * 1000 + Math.floor(nanoseconds / 1e6);
@@ -536,40 +537,6 @@ function normalizeCoords(coords) {
     .filter(Boolean);
 }
 
-function sensorValueDisplay(sensor) {
-  const candidates = [
-    sensor?.displayValue,
-    sensor?.latestDisplay,
-    sensor?.valueText,
-    sensor?.latestValue,
-    sensor?.currentValue,
-    sensor?.lastReading?.value,
-    sensor?.value,
-    sensor?.reading,
-  ];
-
-  for (const c of candidates) {
-    if (c !== undefined && c !== null && String(c).trim() !== "") {
-      if (typeof c === "object") return JSON.stringify(c);
-      return String(c);
-    }
-  }
-  return "-";
-}
-
-function sensorTimeDisplay(sensor, lang = "th") {
-  return fmtTs(
-    sensor?.lastReadingAt ||
-      sensor?.lastReading?.ts ||
-      sensor?.lastUpdatedAt ||
-      sensor?.updatedAt ||
-      sensor?.measuredAt ||
-      sensor?.timestamp ||
-      sensor?.createdAt,
-    lang
-  );
-}
-
 function normalizeSensorStatus(sensor) {
   return (
     sensor?.status ||
@@ -598,44 +565,47 @@ function sensorBaseId(sensor) {
   );
 }
 
+function pickFirst(...values) {
+  for (const v of values) {
+    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+  }
+  return null;
+}
+
 function extractTempValue(sensor) {
-  const candidates = [
+  return pickFirst(
     sensor?.temperature,
     sensor?.temp,
     sensor?.tempValue,
     sensor?.temperatureValue,
     sensor?.latestTemperature,
     sensor?.value?.temperature,
+    sensor?.value?.temp,
     sensor?.reading?.temperature,
+    sensor?.reading?.temp,
     sensor?.lastReading?.value?.temperature,
-    sensor?.lastReading?.value?.temp,
-  ];
-  for (const c of candidates) {
-    if (c !== undefined && c !== null && String(c).trim() !== "") return c;
-  }
-  return "-";
+    sensor?.lastReading?.value?.temp
+  );
 }
 
 function extractHumidityValue(sensor) {
-  const candidates = [
+  return pickFirst(
     sensor?.humidity,
     sensor?.rh,
     sensor?.humidityValue,
     sensor?.relativeHumidity,
     sensor?.latestHumidity,
     sensor?.value?.humidity,
+    sensor?.value?.rh,
     sensor?.reading?.humidity,
+    sensor?.reading?.rh,
     sensor?.lastReading?.value?.humidity,
-    sensor?.lastReading?.value?.rh,
-  ];
-  for (const c of candidates) {
-    if (c !== undefined && c !== null && String(c).trim() !== "") return c;
-  }
-  return "-";
+    sensor?.lastReading?.value?.rh
+  );
 }
 
 function extractNValue(sensor) {
-  const candidates = [
+  return pickFirst(
     sensor?.n,
     sensor?.N,
     sensor?.nitrogen,
@@ -648,16 +618,12 @@ function extractNValue(sensor) {
     sensor?.reading?.nitrogen,
     sensor?.lastReading?.value?.n,
     sensor?.lastReading?.value?.N,
-    sensor?.latestN,
-  ];
-  for (const c of candidates) {
-    if (c !== undefined && c !== null && String(c).trim() !== "") return c;
-  }
-  return "-";
+    sensor?.latestN
+  );
 }
 
 function extractPValue(sensor) {
-  const candidates = [
+  return pickFirst(
     sensor?.p,
     sensor?.P,
     sensor?.phosphorus,
@@ -670,16 +636,12 @@ function extractPValue(sensor) {
     sensor?.reading?.phosphorus,
     sensor?.lastReading?.value?.p,
     sensor?.lastReading?.value?.P,
-    sensor?.latestP,
-  ];
-  for (const c of candidates) {
-    if (c !== undefined && c !== null && String(c).trim() !== "") return c;
-  }
-  return "-";
+    sensor?.latestP
+  );
 }
 
 function extractKValue(sensor) {
-  const candidates = [
+  return pickFirst(
     sensor?.k,
     sensor?.K,
     sensor?.potassium,
@@ -692,12 +654,63 @@ function extractKValue(sensor) {
     sensor?.reading?.potassium,
     sensor?.lastReading?.value?.k,
     sensor?.lastReading?.value?.K,
-    sensor?.latestK,
-  ];
-  for (const c of candidates) {
-    if (c !== undefined && c !== null && String(c).trim() !== "") return c;
-  }
-  return "-";
+    sensor?.latestK
+  );
+}
+
+function extractScalarSensorValue(sensor) {
+  return pickFirst(
+    sensor?.displayValue,
+    sensor?.latestDisplay,
+    sensor?.valueText,
+    sensor?.latestValue,
+    sensor?.currentValue,
+    sensor?.lastReading?.value,
+    sensor?.value,
+    sensor?.reading
+  );
+}
+
+function sensorUnitByType(sensorType) {
+  const key = String(sensorType || "").toLowerCase();
+
+  if (key === "temp") return "°C";
+  if (key === "humidity") return "%";
+  if (key === "wind_speed" || key === "wind") return "m/s";
+  if (key === "light" || key === "ppfd") return "lux";
+  if (key === "rain") return "mm";
+  if (key === "soil_moisture") return "%";
+  if (key === "water_level" || key === "irrigation") return "kPa";
+  if (key === "n" || key === "npk_n") return "%";
+  if (key === "p" || key === "npk_p") return "ppm";
+  if (key === "k" || key === "npk_k") return "cmol/kg";
+
+  return "";
+}
+
+function sensorDisplayNameByType(sensorType, originalType = "") {
+  const key = String(sensorType || "").toLowerCase();
+  const rawOriginal = String(originalType || "").toLowerCase();
+
+  if (key === "temp") return "Temperature";
+  if (key === "humidity") return "Humidity";
+  if (key === "wind_speed" || key === "wind") return "Wind Speed";
+  if (key === "light" || key === "ppfd") return "Light";
+  if (key === "rain") return "Rainfall";
+  if (key === "soil_moisture") return "Soil Moisture";
+  if (key === "water_level" || key === "irrigation") return "Water Level";
+  if (key === "n" || key === "npk_n") return "Nitrogen (N)";
+  if (key === "p" || key === "npk_p") return "Phosphorus (P)";
+  if (key === "k" || key === "npk_k") return "Potassium (K)";
+  if (rawOriginal === "temp_rh") return "Temperature / Humidity";
+  if (rawOriginal === "npk") return "NPK";
+
+  return String(sensorType || "-");
+}
+
+function formatDisplayValue(value, unit = "") {
+  if (value === null || value === undefined || String(value).trim() === "") return "-";
+  return unit ? `${value} ${unit}` : String(value);
 }
 
 function expandSensorForDisplay(sensor) {
@@ -709,71 +722,150 @@ function expandSensorForDisplay(sensor) {
       ...sensor,
       originalSensorType: sensorType,
       baseId,
+      lastReadingAt:
+        sensor?.lastReadingAt ||
+        sensor?.lastReading?.ts ||
+        sensor?.updatedAt ||
+        null,
     };
 
     return [
       {
         ...base,
         sensorType: "temp",
-        displayName: "Temp",
+        displayName: "Temperature",
         displaySubName: "temperature",
-        displayValue: String(extractTempValue(sensor)),
+        unit: "°C",
+        displayValue: formatDisplayValue(extractTempValue(sensor), "°C"),
+        rawValue: extractTempValue(sensor),
       },
       {
         ...base,
         sensorType: "humidity",
         displayName: "Humidity",
         displaySubName: "humidity",
-        displayValue: String(extractHumidityValue(sensor)),
+        unit: "%",
+        displayValue: formatDisplayValue(extractHumidityValue(sensor), "%"),
+        rawValue: extractHumidityValue(sensor),
       },
     ];
   }
 
   if (sensorType === "npk") {
-    const groupId = `npk-${baseId}`;
+    const groupId = `npk-${sensor?.nodeId || sensor?.nodeUid || baseId}`;
+
     const base = {
       ...sensor,
       originalSensorType: sensorType,
       baseId,
       groupType: "npk",
       groupId,
+      lastReadingAt:
+        sensor?.lastReadingAt ||
+        sensor?.lastReading?.ts ||
+        sensor?.updatedAt ||
+        null,
     };
 
     return [
       {
         ...base,
         sensorType: "npk_n",
-        displayName: "N",
+        displayName: "Nitrogen (N)",
         displaySubName: "nitrogen",
-        displayValue: String(extractNValue(sensor)),
+        unit: "%",
+        displayValue: formatDisplayValue(extractNValue(sensor), "%"),
+        rawValue: extractNValue(sensor),
       },
       {
         ...base,
         sensorType: "npk_p",
-        displayName: "P",
+        displayName: "Phosphorus (P)",
         displaySubName: "phosphorus",
-        displayValue: String(extractPValue(sensor)),
+        unit: "ppm",
+        displayValue: formatDisplayValue(extractPValue(sensor), "ppm"),
+        rawValue: extractPValue(sensor),
       },
       {
         ...base,
         sensorType: "npk_k",
-        displayName: "K",
+        displayName: "Potassium (K)",
         displaySubName: "potassium",
-        displayValue: String(extractKValue(sensor)),
+        unit: "cmol/kg",
+        displayValue: formatDisplayValue(extractKValue(sensor), "cmol/kg"),
+        rawValue: extractKValue(sensor),
       },
     ];
   }
 
+  if (sensorType === "n" || sensorType === "p" || sensorType === "k") {
+    const mappedType =
+      sensorType === "n" ? "npk_n" : sensorType === "p" ? "npk_p" : "npk_k";
+
+    const unit = sensorUnitByType(mappedType);
+    const value = extractScalarSensorValue(sensor);
+    const groupId = `npk-${sensor?.nodeId || sensor?.nodeUid || "unknown-node"}`;
+
+    return [
+      {
+        ...sensor,
+        originalSensorType: sensorType,
+        baseId,
+        groupType: "npk",
+        groupId,
+        sensorType: mappedType,
+        displayName: sensorDisplayNameByType(mappedType, sensorType),
+        displaySubName:
+          mappedType === "npk_n"
+            ? "nitrogen"
+            : mappedType === "npk_p"
+            ? "phosphorus"
+            : "potassium",
+        unit,
+        displayValue: formatDisplayValue(value, unit),
+        rawValue: value,
+        lastReadingAt:
+          sensor?.lastReadingAt ||
+          sensor?.lastReading?.ts ||
+          sensor?.updatedAt ||
+          null,
+      },
+    ];
+  }
+
+  const normalizedType =
+    sensorType === "wind"
+      ? "wind_speed"
+      : sensorType === "ppfd"
+      ? "light"
+      : sensorType === "irrigation"
+      ? "water_level"
+      : sensorType;
+
+  const unit =
+    normalizedType === "water_level"
+      ? "kPa"
+      : String(sensor?.unit || sensorUnitByType(normalizedType));
+
+  const scalarValue = extractScalarSensorValue(sensor);
+
   return [
     {
       ...sensor,
+      sensorType: normalizedType,
+      originalSensorType: sensorType,
       baseId,
       displayName:
-        sensor?.name ||
-        sensor?.sensorName ||
-        String(sensor?.sensorType || "-"),
-      displaySubName: String(sensor?.sensorType || "-"),
-      displayValue: sensorValueDisplay(sensor),
+        sensor?.name || sensorDisplayNameByType(normalizedType, sensorType),
+      displaySubName: String(normalizedType || "-"),
+      unit,
+      displayValue: formatDisplayValue(scalarValue, unit),
+      rawValue: scalarValue,
+      lastReadingAt:
+        sensor?.lastReadingAt ||
+        sensor?.lastReading?.ts ||
+        sensor?.updatedAt ||
+        null,
     },
   ];
 }
@@ -869,7 +961,7 @@ function normalizePlotSummaryItem(p, t) {
 function normalizePlotFull(item, plotId) {
   const polygonObj = item?.polygon || {};
   const pins = Array.isArray(polygonObj?.pins) ? polygonObj.pins : [];
-  const coords = normalizeCoords(polygonObj?.coords || []);
+  const coords = normalizeCoords(polygonObj?.coords || polygonObj?.coordinates || []);
 
   const normalizedPins = pins
     .map((pin, index) => {
@@ -934,7 +1026,7 @@ function matchSelectedSensorType(sensor, selectedSensorType) {
   const originalSensorType = String(sensor?.originalSensorType || "").toLowerCase();
 
   if (selectedSensorType === "npk") {
-    return ["npk", "npk_n", "npk_p", "npk_k"].includes(sensorType) || originalSensorType === "npk";
+    return ["npk", "npk_n", "npk_p", "npk_k", "n", "p", "k"].includes(sensorType) || originalSensorType === "npk";
   }
 
   if (selectedSensorType === "wind") {
@@ -1160,7 +1252,9 @@ export default function ManagementPage() {
           targetPlotIds.map(async (plotId) => {
             const [fullRes, summaryRes] = await Promise.all([
               apiFetch(`/plots/${encodeURIComponent(plotId)}/full`),
-              apiFetch(`/plots/${encodeURIComponent(plotId)}/summary`),
+              apiFetch(`/plots/${encodeURIComponent(plotId)}/summary`).catch(() => ({
+                item: null,
+              })),
             ]);
 
             return {
@@ -1182,16 +1276,32 @@ export default function ManagementPage() {
 
           nextDetails[plotId] = normalized;
 
-          const fallbackSensorCount = normalized.pins.reduce(
-            (sum, pin) => sum + collectSensorsFromPin(pin).length,
+          const fallbackAirCount = normalized.pins.reduce(
+            (sum, pin) => sum + (Array.isArray(pin.node_air) ? pin.node_air.length : 0),
             0
           );
+          const fallbackSoilCount = normalized.pins.reduce(
+            (sum, pin) => sum + (Array.isArray(pin.node_soil) ? pin.node_soil.length : 0),
+            0
+          );
+          const fallbackSensorCount = normalized.pins.reduce((sum, pin) => {
+            const physicalSensorCount =
+              (Array.isArray(pin.node_air) ? pin.node_air : []).reduce(
+                (nSum, node) => nSum + (Array.isArray(node?.sensors) ? node.sensors.length : 0),
+                0
+              ) +
+              (Array.isArray(pin.node_soil) ? pin.node_soil : []).reduce(
+                (nSum, node) => nSum + (Array.isArray(node?.sensors) ? node.sensors.length : 0),
+                0
+              );
+            return sum + physicalSensorCount;
+          }, 0);
 
           nextSummary[plotId] = {
             pinCount: Number(summary?.pinCount ?? normalized.pins.length ?? 0),
             sensorCount: Number(summary?.sensorCount ?? fallbackSensorCount ?? 0),
-            nodeAirCount: Number(summary?.nodeAirCount ?? 0),
-            nodeSoilCount: Number(summary?.nodeSoilCount ?? 0),
+            nodeAirCount: Number(summary?.nodeAirCount ?? fallbackAirCount ?? 0),
+            nodeSoilCount: Number(summary?.nodeSoilCount ?? fallbackSoilCount ?? 0),
           };
         }
 
@@ -1742,7 +1852,7 @@ export default function ManagementPage() {
                                         : "-";
 
                                     const nodeLabel = getNodeLabel(sensor?.nodeType, lang);
-                                    const ts = sensorTimeDisplay(sensor, lang);
+                                    const ts = fmtTs(sensor?.lastReadingAt, lang);
 
                                     return (
                                       <div
@@ -1805,7 +1915,7 @@ export default function ManagementPage() {
                               : "-";
 
                           const nodeLabel = getNodeLabel(sensor?.nodeType, lang);
-                          const ts = sensorTimeDisplay(sensor, lang);
+                          const ts = fmtTs(sensor?.lastReadingAt, lang);
 
                           return (
                             <div
