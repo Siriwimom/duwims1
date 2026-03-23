@@ -5,7 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const LOGIN_PATH = "/login";
-const ADD_NODE_PATH = "/AddSensor"; // <- ถ้าหน้าจริงไม่ใช่ route นี้ ให้เปลี่ยนตรงนี้
+const ADD_NODE_PATH = "/AddSensor";
+const YIELD_PATH = "/management"; // หน้า "ผลผลิต"
 const TOKEN_KEYS = ["AUTH_TOKEN_V1", "token", "pmtool_token", "duwims_token"];
 const LANG_KEY = "duwims_lang";
 
@@ -31,9 +32,9 @@ export const DUWIMS_DICT = {
     history: "ประวัติ",
     heatMap: "Heat Map",
     management: "จัดการ",
-    addPlantingPlots: "จัดการแปลงปลูก",
-    addNode: "เพิ่ม Node",
-    editAndDelete: "การจัดการผลผลิต",
+    plantingPlots: "แปลงปลูก",
+    nodeSensor: "Node Sensor",
+    yield: "ผลผลิต",
     login: "เข้าสู่ระบบ",
     logout: "ออกจากระบบ",
     langBtn: "TH / EN",
@@ -43,9 +44,9 @@ export const DUWIMS_DICT = {
     history: "History",
     heatMap: "Heat Map",
     management: "Management",
-    addPlantingPlots: "Add Planting Plots",
-    addNode: "Add Node",
-    editAndDelete: "Edit / Delete",
+    plantingPlots: "Planting Plots",
+    nodeSensor: "Node Sensor",
+    yield: "Yield",
     login: "Login",
     logout: "Logout",
     langBtn: "TH / EN",
@@ -128,7 +129,7 @@ export default function TopBar() {
     pathname.startsWith("/management") ||
     pathname.startsWith("/addplantingplots") ||
     pathname.startsWith(ADD_NODE_PATH) ||
-    pathname.startsWith("/editanddelete");
+    pathname.startsWith(YIELD_PATH);
 
   const activeTab =
     pathname === "/"
@@ -155,19 +156,11 @@ export default function TopBar() {
   }, []);
 
   useEffect(() => {
-    const onStorage = (e) => {
-      if (TOKEN_KEYS.includes(e.key)) setAuthed(!!getToken());
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  useEffect(() => {
     const calc = () => {
       const w = window.innerWidth;
-      setIsMobile(w < 768);
-      setIsTablet(w >= 768 && w < 1024);
-      if (w >= 768) setMenuOpen(false);
+      setIsMobile(w < 980);
+      setIsTablet(w >= 980 && w < 1180);
+      if (w >= 980) setMenuOpen(false);
     };
 
     calc();
@@ -216,19 +209,19 @@ export default function TopBar() {
   const managementItems = useMemo(
     () => [
       {
-        key: "addplantingplots",
+        key: "plantingplots",
         href: "/addplantingplots",
-        label: t("addPlantingPlots"),
+        label: `🌿 ${t("plantingPlots")}`,
       },
       {
-        key: "addnode",
+        key: "nodesensor",
         href: ADD_NODE_PATH,
-        label: t("addNode"),
+        label: `📡 ${t("nodeSensor")}`,
       },
       {
-        key: "editanddelete",
-        href: "/editanddelete",
-        label: t("editAndDelete"),
+        key: "yield",
+        href: YIELD_PATH,
+        label: `🌾 ${t("yield")}`,
       },
     ],
     [t]
@@ -247,375 +240,186 @@ export default function TopBar() {
     router.push(LOGIN_PATH);
   };
 
-  const navTabStyle = (active) => ({
-    padding: isTablet ? "8px 14px" : "8px 18px",
+  const navBtnStyle = (active) => ({
+    border: 0,
+    outline: "none",
     borderRadius: 999,
-    fontSize: 14,
+    padding: isTablet ? "9px 14px" : "10px 16px",
+    fontSize: 15,
     fontWeight: 700,
     cursor: "pointer",
-    border: "none",
-    background: active ? "#ffffff" : "transparent",
-    color: active ? "#166534" : "rgba(255,255,255,0.96)",
-    boxShadow: active ? "0 6px 14px rgba(0,0,0,0.16)" : "none",
-    transition: "all .18s ease",
+    transition: "0.2s ease",
+    background: active ? "#ffffff" : "rgba(255,255,255,0.18)",
+    color: active ? "#355a96" : "#ffffff",
+    transform: active ? "translateY(-1px)" : "translateY(0px)",
+    boxShadow: active ? "0 8px 20px rgba(17,24,39,0.14)" : "none",
     whiteSpace: "nowrap",
     textDecoration: "none",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 38,
+    minHeight: 40,
     lineHeight: 1,
     fontFamily: "inherit",
   });
 
   const actionBtnStyle = {
+    border: 0,
+    outline: "none",
+    borderRadius: 999,
+    padding: "10px 14px",
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: "pointer",
+    transition: "0.2s ease",
+    background: "rgba(255,255,255,0.18)",
+    color: "#ffffff",
+    minHeight: 40,
+    whiteSpace: "nowrap",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    border: "none",
-    borderRadius: 999,
-    padding: isTablet ? "8px 12px" : "8px 16px",
-    minHeight: 38,
-    fontSize: 13,
-    cursor: "pointer",
-    background: "rgba(255,255,255,0.16)",
-    color: "#ffffff",
-    whiteSpace: "nowrap",
-    userSelect: "none",
     textDecoration: "none",
-    fontWeight: 700,
-    lineHeight: 1,
+    fontFamily: "inherit",
   };
 
   const actionBtnSolidStyle = {
     ...actionBtnStyle,
     background: "#ffffff",
-    color: "#166534",
-    boxShadow: "0 6px 14px rgba(0,0,0,0.18)",
-    fontWeight: 800,
+    color: "#355a96",
+    boxShadow: "0 8px 20px rgba(17,24,39,0.14)",
   };
+
+  const managementItemStyle = (active) => ({
+    display: "flex",
+    alignItems: "center",
+    padding: "11px 12px",
+    borderRadius: 12,
+    background: active ? "#eef4ff" : "#ffffff",
+    color: active ? "#355a96" : "#0f172a",
+    fontWeight: active ? 800 : 700,
+    marginBottom: 6,
+    border: active ? "1px solid #c7d2fe" : "1px solid transparent",
+    boxShadow: active ? "0 6px 14px rgba(103,111,199,0.10)" : "none",
+    transition: "all .18s ease",
+    cursor: "pointer",
+  });
 
   return (
     <header
       style={{
-        width: "100%",
-        background: "#0b8f4a",
-        color: "#ffffff",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 16,
+        padding: isMobile ? "14px 16px" : "14px 22px",
+        background: "linear-gradient(90deg, #40b596 0%, #676fc7 100%)",
+        color: "#fff",
+        boxShadow: "0 8px 24px rgba(64, 181, 150, 0.18)",
         position: "sticky",
         top: 0,
         zIndex: 80,
+        flexWrap: isMobile ? "wrap" : "nowrap",
       }}
     >
       <div
         style={{
-          maxWidth: 1120,
-          margin: "0 auto",
-          padding: isMobile ? "10px 14px" : "10px 24px",
           display: "flex",
           alignItems: "center",
-          gap: 16,
+          gap: 10,
+          fontSize: isMobile ? 22 : 24,
+          fontWeight: 800,
+          letterSpacing: "0.5px",
+          whiteSpace: "nowrap",
+          minWidth: isMobile ? "100%" : "auto",
+          justifyContent: isMobile ? "center" : "flex-start",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 999,
-              background: "#ffffff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 18,
-              color: "#16a34a",
-              flexShrink: 0,
-            }}
-          >
-            🌱
-          </div>
-          <span
-            style={{
-              fontWeight: 700,
-              fontSize: isMobile ? 18 : 20,
-              whiteSpace: "nowrap",
-            }}
-          >
-            DUWIMS
-          </span>
-        </div>
+        <div
+          style={{
+            width: 12,
+            height: 12,
+            borderRadius: 999,
+            background: "#fff",
+            boxShadow: "0 0 0 4px rgba(255,255,255,0.2)",
+            flexShrink: 0,
+          }}
+        />
+        DUWIMS
+      </div>
 
-        {!isMobile ? (
-          <>
-            <nav
-              style={{
-                marginLeft: "auto",
-                display: "flex",
-                gap: isTablet ? 8 : 12,
-                alignItems: "center",
-              }}
+      {!isMobile ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+            flex: 1,
+            marginLeft: 24,
+          }}
+        >
+          {tabs.map((item) => (
+            <Link
+              key={item.key}
+              href={item.href}
+              style={{ textDecoration: "none" }}
             >
-              {tabs.map((item) => (
-                <Link key={item.key} href={item.href} style={{ textDecoration: "none" }}>
-                  <div style={navTabStyle(activeTab === item.key)}>{item.label}</div>
-                </Link>
-              ))}
+              <div style={navBtnStyle(activeTab === item.key)}>{item.label}</div>
+            </Link>
+          ))}
 
-              <div style={{ position: "relative" }} ref={managementRef}>
-                <button
-                  type="button"
-                  onClick={() => setManagementOpen((v) => !v)}
-                  style={{
-                    ...navTabStyle(activeTab === "management" || managementOpen),
-                    gap: 8,
-                    transform: managementOpen ? "translateY(-1px)" : "translateY(0)",
-                    boxShadow: managementOpen
-                      ? "0 8px 18px rgba(0,0,0,0.18)"
-                      : activeTab === "management"
-                      ? "0 6px 14px rgba(0,0,0,0.16)"
-                      : "none",
-                  }}
-                >
-                  <span>{t("management")}</span>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      transition: "transform .18s ease",
-                      transform: managementOpen ? "rotate(180deg)" : "rotate(0deg)",
-                    }}
-                  >
-                    ▾
-                  </span>
-                </button>
-
-                {managementOpen && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "calc(100% + 10px)",
-                      left: 0,
-                      minWidth: 240,
-                      background: "#ffffff",
-                      borderRadius: 16,
-                      boxShadow: "0 18px 40px rgba(0,0,0,0.22)",
-                      padding: 10,
-                      zIndex: 120,
-                    }}
-                  >
-                    {managementItems.map((item) => {
-                      const active =
-                        pathname === item.href || pathname.startsWith(item.href);
-
-                      return (
-                        <Link
-                          key={item.key}
-                          href={item.href}
-                          style={{ textDecoration: "none" }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              padding: "11px 12px",
-                              borderRadius: 12,
-                              background: active ? "#dcfce7" : "#ffffff",
-                              color: active ? "#166534" : "#0f172a",
-                              fontWeight: active ? 900 : 700,
-                              marginBottom: 6,
-                              border: active
-                                ? "1px solid #86efac"
-                                : "1px solid transparent",
-                              boxShadow: active
-                                ? "0 6px 14px rgba(34,197,94,0.14)"
-                                : "none",
-                              transition: "all .18s ease",
-                              cursor: "pointer",
-                            }}
-                            onMouseEnter={(e) => {
-                              if (active) return;
-                              e.currentTarget.style.background = "#f0fdf4";
-                              e.currentTarget.style.color = "#166534";
-                              e.currentTarget.style.transform = "translateX(2px)";
-                            }}
-                            onMouseLeave={(e) => {
-                              if (active) return;
-                              e.currentTarget.style.background = "#ffffff";
-                              e.currentTarget.style.color = "#0f172a";
-                              e.currentTarget.style.transform = "translateX(0px)";
-                            }}
-                          >
-                            {item.label}
-                          </div>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </nav>
-
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <button type="button" onClick={toggleLang} style={actionBtnStyle}>
-                🌐 <span>{t("langBtn")}</span>
-              </button>
-
-              {authed ? (
-                <button type="button" onClick={handleLogout} style={actionBtnSolidStyle}>
-                  🚪 <span>{t("logout")}</span>
-                </button>
-              ) : (
-                <Link href={LOGIN_PATH} style={{ textDecoration: "none" }}>
-                  <div style={actionBtnSolidStyle}>
-                    🔐 <span>{t("login")}</span>
-                  </div>
-                </Link>
-              )}
-            </div>
-          </>
-        ) : (
-          <div style={{ marginLeft: "auto", position: "relative" }} ref={menuRef}>
+          <div style={{ position: "relative" }} ref={managementRef}>
             <button
-              onClick={() => setMenuOpen((v) => !v)}
+              type="button"
+              onClick={() => setManagementOpen((v) => !v)}
               style={{
-                border: "none",
-                background: "rgba(255,255,255,0.16)",
-                color: "#fff",
-                borderRadius: 12,
-                padding: "8px 10px",
-                cursor: "pointer",
-                fontSize: 16,
-                fontWeight: 700,
+                ...navBtnStyle(activeTab === "management" || managementOpen),
+                gap: 8,
               }}
             >
-              {menuOpen ? "✖" : "☰"}
+              {t("management")} ▾
             </button>
 
-            {menuOpen && (
+            {managementOpen && (
               <div
                 style={{
                   position: "absolute",
-                  right: 0,
                   top: "calc(100% + 10px)",
-                  width: 280,
+                  left: 0,
+                  minWidth: 230,
                   background: "#ffffff",
                   borderRadius: 16,
                   boxShadow: "0 18px 40px rgba(0,0,0,0.22)",
                   padding: 10,
+                  zIndex: 120,
                 }}
               >
-                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                  <button
-                    type="button"
-                    onClick={toggleLang}
-                    style={{
-                      flex: 1,
-                      border: "1px solid rgba(15,23,42,0.12)",
-                      background: "#f8fafc",
-                      borderRadius: 12,
-                      padding: "10px 12px",
-                      cursor: "pointer",
-                      fontWeight: 800,
-                      color: "#0f172a",
-                    }}
-                  >
-                    🌐 {t("langBtn")}
-                  </button>
-
-                  {authed ? (
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      style={{
-                        flex: 1,
-                        border: "none",
-                        background: "#0f172a",
-                        color: "#fff",
-                        borderRadius: 12,
-                        padding: "10px 12px",
-                        cursor: "pointer",
-                        fontWeight: 900,
-                      }}
-                    >
-                      🚪 {t("logout")}
-                    </button>
-                  ) : (
-                    <Link href={LOGIN_PATH} style={{ flex: 1, textDecoration: "none" }}>
-                      <div
-                        style={{
-                          textAlign: "center",
-                          border: "none",
-                          background: "#0f172a",
-                          color: "#fff",
-                          borderRadius: 12,
-                          padding: "10px 12px",
-                          cursor: "pointer",
-                          fontWeight: 900,
-                        }}
-                      >
-                        🔐 {t("login")}
-                      </div>
-                    </Link>
-                  )}
-                </div>
-
-                {tabs.map((item) => {
-                  const active = activeTab === item.key;
-                  return (
-                    <Link key={item.key} href={item.href} style={{ textDecoration: "none" }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          padding: "10px 12px",
-                          borderRadius: 12,
-                          background: active ? "#eefbf3" : "#fff",
-                          color: active ? "#166534" : "#0f172a",
-                          fontWeight: active ? 900 : 700,
-                          marginBottom: 6,
-                        }}
-                      >
-                        {item.label}
-                      </div>
-                    </Link>
-                  );
-                })}
-
-                <div
-                  style={{
-                    marginTop: 8,
-                    marginBottom: 6,
-                    padding: "8px 10px",
-                    fontSize: 12,
-                    fontWeight: 800,
-                    color: "#166534",
-                  }}
-                >
-                  {t("management")}
-                </div>
-
                 {managementItems.map((item) => {
                   const active =
                     pathname === item.href || pathname.startsWith(item.href);
 
                   return (
-                    <Link key={item.key} href={item.href} style={{ textDecoration: "none" }}>
+                    <Link
+                      key={item.key}
+                      href={item.href}
+                      style={{ textDecoration: "none" }}
+                    >
                       <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          padding: "11px 12px",
-                          borderRadius: 12,
-                          background: active ? "#dcfce7" : "#fff",
-                          color: active ? "#166534" : "#0f172a",
-                          fontWeight: active ? 900 : 700,
-                          marginBottom: 6,
-                          border: active
-                            ? "1px solid #86efac"
-                            : "1px solid transparent",
-                          boxShadow: active
-                            ? "0 6px 14px rgba(34,197,94,0.12)"
-                            : "none",
-                          transition: "all .18s ease",
+                        style={managementItemStyle(active)}
+                        onMouseEnter={(e) => {
+                          if (active) return;
+                          e.currentTarget.style.background = "#f8fbff";
+                          e.currentTarget.style.color = "#355a96";
+                          e.currentTarget.style.transform = "translateX(2px)";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (active) return;
+                          e.currentTarget.style.background = "#ffffff";
+                          e.currentTarget.style.color = "#0f172a";
+                          e.currentTarget.style.transform = "translateX(0px)";
                         }}
                       >
                         {item.label}
@@ -626,8 +430,127 @@ export default function TopBar() {
               </div>
             )}
           </div>
-        )}
-      </div>
+
+          <button type="button" onClick={toggleLang} style={actionBtnStyle}>
+            🌐 {t("langBtn")}
+          </button>
+
+          {authed ? (
+            <button
+              type="button"
+              onClick={handleLogout}
+              style={actionBtnSolidStyle}
+            >
+              🚪 {t("logout")}
+            </button>
+          ) : (
+            <Link href={LOGIN_PATH} style={{ textDecoration: "none" }}>
+              <div style={actionBtnSolidStyle}>🔐 {t("login")}</div>
+            </Link>
+          )}
+        </div>
+      ) : (
+        <div
+          style={{
+            width: "100%",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            alignItems: "stretch",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              flexWrap: "wrap",
+              gap: 10,
+            }}
+          >
+            {tabs.map((item) => (
+              <Link
+                key={item.key}
+                href={item.href}
+                style={{ textDecoration: "none" }}
+              >
+                <div style={navBtnStyle(activeTab === item.key)}>{item.label}</div>
+              </Link>
+            ))}
+
+            <div style={{ position: "relative" }} ref={managementRef}>
+              <button
+                type="button"
+                onClick={() => setManagementOpen((v) => !v)}
+                style={{
+                  ...navBtnStyle(activeTab === "management" || managementOpen),
+                  gap: 8,
+                }}
+              >
+                {t("management")} ▾
+              </button>
+
+              {managementOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 10px)",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    minWidth: 230,
+                    background: "#ffffff",
+                    borderRadius: 16,
+                    boxShadow: "0 18px 40px rgba(0,0,0,0.22)",
+                    padding: 10,
+                    zIndex: 120,
+                  }}
+                >
+                  {managementItems.map((item) => {
+                    const active =
+                      pathname === item.href || pathname.startsWith(item.href);
+
+                    return (
+                      <Link
+                        key={item.key}
+                        href={item.href}
+                        style={{ textDecoration: "none" }}
+                      >
+                        <div style={managementItemStyle(active)}>{item.label}</div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <button type="button" onClick={toggleLang} style={actionBtnStyle}>
+              🌐 {t("langBtn")}
+            </button>
+
+            {authed ? (
+              <button
+                type="button"
+                onClick={handleLogout}
+                style={actionBtnSolidStyle}
+              >
+                🚪 {t("logout")}
+              </button>
+            ) : (
+              <Link href={LOGIN_PATH} style={{ textDecoration: "none" }}>
+                <div style={actionBtnSolidStyle}>🔐 {t("login")}</div>
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
     </header>
   );
 }

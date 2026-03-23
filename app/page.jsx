@@ -628,8 +628,8 @@ const METRIC_RULES = {
     labelEn: "Humidity",
   },
   wind_speed: {
-    idealMin: 1,
-    idealMax: 6,
+    idealMin: 0.56,
+    idealMax: 1.39,
     unit: "m/s",
     labelTh: "ความเร็วลม",
     labelEn: "Wind Speed",
@@ -679,16 +679,37 @@ const METRIC_RULES = {
 };
 
 function formatThresholdHint(rule) {
-  if (!rule) return { minText: "", maxText: "" };
+  if (!rule) return { minText: "", maxText: "", suitableText: "" };
 
   const hasMin = rule.idealMin !== null && rule.idealMin !== undefined;
   const hasMax = rule.idealMax !== null && rule.idealMax !== undefined;
   const unit = rule.unit ? ` ${rule.unit}` : "";
 
-  return {
-    minText: hasMin ? `min : ${rule.idealMin}${unit}` : "",
-    maxText: hasMax ? `max : ${rule.idealMax}${unit}` : "",
-  };
+  if (hasMin && hasMax) {
+    return {
+      minText: `MIN : < ${rule.idealMin}${unit}`,
+      maxText: `MAX : ${rule.idealMin} - ${rule.idealMax}${unit}`,
+      suitableText: "",
+    };
+  }
+
+  if (hasMin) {
+    return {
+      minText: `MIN : < ${rule.idealMin}${unit}`,
+      maxText: "",
+      suitableText: "",
+    };
+  }
+
+  if (hasMax) {
+    return {
+      minText: "",
+      maxText: `MAX : ${rule.idealMax}${unit}`,
+      suitableText: "",
+    };
+  }
+
+  return { minText: "", maxText: "", suitableText: "" };
 }
 
 function normalizeUnit(unit) {
@@ -1241,6 +1262,7 @@ function buildGroupsFromSensors(
           abnormalReason: "",
           minText: "",
           maxText: "",
+          suitableText: "",
           currentValueNumber: null,
           currentValueUnit: "",
           metric: null,
@@ -1289,16 +1311,17 @@ function buildGroupsFromSensors(
             lang
           );
           const thresholdTemp = evalTemp.rule
-            ? formatThresholdHint(evalTemp.rule)
-            : { minText: "", maxText: "" };
+            ? formatThresholdHint(evalTemp.rule, lang)
+            : { minText: "", maxText: "", suitableText: "" };
 
           groups.get("temperature").items.push({
             name: lang === "en" ? "Temperature" : "อุณหภูมิ",
-            value: `${lang === "en" ? "Value" : "ค่า"}: ${temp} °C`,
+            value: `Value  :  ${temp} °C`,
             isAlert: !!evalTemp.abnormal,
             abnormalReason: evalTemp.abnormal ? evalTemp.reason : "",
             minText: thresholdTemp.minText,
             maxText: thresholdTemp.maxText,
+            suitableText: thresholdTemp.suitableText,
             currentValueNumber: Number(temp),
             currentValueUnit: "°C",
             metric: "temperature",
@@ -1307,7 +1330,7 @@ function buildGroupsFromSensors(
         } else {
           groups.get("temperature").items.push({
             name: lang === "en" ? "Temperature" : "อุณหภูมิ",
-            value: `${lang === "en" ? "Value" : "ค่า"}: -`,
+            value: `Value  :  -`,
             isAlert: false,
             abnormalReason: "",
             minText: "",
@@ -1327,16 +1350,17 @@ function buildGroupsFromSensors(
             lang
           );
           const thresholdHumidity = evalHumidity.rule
-            ? formatThresholdHint(evalHumidity.rule)
-            : { minText: "", maxText: "" };
+            ? formatThresholdHint(evalHumidity.rule, lang)
+            : { minText: "", maxText: "", suitableText: "" };
 
           groups.get("humidity").items.push({
             name: lang === "en" ? "Humidity" : "ความชื้น",
-            value: `${lang === "en" ? "Value" : "ค่า"}: ${humidity} %`,
+            value: `Value  :  ${humidity} %`,
             isAlert: !!evalHumidity.abnormal,
             abnormalReason: evalHumidity.abnormal ? evalHumidity.reason : "",
             minText: thresholdHumidity.minText,
             maxText: thresholdHumidity.maxText,
+            suitableText: thresholdHumidity.suitableText,
             currentValueNumber: Number(humidity),
             currentValueUnit: "%",
             metric: "humidity",
@@ -1345,7 +1369,7 @@ function buildGroupsFromSensors(
         } else {
           groups.get("humidity").items.push({
             name: lang === "en" ? "Humidity" : "ความชื้น",
-            value: `${lang === "en" ? "Value" : "ค่า"}: -`,
+            value: `Value  :  -`,
             isAlert: false,
             abnormalReason: "",
             minText: "",
@@ -1359,11 +1383,12 @@ function buildGroupsFromSensors(
       } else {
         groups.get("temperature").items.push({
           name: lang === "en" ? "Temperature" : "อุณหภูมิ",
-          value: `${lang === "en" ? "Value" : "ค่า"}: -`,
+          value: `Value  :  -`,
           isAlert: false,
           abnormalReason: "",
           minText: "",
           maxText: "",
+          suitableText: "",
           currentValueNumber: null,
           currentValueUnit: "°C",
           metric: "temperature",
@@ -1372,11 +1397,12 @@ function buildGroupsFromSensors(
 
         groups.get("humidity").items.push({
           name: lang === "en" ? "Humidity" : "ความชื้น",
-          value: `${lang === "en" ? "Value" : "ค่า"}: -`,
+          value: `Value  :  -`,
           isAlert: false,
           abnormalReason: "",
           minText: "",
           maxText: "",
+          suitableText: "",
           currentValueNumber: null,
           currentValueUnit: "%",
           metric: "humidity",
@@ -1393,7 +1419,7 @@ function buildGroupsFromSensors(
           lang === "en"
             ? "NPK Concentration (N,P,K)"
             : "ความเข้มข้นธาตุอาหาร (N,P,K)",
-        value: `${lang === "en" ? "Value" : "ค่า"}: ${
+        value: `Value  :  ${
           reading ? formatMixedValue(reading.value, st.unit || "mg/kg", lang) : "-"
         }`,
         isAlert: false,
@@ -1425,22 +1451,23 @@ function buildGroupsFromSensors(
             : null;
 
         const thresholdN = evalN?.rule
-          ? formatThresholdHint(evalN.rule)
-          : { minText: "", maxText: "" };
+          ? formatThresholdHint(evalN.rule, lang)
+          : { minText: "", maxText: "", suitableText: "" };
         const thresholdP = evalP?.rule
-          ? formatThresholdHint(evalP.rule)
-          : { minText: "", maxText: "" };
+          ? formatThresholdHint(evalP.rule, lang)
+          : { minText: "", maxText: "", suitableText: "" };
         const thresholdK = evalK?.rule
-          ? formatThresholdHint(evalK.rule)
-          : { minText: "", maxText: "" };
+          ? formatThresholdHint(evalK.rule, lang)
+          : { minText: "", maxText: "", suitableText: "" };
 
         groups.get("nitrogen").items.push({
           name: "N",
-          value: `${lang === "en" ? "Value" : "ค่า"}: ${n ?? "-"}`,
+          value: `Value  :  ${n ?? "-"}`,
           isAlert: !!evalN?.abnormal,
           abnormalReason: evalN?.abnormal ? evalN.reason : "",
           minText: thresholdN.minText,
           maxText: thresholdN.maxText,
+          suitableText: thresholdN.suitableText,
           currentValueNumber: Number.isFinite(Number(n)) ? Number(n) : null,
           currentValueUnit: "%",
           metric: "nitrogen",
@@ -1449,11 +1476,12 @@ function buildGroupsFromSensors(
 
         groups.get("phosphorus").items.push({
           name: "P",
-          value: `${lang === "en" ? "Value" : "ค่า"}: ${p ?? "-"}`,
+          value: `Value  :  ${p ?? "-"}`,
           isAlert: !!evalP?.abnormal,
           abnormalReason: evalP?.abnormal ? evalP.reason : "",
           minText: thresholdP.minText,
           maxText: thresholdP.maxText,
+          suitableText: thresholdP.suitableText,
           currentValueNumber: Number.isFinite(Number(p)) ? Number(p) : null,
           currentValueUnit: "ppm",
           metric: "phosphorus",
@@ -1462,11 +1490,12 @@ function buildGroupsFromSensors(
 
         groups.get("potassium").items.push({
           name: "K",
-          value: `${lang === "en" ? "Value" : "ค่า"}: ${k ?? "-"}`,
+          value: `Value  :  ${k ?? "-"}`,
           isAlert: !!evalK?.abnormal,
           abnormalReason: evalK?.abnormal ? evalK.reason : "",
           minText: thresholdK.minText,
           maxText: thresholdK.maxText,
+          suitableText: thresholdK.suitableText,
           currentValueNumber: Number.isFinite(Number(k)) ? Number(k) : null,
           currentValueUnit: "cmol/kg",
           metric: "potassium",
@@ -1475,11 +1504,12 @@ function buildGroupsFromSensors(
       } else {
         groups.get("nitrogen").items.push({
           name: "N",
-          value: `${lang === "en" ? "Value" : "ค่า"}: -`,
+          value: `Value  :  -`,
           isAlert: false,
           abnormalReason: "",
           minText: "",
           maxText: "",
+          suitableText: "",
           currentValueNumber: null,
           currentValueUnit: "%",
           metric: "nitrogen",
@@ -1488,11 +1518,12 @@ function buildGroupsFromSensors(
 
         groups.get("phosphorus").items.push({
           name: "P",
-          value: `${lang === "en" ? "Value" : "ค่า"}: -`,
+          value: `Value  :  -`,
           isAlert: false,
           abnormalReason: "",
           minText: "",
           maxText: "",
+          suitableText: "",
           currentValueNumber: null,
           currentValueUnit: "ppm",
           metric: "phosphorus",
@@ -1501,11 +1532,12 @@ function buildGroupsFromSensors(
 
         groups.get("potassium").items.push({
           name: "K",
-          value: `${lang === "en" ? "Value" : "ค่า"}: -`,
+          value: `Value  :  -`,
           isAlert: false,
           abnormalReason: "",
           minText: "",
           maxText: "",
+          suitableText: "",
           currentValueNumber: null,
           currentValueUnit: "cmol/kg",
           metric: "potassium",
@@ -1569,18 +1601,19 @@ function buildGroupsFromSensors(
         };
 
     const thresholdInfo = evalResult.rule
-      ? formatThresholdHint(evalResult.rule)
-      : { minText: "", maxText: "" };
+      ? formatThresholdHint(evalResult.rule, lang)
+      : { minText: "", maxText: "", suitableText: "" };
 
     groups.get(conf.groupKey).items.push({
       name: lang === "en" ? conf.labelEn : conf.labelTh,
-      value: `${lang === "en" ? "Value" : "ค่า"}: ${
+      value: `Value  :  ${
         rawVal === null || rawVal === undefined ? "-" : `${rawVal} ${unit}`.trim()
       }`,
       isAlert: !!evalResult.abnormal,
       abnormalReason: evalResult.abnormal ? evalResult.reason : "",
       minText: thresholdInfo.minText,
       maxText: thresholdInfo.maxText,
+      suitableText: thresholdInfo.suitableText,
       currentValueNumber:
         rawVal === null || rawVal === undefined || rawVal === ""
           ? null
@@ -2599,44 +2632,6 @@ export default function DashboardAllPlotsPage() {
                     </div>
                   )}
 
-                  <div style={pinPillRow}>
-                    <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>
-                        {lang === "en" ? "Plant Type" : "ประเภทพืช"}
-                      </div>
-                      <div style={pinInfoValue}>{plotMeta.plantType || "—"}</div>
-                    </div>
-
-                    <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>
-                        {lang === "en" ? "Planting Date" : "วันที่เริ่มปลูก"}
-                      </div>
-                      <div style={pinInfoValue}>
-                        {formatDateByLang(plotMeta.plantedAt, lang)}
-                      </div>
-                    </div>
-
-                    <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>
-                        {lang === "en" ? "Sensor Types" : "จำนวนเซนเซอร์"}
-                      </div>
-                      <div style={pinInfoValue}>
-                        {lang === "en"
-                          ? `${sensorGroupCount || 0} groups`
-                          : `${sensorGroupCount || 0} กลุ่ม`}
-                      </div>
-                    </div>
-
-                    <div style={pinInfoPill}>
-                      <div style={pinInfoLabel}>
-                        {lang === "en" ? "Caretaker" : "ผู้ดูแล"}
-                      </div>
-                      <div style={pinInfoValue}>
-                        {plotMeta.caretakerName || "—"}
-                      </div>
-                    </div>
-                  </div>
-
                   <div style={{ flex: 1, overflow: "auto" }}>
                     {groups.map((g) => (
                       <div key={`${pinId}-${g.groupKey}`} style={pinGroupContainer}>
@@ -2653,7 +2648,7 @@ export default function DashboardAllPlotsPage() {
                               border: isAlertItem
                                 ? "1px solid #ef4444"
                                 : "1px solid #22c55e",
-                              minHeight: 110,
+                              minHeight: 96,
                               height: "100%",
                               display: "flex",
                               flexDirection: "column",
@@ -2698,44 +2693,17 @@ export default function DashboardAllPlotsPage() {
                                     {it.abnormalReason}
                                   </div>
                                 )}
-
-                                {!!it.minText && (
-                                  <div
-                                    style={{
-                                      marginTop: 3,
-                                      fontSize: 10,
-                                      color: isAlertItem ? "#7f1d1d" : "#166534",
-                                      lineHeight: 1.35,
-                                    }}
-                                  >
-                                    {it.minText}
-                                  </div>
-                                )}
-
-                                {!!it.maxText && (
-                                  <div
-                                    style={{
-                                      marginTop: 2,
-                                      fontSize: 10,
-                                      color: isAlertItem ? "#7f1d1d" : "#166534",
-                                      lineHeight: 1.35,
-                                    }}
-                                  >
-                                    {it.maxText}
-                                  </div>
-                                )}
-
-                                {!!it.updatedAt && (
+                                {!!it.suitableText && (
                                   <div
                                     style={{
                                       marginTop: 4,
-                                      fontSize: 10,
-                                      color: "#6b7280",
-                                      lineHeight: 1.35,
+                                      fontSize: 11,
+                                      color: isAlertItem ? "#7f1d1d" : "#166534",
+                                      lineHeight: 1.4,
+                                      fontWeight: 600,
                                     }}
                                   >
-                                    {lang === "en" ? "Updated:" : "อัปเดต:"}{" "}
-                                    {prettyTs(it.updatedAt, lang)}
+                                    {it.suitableText}
                                   </div>
                                 )}
                               </div>
